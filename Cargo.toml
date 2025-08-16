@@ -1,0 +1,18 @@
+[package]
+name = "ball_matcher"
+version = "0.1.0"
+edition = "2021"
+authors = ["Adam <you@example.com>"]
+
+[dependencies]
+bevy = "0.16" # remove dynamic_linking on Windows to prevent LNK1189 object limit
+rand = "0.8"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
+opt-level = "z"

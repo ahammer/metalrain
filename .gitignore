@@ -1,0 +1,38 @@
+# ---- Rust / Cargo ----
+/target/
+# Build script outputs
+**/*.rlib
+**/*.rmeta
+
+# Incremental compilation
+**/incremental/
+
+# ---- Platform / Tooling ----
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# ---- Logs / Temp ----
+*.log
+logs/
+.tmp/
+
+# ---- Bevy specific (optional caches) ----
+# WGPU shader caches (can be regenerated)
+# Comment out if you want to keep them
+*.spv
+
+# ---- Misc ----
+# Backup files
+*~
+*.swp
+
+# Leave Cargo.lock for binaries (keep) - do NOT ignore
+# If this were a library crate you could ignore it.
