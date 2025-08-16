@@ -98,6 +98,10 @@ mod tests {
         app.add_event::<CollisionEvent>();
         app.add_systems(Update, contact_separation);
         app.insert_resource(GameConfig {
+            draw_circles: false,
+            rapier_debug: false,
+            metaballs_enabled: true,
+            draw_cluster_bounds: false,
             window: crate::config::WindowConfig { width: 800.0, height: 600.0, title: "T".into() },
             gravity: crate::config::GravityConfig { y: -9.8 },
             bounce: crate::config::BounceConfig { restitution: 0.5 },
