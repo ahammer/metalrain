@@ -1,0 +1,76 @@
+name: Deploy WASM (GitHub Pages)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: '-C target-feature=+simd128 --cfg=getrandom_backend="wasm_js"'
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable + wasm target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build (wasm release)
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --locked
+
+      - name: Generate wasm-bindgen JS glue
+        run: |
+          rm -rf web/ball_matcher.js web/ball_matcher_bg.wasm
+          wasm-bindgen target/wasm32-unknown-unknown/release/ball_matcher.wasm \
+            --out-dir web --target web --no-typescript
+
+      - name: Optimize wasm (binaryen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+          wasm-opt -Oz web/ball_matcher_bg.wasm -o web/ball_matcher_bg.wasm
+        continue-on-error: true
+
+      - name: Copy assets
+        run: |
+          rsync -a assets/ web/assets/
+
+      - name: Create .nojekyll
+        run: touch web/.nojekyll
+
+      - name: Add redirect (root -> index.html) (optional)
+        run: echo "" > web/404.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web
+          force_orphan: true
+          commit_message: "Deploy WASM build: ${{ github.sha }}"
+
+    outputs:
+      deployed: true
