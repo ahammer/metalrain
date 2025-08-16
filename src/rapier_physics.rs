@@ -15,7 +15,7 @@ impl Plugin for PhysicsSetupPlugin {
             RapierDebugRenderPlugin::default(),
         ))
         .add_systems(Startup, (configure_gravity, spawn_walls))
-        .add_systems(Update, resize_walls);
+    .add_systems(Update, resize_walls);
     }
 }
 

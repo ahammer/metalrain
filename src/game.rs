@@ -4,13 +4,22 @@ use crate::camera::CameraPlugin;
 use crate::emitter::BallEmitterPlugin;
 use crate::rapier_physics::PhysicsSetupPlugin;
 use crate::separation::SeparationPlugin;
+use crate::system_order::{PrePhysicsSet, PostPhysicsAdjustSet};
+use crate::materials::MaterialsPlugin;
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
+        app
+            // Register custom system sets (order constraints added later as needed)
+            .configure_sets(Update, (
+                PrePhysicsSet,
+                PostPhysicsAdjustSet.after(PrePhysicsSet),
+            ))
+            .add_plugins((
             CameraPlugin,
+            MaterialsPlugin,
             PhysicsSetupPlugin,
             BallEmitterPlugin,
             SeparationPlugin,

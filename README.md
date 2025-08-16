@@ -7,6 +7,7 @@ Modular Bevy playground (Bevy 0.14 / Rapier 2D) showcasing a clean, extensible p
 	- `camera`: 2D camera setup
 	- `spawn`: initial batch spawning
 	- `emitter`: timed continual spawning until coverage threshold
+	- `materials`: defines a 6-color palette + simple physics restitution variants
 	- `rapier_physics`: Rapier integration + dynamic arena walls + gravity
 	- `separation`: optional contact-based positional correction & velocity damping
 - External RON config (`assets/config/game.ron`) for window, gravity, bounce, spawn, and separation tuning
@@ -64,9 +65,15 @@ assets/config/game.ron  # Runtime configuration
 - `Ball` – tag component (parent entity).
 - `BallRadius(f32)` – logical & collider radius (mesh scaled to diameter). 
 
-### System Flow
+### System Flow / Ordering
+Custom system sets make ordering explicit:
+```
+PrePhysicsSet        # (future) manual forces / tweaks before Rapier step
+Rapier (plugin)      # physics integration
+PostPhysicsAdjustSet # separation corrections after contact events
+```
 1. Startup: `camera` spawns camera; `spawn` creates initial batch; `rapier_physics` sets gravity & arena walls.
-2. Update: Rapier steps; `emitter` periodically adds balls (until coverage cap); `separation` post-processes contact starts; resize system rebuilds walls on window events.
+2. Update: Rapier advances the world; `emitter` periodically adds balls (until coverage cap); `separation` (in `PostPhysicsAdjustSet`) applies gentle overlap correction; resize system rebuilds walls on window events.
 
 ## Coordinate System
 (0,0) is window center. Bounds recomputed every frame from the primary window (so resize works).
@@ -96,6 +103,7 @@ cargo run --release
 ```
 
 ## Possible Extensions / Next Steps
+- Palette: adjust colors or physics restitution by editing `materials.rs` (extend to load from RON/asset in future)
 - Configure Rapier integration parameters (substeps, CCD) for high-speed stability
 - Add per-ball mass / density variations
 - Introduce game states / scenes (loading screen, menu, simulation)

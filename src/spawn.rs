@@ -3,6 +3,7 @@ use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
 use crate::components::{Ball, BallRadius};
+use crate::materials::{BallDisplayMaterials, BallPhysicsMaterials, BallMaterialIndex};
 use crate::config::GameConfig;
 
 pub struct BallSpawnPlugin;
@@ -21,6 +22,8 @@ fn spawn_balls(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     cfg: Res<GameConfig>,
+    display_palette: Option<Res<BallDisplayMaterials>>,
+    physics_palette: Option<Res<BallPhysicsMaterials>>,
 ) {
     // Create shared unit circle mesh once (radius 0.5 so scale = diameter)
     let circle_handle = meshes.add(Mesh::from(Circle { radius: 0.5 }));
@@ -36,12 +39,19 @@ fn spawn_balls(
             rng.gen_range(c.vel_x_range.min..c.vel_x_range.max),
             rng.gen_range(c.vel_y_range.min..c.vel_y_range.max),
         );
-        let color = Color::srgb(
-            rng.gen::<f32>() * 0.9 + 0.1,
-            rng.gen::<f32>() * 0.9 + 0.1,
-            rng.gen::<f32>() * 0.9 + 0.1,
-        );
-        let material = materials.add(color);
+        // Choose material variant index
+        let variant_idx = if let Some(p) = &display_palette { rng.gen_range(0..p.0.len()) } else { 0 };
+        let (material, restitution) = if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) {
+            (disp.0[variant_idx].clone(), phys.0[variant_idx].restitution)
+        } else {
+            // Fallback to random color if palettes missing (should not happen after MaterialsPlugin loads)
+            let color = Color::srgb(
+                rng.gen::<f32>() * 0.9 + 0.1,
+                rng.gen::<f32>() * 0.9 + 0.1,
+                rng.gen::<f32>() * 0.9 + 0.1,
+            );
+            (materials.add(color), cfg.bounce.restitution)
+        };
         spawn_ball_entity(
             &mut commands,
             &circle_handle,
@@ -49,7 +59,8 @@ fn spawn_balls(
             vel,
             radius,
             material,
-            cfg.bounce.restitution,
+            restitution,
+            variant_idx,
         );
     }
 }
@@ -64,6 +75,7 @@ pub fn spawn_ball_entity(
     radius: f32,
     material: Handle<ColorMaterial>,
     restitution: f32,
+    variant_idx: usize,
 ) {
     commands
         .spawn((
@@ -78,6 +90,7 @@ pub fn spawn_ball_entity(
             ActiveEvents::COLLISION_EVENTS,
             Ball,
             BallRadius(radius),
+            BallMaterialIndex(variant_idx),
         ))
         .with_children(|parent| {
             parent.spawn(bevy::sprite::MaterialMesh2dBundle {

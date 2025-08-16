@@ -4,6 +4,7 @@ use rand::Rng;
 use crate::components::{Ball, BallRadius};
 use crate::config::GameConfig;
 use crate::spawn::{spawn_ball_entity, CircleMesh};
+use crate::materials::{BallDisplayMaterials, BallPhysicsMaterials};
 
 pub struct BallEmitterPlugin;
 
@@ -21,6 +22,7 @@ struct EmitterTimer(Timer);
 #[derive(Resource)]
 struct EmitterControl { enabled: bool }
 
+#[allow(clippy::too_many_arguments)] // Clear mapping to distinct engine resources; refactoring would reduce readability here.
 fn emit_balls(
     mut commands: Commands,
     time: Res<Time>,
@@ -32,6 +34,8 @@ fn emit_balls(
     windows: Query<&Window>,
     q_balls: Query<&BallRadius, With<Ball>>,
     mut control: ResMut<EmitterControl>,
+    display_palette: Option<Res<BallDisplayMaterials>>,
+    physics_palette: Option<Res<BallPhysicsMaterials>>,
 ) {
     if !control.enabled { return; }
     let Ok(window) = windows.get_single() else { return; };
@@ -66,12 +70,17 @@ fn emit_balls(
     let horizontal = rng.gen_range(-25.0..25.0);
     let vertical = rng.gen_range(-60.0..-20.0); // negative -> downward
     let vel = Vec2::new(horizontal, vertical);
-    let color = Color::srgb(
-        rng.gen::<f32>() * 0.9 + 0.1,
-        rng.gen::<f32>() * 0.9 + 0.1,
-        rng.gen::<f32>() * 0.9 + 0.1,
-    );
-    let material = materials.add(color);
+    let variant_idx = if let Some(p) = &display_palette { rng.gen_range(0..p.0.len()) } else { 0 };
+    let (material, restitution) = if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) {
+        (disp.0[variant_idx].clone(), phys.0[variant_idx].restitution)
+    } else {
+        let color = Color::srgb(
+            rng.gen::<f32>() * 0.9 + 0.1,
+            rng.gen::<f32>() * 0.9 + 0.1,
+            rng.gen::<f32>() * 0.9 + 0.1,
+        );
+        (materials.add(color), cfg.bounce.restitution)
+    };
 
     spawn_ball_entity(
         &mut commands,
@@ -80,6 +89,7 @@ fn emit_balls(
         vel,
         radius,
         material,
-        cfg.bounce.restitution,
+        restitution,
+        variant_idx,
     );
 }

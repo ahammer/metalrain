@@ -8,6 +8,8 @@ mod camera;
 mod game;
 mod emitter;
 mod separation;
+mod system_order;
+mod materials;
 
 use config::GameConfig;
 use game::GamePlugin;
