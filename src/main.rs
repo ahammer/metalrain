@@ -7,6 +7,7 @@ mod spawn;
 mod camera;
 mod game;
 mod emitter;
+mod separation;
 
 use config::GameConfig;
 use game::GamePlugin;

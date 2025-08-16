@@ -3,12 +3,13 @@ use bevy::prelude::*;
 use crate::camera::CameraPlugin;
 use crate::rapier_physics::PhysicsSetupPlugin;
 use crate::emitter::BallEmitterPlugin;
+use crate::separation::SeparationPlugin;
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-    app.add_plugins((CameraPlugin, PhysicsSetupPlugin, BallEmitterPlugin))
+    app.add_plugins((CameraPlugin, PhysicsSetupPlugin, BallEmitterPlugin, SeparationPlugin))
             .add_systems(Update, debug_entity_counts);
     }
 }
