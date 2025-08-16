@@ -120,6 +120,7 @@ mod tests {
                 max_push: 100.0,
                 velocity_dampen: 0.5,
             },
+            interactions: crate::config::InteractionConfig { explosion: crate::config::ExplosionConfig { enabled: true, impulse: 0.0, radius: 0.0, falloff_exp: 1.0 }, drag: crate::config::DragConfig { enabled: false, grab_radius: 0.0, pull_strength: 0.0, max_speed: 0.0 } },
         });
 
         // Two overlapping balls along x axis

@@ -9,6 +9,7 @@ use crate::materials::MaterialsPlugin;
 use crate::cluster::ClusterPlugin;
 use crate::metaballs::MetaballsPlugin;
 use crate::radial_gravity::RadialGravityPlugin;
+use crate::input_interaction::InputInteractionPlugin;
 
 pub struct GamePlugin;
 
@@ -29,6 +30,7 @@ impl Plugin for GamePlugin {
             SeparationPlugin,
             ClusterPlugin,
             MetaballsPlugin,
+            InputInteractionPlugin,
         ))
         .add_systems(Update, debug_entity_counts);
     }

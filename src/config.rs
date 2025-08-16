@@ -46,6 +46,7 @@ pub struct GameConfig {
     pub draw_circles: bool,
     pub metaballs_enabled: bool,
     pub draw_cluster_bounds: bool,
+    pub interactions: InteractionConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -55,6 +56,28 @@ pub struct CollisionSeparationConfig {
     pub push_strength: f32,     // scalar for position correction amount
     pub max_push: f32,          // clamp for stability
     pub velocity_dampen: f32,   // how much to damp relative velocity along normal (0..1)
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct InteractionConfig {
+    pub explosion: ExplosionConfig,
+    pub drag: DragConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ExplosionConfig {
+    pub enabled: bool,
+    pub impulse: f32,     // base impulse magnitude applied at center
+    pub radius: f32,      // effect radius (world units)
+    pub falloff_exp: f32, // force scaled by (1 - d/radius)^falloff_exp (clamped)
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct DragConfig {
+    pub enabled: bool,
+    pub grab_radius: f32,   // max distance from pointer to grab a ball at press
+    pub pull_strength: f32, // acceleration magnitude toward pointer (units/sec^2)
+    pub max_speed: f32,     // optional cap on speed while dragged (0 = no cap)
 }
 
 impl GameConfig {
@@ -94,6 +117,10 @@ mod tests {
             draw_circles: true,
             metaballs_enabled: true,
             draw_cluster_bounds: false,
+            interactions: (
+                explosion: (enabled: true, impulse: 500.0, radius: 200.0, falloff_exp: 1.0),
+                drag: (enabled: true, grab_radius: 30.0, pull_strength: 800.0, max_speed: 1200.0),
+            ),
         )"#;
         let mut file = tempfile::NamedTempFile::new().expect("tmp file");
         file.write_all(sample.as_bytes()).unwrap();

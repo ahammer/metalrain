@@ -14,6 +14,7 @@ mod materials;
 mod cluster; // clustering of touching same-color balls
 mod metaballs; // shader-based cluster metaball visualization
 mod radial_gravity; // custom radial gravity force
+mod input_interaction; // tap explosion & drag interactions
 
 use config::GameConfig;
 use game::GamePlugin;

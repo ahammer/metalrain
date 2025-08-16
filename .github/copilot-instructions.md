@@ -6,6 +6,7 @@ Purpose: 2D Bevy (0.16) sandbox demonstrating modular plugin structure + RON-dri
 - `main.rs`: Loads `GameConfig` from `assets/config/game.ron`, configures the primary window (size/title dynamic from config), then adds `GamePlugin`.
 - `game.rs` (`GamePlugin`): Aggregates sub-plugins in one place. Extend by adding new plugins here (keep ordering explicit).
 - `config.rs`: Strongly typed `GameConfig` (serde + RON). All tunables (window, gravity, bounce, spawn ranges). Loading returns `Result<String>` errors; mimic pattern for new config sections.
+	* `interactions` sub-struct: `explosion` (enabled, impulse, radius, falloff_exp) & `drag` (enabled, grab_radius, pull_strength, max_speed) configure pointer gestures.
 - `components.rs`: Minimal ECS data: `Ball` tag + `Velocity(Vec2)` newtype (uses `Deref`/`DerefMut` for ergonomic `.x/.y`). Add new per-ball data here or create new component files if domain grows.
 - `spawn.rs` (`BallSpawnPlugin`): Startup-only system `spawn_balls` that creates: shared circle mesh (radius 0.5, scaled per-entity to diameter via `Transform::scale`), randomized Transform, Velocity, Material. Reuses one mesh handle; add new geometry by following same pattern (one mesh, multiple entities).
 - `physics.rs` (`PhysicsPlugin`): Update-stage systems: gravity integration, translation update, window-bound collision w/ restitution + velocity damping threshold (`length_squared() < 1.0` -> zero-out). Bounds recalculated every frame from primary window (resizes honored automatically).
@@ -15,7 +16,7 @@ Purpose: 2D Bevy (0.16) sandbox demonstrating modular plugin structure + RON-dri
 
 ## Data / Flow Summary
 Startup: load config -> insert resource -> add plugins -> `spawn_balls` & `setup_camera` run.
-Per-frame (Update): `apply_gravity` -> `move_balls` -> `bounce_on_bounds`. System ordering relies on tuple insertion order; if adding systems that depend on updated positions, append after `move_balls` (before bounce if they need pre-bounce positions).
+Per-frame (Update simplified): Pre-physics forces (`apply_radial_gravity`, tap explosion, drag pull) in `PrePhysicsSet` -> Rapier -> post adjustments (separation) -> rendering. Ensure new velocity-modifying systems join `PrePhysicsSet`.
 
 ## Conventions / Patterns
 - All new functionality should be a small focused `Plugin` in its own file, then registered inside `GamePlugin`.
@@ -29,6 +30,10 @@ Per-frame (Update): `apply_gravity` -> `move_balls` -> `bounce_on_bounds`. Syste
 - Adding new spawn variants (e.g., different shapes): duplicate mesh generation, maybe refactor spawn to iterate config-driven shape list.
 - Config hot-reload: implement a system using `AssetServer::watch_for_changes` and reapply resource values cautiously (window changes via `Window` mut).
  - Metaballs: To tweak look, adjust `MetaballsParams` (iso threshold & normal_z_scale). For more advanced shading (specular, environment), extend WGSL; keep array packing (Vec4) for alignment.
+ - Pointer interactions (`input_interaction.rs`):
+	 * Tap: outward impulse to nearby balls using configurable falloff.
+	 * Drag: continuous pull acceleration toward pointer with optional speed cap.
+	 * Extend by adding new fields to `InteractionConfig` + systems in the plugin.
 
 ## Build & Run
 - Dev: `cargo run` (uses `[profile.dev] opt-level=1`).

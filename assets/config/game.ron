@@ -29,4 +29,8 @@
     draw_circles: false,
     metaballs_enabled: true,
     draw_cluster_bounds: false,
+    interactions: (
+        explosion: (enabled: true, impulse: 800.0, radius: 250.0, falloff_exp: 1.2),
+        drag: (enabled: true, grab_radius: 35.0, pull_strength: 1000.0, max_speed: 1500.0),
+    ),
 )
