@@ -25,6 +25,13 @@ struct MetaballsUniform {
     normal_z_scale: f32,   // for pseudo-3D lighting (2D path)
     // Per-ball packed data: (x, y, radius, cluster_index as float)
     balls: [Vec4; MAX_BALLS],
+    // Per-ball velocity & stretch data packed parallel to `balls`:
+    //   (vx, vy, speed, stretch_factor)
+    // stretch_factor >= 1.0 scales the metaball field anisotropically along velocity direction.
+    // In shader we treat a moving ball as an ellipse whose major axis aligns to (vx,vy) and whose
+    // major radius = base_radius * stretch_factor while minor radius scaled to roughly preserve
+    // volume impression (slight compression). This produces motion-aligned "squash & stretch".
+    velocities: [Vec4; MAX_BALLS],
     // Cluster colors as linear RGB in xyz, w unused (or could store pre-mult factor)
     cluster_colors: [Vec4; MAX_CLUSTERS],
 }
@@ -40,6 +47,7 @@ impl Default for MetaballsUniform {
             iso: 0.6,
             normal_z_scale: 1.0,
             balls: [Vec4::ZERO; MAX_BALLS],
+            velocities: [Vec4::ZERO; MAX_BALLS],
             cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
         }
     }
@@ -118,7 +126,7 @@ fn setup_metaballs(
 
 fn update_metaballs_material(
     clusters: Res<Clusters>,
-    q_balls: Query<(&Transform, &BallRadius, &BallMaterialIndex), With<Ball>>,
+    q_balls: Query<(&Transform, &BallRadius, &BallMaterialIndex, Option<&bevy_rapier2d::prelude::Velocity>), With<Ball>>,
     mut materials: ResMut<Assets<MetaballsMaterial>>,
     q_mat: Query<&Handle<MetaballsMaterial>, With<MetaballsQuad>>,
     toggle: Res<MetaballsToggle>,
@@ -161,13 +169,19 @@ fn update_metaballs_material(
 
     // Pack per-ball data; assign cluster index based on first matching cluster entry with same color_index (fallback 0)
     let mut ball_count = 0usize;
-    for (tf, radius, color_idx) in q_balls.iter() {
+    for (tf, radius, color_idx, vel) in q_balls.iter() {
         if ball_count >= MAX_BALLS { break; }
         let pos = tf.translation.truncate();
         // Find a cluster index with matching color (linear search; could optimize via hashmap color->first index)
         let mut cluster_slot = 0u32;
         for (i, cl) in clusters.0.iter().enumerate() { if cl.color_index == color_idx.0 { cluster_slot = i as u32; break; } }
-    mat.data.balls[ball_count] = Vec4::new(pos.x, pos.y, radius.0, cluster_slot as f32);
+        mat.data.balls[ball_count] = Vec4::new(pos.x, pos.y, radius.0, cluster_slot as f32);
+        // Velocity packing: vx, vy, speed, stretch_factor
+        let (vx, vy) = if let Some(v) = vel { (v.linvel.x, v.linvel.y) } else { (0.0, 0.0) };
+        let speed = (vx*vx + vy*vy).sqrt();
+        // Stretch factor: map speed to [1, max] using a simple curve. Tune constant to taste.
+        let stretch = 1.0 + (speed / 400.0).clamp(0.0, 1.0) * 0.8; // up to 1.8x elongation at high speed
+        mat.data.velocities[ball_count] = Vec4::new(vx, vy, speed, stretch);
         ball_count += 1;
     }
     mat.data.ball_count = ball_count as u32;
