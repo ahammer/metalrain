@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_rapier2d::prelude::RapierDebugRenderPlugin;
 
 mod config;
 mod components;
@@ -21,8 +22,8 @@ fn main() {
     let cfg = GameConfig::load_from_file("assets/config/game.ron")
         .expect("Failed to load assets/config/game.ron");
 
-    App::new()
-        .insert_resource(cfg.clone())
+    let mut app = App::new();
+    app.insert_resource(cfg.clone())
         .add_plugins(
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
@@ -33,7 +34,15 @@ fn main() {
                 }),
                 ..default()
             }),
-        ) // single insertion of config resource is enough
-        .add_plugins(GamePlugin)
-        .run();
+        );
+
+    // Add core game plugins
+    app.add_plugins(GamePlugin);
+
+    // Conditionally add rapier debug render if enabled
+    if cfg.rapier_debug {
+        app.add_plugins(RapierDebugRenderPlugin::default());
+    }
+
+    app.run();
 }

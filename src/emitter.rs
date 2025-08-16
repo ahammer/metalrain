@@ -91,5 +91,6 @@ fn emit_balls(
         material,
         restitution,
         variant_idx,
+    cfg.draw_circles,
     );
 }

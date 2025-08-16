@@ -3,6 +3,7 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin, MaterialMesh2dBundle};
 
 use crate::cluster::Clusters;
+use crate::config::GameConfig;
 use crate::components::{Ball, BallRadius};
 use crate::materials::BallMaterialIndex;
 
@@ -75,13 +76,15 @@ pub struct MetaballsPlugin;
 impl Plugin for MetaballsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MetaballsToggle>()
-            // Enable by default so the user sees the overlay immediately.
-            .insert_resource(MetaballsToggle(true))
             .init_resource::<MetaballsParams>()
             .add_plugins((Material2dPlugin::<MetaballsMaterial>::default(),))
-            .add_systems(Startup, setup_metaballs)
+            .add_systems(Startup, (initialize_toggle_from_config, setup_metaballs))
             .add_systems(Update, (update_metaballs_material, resize_fullscreen_quad));
     }
+}
+
+fn initialize_toggle_from_config(mut toggle: ResMut<MetaballsToggle>, cfg: Res<GameConfig>) {
+    toggle.0 = cfg.metaballs_enabled;
 }
 
 #[derive(Component)]

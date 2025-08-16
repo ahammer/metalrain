@@ -61,6 +61,7 @@ fn spawn_balls(
             material,
             restitution,
             variant_idx,
+            cfg.draw_circles,
         );
     }
 }
@@ -76,6 +77,7 @@ pub fn spawn_ball_entity(
     material: Handle<ColorMaterial>,
     restitution: f32,
     variant_idx: usize,
+    draw_circles: bool,
 ) {
     commands
         .spawn((
@@ -93,11 +95,13 @@ pub fn spawn_ball_entity(
             BallMaterialIndex(variant_idx),
         ))
         .with_children(|parent| {
-            parent.spawn(bevy::sprite::MaterialMesh2dBundle {
-                mesh: circle_mesh.clone().into(),
-                material,
-                transform: Transform::from_scale(Vec3::splat(radius * 2.0)),
-                ..default()
-            });
+            if draw_circles {
+                parent.spawn(bevy::sprite::MaterialMesh2dBundle {
+                    mesh: circle_mesh.clone().into(),
+                    material,
+                    transform: Transform::from_scale(Vec3::splat(radius * 2.0)),
+                    ..default()
+                });
+            }
         });
 }

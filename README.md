@@ -13,8 +13,8 @@ Modular Bevy playground (Bevy 0.14 / Rapier 2D) showcasing a clean, extensible p
 - External RON config (`assets/config/game.ron`) for window, gravity, bounce, spawn, and separation tuning
 - Randomized radius, color, position, and velocity (initial & emitted)
 - Rapier 2D gravity + elastic wall collisions (configurable restitution)
-- Debug physics overlay (disable by removing `debug-render-2d` feature)
-- Shared unit circle mesh reused for all balls (reduced GPU/CPU overhead)
+- Optional Rapier debug physics overlay (enable via config `rapier_debug: true`)
+- Shared unit circle mesh reused for all balls (reduced GPU/CPU overhead; can hide via `draw_circles: false`)
 - Clear radius semantics: `BallRadius` equals collider radius (render scale = `radius * 2.0`)
 - Extensible: drop-in new plugins; config-first for tunables
 
@@ -41,7 +41,11 @@ Tweak values in `assets/config/game.ron`:
 		y_range: (min: -324.0, max: 324.0),
 		vel_x_range: (min: -200.0, max: 200.0),
 		vel_y_range: (min: -50.0, max: 350.0),
-	),
+    ),
+	separation: (enabled: true, overlap_slop: 0.98, push_strength: 0.5, max_push: 10.0, velocity_dampen: 0.2),
+	rapier_debug: false,          // set true to visualize physics colliders / velocities
+	draw_circles: true,           // set false to hide per-ball circle meshes (still simulated & can rely on metaballs)
+	metaballs_enabled: true,      // set false to skip metaball overlay updates
 )
 ```
 Restart the app after edits (simple explicit reload for now). An asset-loader based hot reload could be added later.
@@ -141,15 +145,31 @@ Disable by setting `enabled: false` for A/B comparison vs pure Rapier response.
 
 ## Metaball Cluster Visualization (Shader-Based)
 
-Added a single-pass metaball overlay that visualizes clusters of touching same-color balls as smooth blended blobs:
+A full-screen WGSL pass blends physically simulated balls (not meshes) into smooth metaball blobs for each cluster of touching same-color balls.
 
-- Data Source: `Clusters` resource (AABBs per stable cluster)
-- Implementation: Single full-screen rectangle (`metaballs.rs`) with a custom `MetaballsMaterial` (`assets/shaders/metaballs.wgsl`)
-- Shader: Accumulates Gaussian falloff from each cluster's AABB center using its max half-extent as influence radius, blends cluster palette colors, outputs semi-transparent alpha.
-- Toggle: Set `MetaballsToggle(false)` at runtime (e.g., from a debug system) to disable updates (material remains but stays static / invisible if count=0).
-- Performance: O(C) per-fragment where C = cluster count (uniform-capped at 256). Typical cluster counts should be far lower; adjust `MAX_CLUSTERS` in `metaballs.rs` if needed (ensure it matches WGSL constant).
+Current implementation highlights:
+- Per-ball field evaluation using a bounded Wyvill kernel f(d) = (1 - (d/R)^2)^3 (d <= R)
+- Analytic gradient for lighting-like shading (pseudo normal, adjustable Z scale via `normal_z_scale`)
+- Iso-surface threshold (`iso`) calibrated so visible contour matches physical collider radius (CPU-computed `radius_scale`)
+- Cluster color blending (first matching cluster per ball) with soft additive mix
+- Anti-aliased edge based on signed field difference to iso
+- Uniform packing limits: MAX_BALLS=1024, MAX_CLUSTERS=256 (adjust in code + shader together)
 
-To disable entirely, remove `MetaballsPlugin` from `GamePlugin` in `game.rs`.
+Toggles / Controls:
+- `metaballs_enabled` (config) initializes `MetaballsToggle` resource
+- `MetaballsToggle(false)` at runtime halts material updates (cheap pause)
+- Disable circle meshes with `draw_circles: false` to view pure metaball surface
+- Use `rapier_debug: true` alongside metaballs to inspect collider alignment
+
+Performance Considerations:
+- Fragment cost: O(N) with N = visible ball count (capped). Large windows + many balls increase cost; consider dynamic LOD or tile culling if scaling further.
+- Memory: Single uniform struct (<64KB) updated each frame (positions, radii, indices, colors).
+
+Extending:
+- Add per-ball color weighting
+- Introduce thickness visualization (store field strength in alpha)
+- Depth layering with 3D illusions using parallax normals
+- Compute clusters GPU-side with compute shader and indirect draws (future).
 
 ## License
 MIT (adjust as you wish).

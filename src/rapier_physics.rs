@@ -8,13 +8,8 @@ pub struct PhysicsSetupPlugin; // our wrapper to configure Rapier & arena
 
 impl Plugin for PhysicsSetupPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            // Actual Rapier physics stepper
-            RapierPhysicsPlugin::<NoUserData>::default(),
-            // Debug wireframe (disable by removing feature or this line)
-            RapierDebugRenderPlugin::default(),
-        ))
-        .add_systems(Startup, (configure_gravity, spawn_walls))
+    app.add_plugins((RapierPhysicsPlugin::<NoUserData>::default(),))
+    .add_systems(Startup, (configure_gravity, spawn_walls))
     .add_systems(Update, resize_walls);
     }
 }

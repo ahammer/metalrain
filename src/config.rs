@@ -42,6 +42,9 @@ pub struct GameConfig {
     pub bounce: BounceConfig,
     pub balls: BallSpawnConfig,
     pub separation: CollisionSeparationConfig,
+    pub rapier_debug: bool,
+    pub draw_circles: bool,
+    pub metaballs_enabled: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -86,6 +89,9 @@ mod tests {
                 max_push: 10.0,
                 velocity_dampen: 0.2,
             ),
+            rapier_debug: false,
+            draw_circles: true,
+            metaballs_enabled: true,
         )"#;
         let mut file = tempfile::NamedTempFile::new().expect("tmp file");
         file.write_all(sample.as_bytes()).unwrap();
