@@ -1,3 +1,7 @@
+// This file is part of Ball Matcher.
+// Copyright (C) 2025 Adam and contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use bevy::prelude::*;
 use rand::Rng;
 

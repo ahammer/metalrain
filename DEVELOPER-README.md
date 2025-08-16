@@ -18,6 +18,7 @@ This document provides deep technical details for contributors: architecture, sy
 12. Testing Strategy
 13. Extensibility Roadmap / Ideas
 14. FAQ / Troubleshooting
+15. License & Contribution Model
 
 ---
 ## 1. Goals & Philosophy
@@ -178,8 +179,21 @@ Prefer narrow, deterministic assertions (e.g. cluster counts, velocity adjustmen
 | Jitter after separation | Lower `push_strength` or increase `overlap_slop`. |
 | Rapier debug not visible | Set `rapier_debug: true` in config before startup. |
 
----
-## License
-MIT
+## 15. License & Contribution Model
+The project is licensed under **GPL-3.0-or-later** (see `LICENSE`).
 
-Happy hacking! Add yourself to AUTHORS / CONTRIBUTORS (create if missing) when submitting significant changes.
+By submitting a contribution you agree to license your work under the same GPL-3.0-or-later terms. Please:
+- Keep changes focused & documented
+- Add/adjust tests when behavior changes
+- Update `assets/config/game.ron` if you introduce new config fields
+
+Standard GPL notice for source headers (optional but recommended):
+```
+// This file is part of Ball Matcher.
+// Copyright (C) 2025 Adam and contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+For significant new modules, include a brief module-level comment describing purpose & system ordering constraints.
+
+Happy hacking! Add yourself to CONTRIBUTORS (create if missing) when submitting significant changes.

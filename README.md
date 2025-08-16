@@ -1,4 +1,4 @@
-<div align="center">
+<div align="center>
 
 # Ball Matcher
 
@@ -68,7 +68,11 @@ See [Developer Docs](./DEVELOPER-README.md) for architecture, system ordering, a
 Small PRs welcome: docs fixes, performance improvements, new optional plugins.
 
 ## License
-MIT
+GPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [GNU GPL v3](./LICENSE) for more details.
 
 ---
 Enjoy watching emergent blobs? Share a screenshot! 🟡🟣🔵

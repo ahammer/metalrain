@@ -3,6 +3,7 @@ name = "ball_matcher"
 version = "0.1.0"
 edition = "2021"
 authors = ["Adam <you@example.com>"]
+license = "GPL-3.0-or-later"
 
 [dependencies]
 bevy = "0.14" # aligned with bevy_rapier2d; remove dynamic_linking on Windows to prevent LNK1189 object limit
