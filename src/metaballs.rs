@@ -48,10 +48,10 @@ impl Default for MetaballsUniform {
             window_size: Vec2::ZERO,
             iso: 0.6,
             normal_z_scale: 1.0,
-            metallic: 0.85,
-            roughness: 0.25,
-            env_intensity: 1.0,
-            spec_intensity: 1.0,
+            metallic: 0.5,
+            roughness: 0.5,
+            env_intensity: 0.0,
+            spec_intensity: 0.5,
             balls: [Vec4::ZERO; MAX_BALLS],
             cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
         }
@@ -85,7 +85,7 @@ pub struct MetaballsParams {
 }
 
 impl Default for MetaballsParams {
-    fn default() -> Self { Self { iso: 0.6, normal_z_scale: 1.0, metallic: 0.85, roughness: 0.25, env_intensity: 1.0, spec_intensity: 1.0 } }
+    fn default() -> Self { Self { iso: 0.6, normal_z_scale: 1.0, metallic: 0.5, roughness: 0.5, env_intensity: 0.0, spec_intensity: 0.5 } }
 }
 
 pub struct MetaballsPlugin;

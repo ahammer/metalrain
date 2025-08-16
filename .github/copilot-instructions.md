@@ -77,7 +77,7 @@ pub struct WindConfig { pub x: f32 }
 The metaball overlay is purely shader-based:
 * Uniform layout packs up to 1024 balls (Vec4: x,y,radius,cluster_index) and a color table of up to 256 cluster colors.
 * Kernel: `f = (1 - (d/R)^2)^3` for `d < R`, else 0. Field & gradient accumulated for all balls.
-* Iso-surface threshold (`iso`), pseudo-normal Z scale (`normal_z_scale`), plus metallic shading params: `metallic` (0-1), `roughness` (0.04-1), `env_intensity`, `spec_intensity`.
+* Iso-surface threshold (`iso`), pseudo-normal Z scale (`normal_z_scale`), plus metallic shading params: `metallic` (0-1), `roughness` (0.04-1), `env_intensity`, `spec_intensity`. Defaults currently: metallic=0.5, roughness=0.5, env_intensity=0.0, spec_intensity=0.5.
 * Hard color boundaries: nearest ball defines material color; no cross-fading across isosurface unions.
 * Lighting: GGX-like specular + simple hemi environment blend; environment & spec scaled by params.
 * Anti-aliasing: edge mask computed from signed distance approximation `(field - iso)/|grad|` with a derivative-based smoothing band.

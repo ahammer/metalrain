@@ -11,8 +11,8 @@
         restitution: 0.85,
     ),
     balls: (
-        count: 150,
-        radius_range: (min: 5.0, max: 25.0),
+        count: 50,
+        radius_range: (min: 10.0, max: 25.0),
         x_range: (min: -576.0, max: 576.0),
         y_range: (min: -324.0, max: 324.0),
         vel_x_range: (min: -200.0, max: 200.0),
@@ -30,7 +30,7 @@
     metaballs_enabled: true,
     draw_cluster_bounds: false,
     interactions: (
-        explosion: (enabled: true, impulse: 800.0, radius: 250.0, falloff_exp: 1.2),
+        explosion: (enabled: true, impulse: 1500.0, radius: 250.0, falloff_exp: 1.2),
         drag: (enabled: true, grab_radius: 35.0, pull_strength: 1000.0, max_speed: 1500.0),
     ),
 )
