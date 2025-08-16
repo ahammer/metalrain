@@ -41,17 +41,8 @@ fn contact_separation(
         let delta = p2 - p1;
         let dist_sq = delta.length_squared();
         if dist_sq < 1e-6 { continue; } // practically same position
-        let dist = dist_sq.sqrt();
-        let target = (r1.0 + r2.0) * sep_cfg.overlap_slop;
-        if dist >= target { continue; }
-        let overlap = target - dist;
-        if overlap <= 0.0 { continue; }
-
-        let normal = delta / dist; // direction from e1 -> e2
-        // Split correction between the two entities.
-        let mut push_mag = overlap * sep_cfg.push_strength * 0.5;
-        if push_mag > sep_cfg.max_push { push_mag = sep_cfg.max_push; }
-        let push_vec = normal * push_mag;
+    let dist = dist_sq.sqrt();
+    if let Some((push_vec, normal)) = compute_pair_push(dist, r1.0, r2.0, sep_cfg, delta) {
         pos_shifts.entry(*e1).and_modify(|v| *v -= push_vec).or_insert(-push_vec);
         pos_shifts.entry(*e2).and_modify(|v| *v += push_vec).or_insert(push_vec);
 
@@ -60,6 +51,7 @@ fn contact_separation(
             vel_normals.entry(*e1).and_modify(|v| *v += normal).or_insert(normal);
             vel_normals.entry(*e2).and_modify(|v| *v -= normal).or_insert(-normal); // opposite direction
         }
+    }
     }
 
     // Apply position shifts.
@@ -89,57 +81,29 @@ fn contact_separation(
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    #[ignore]
-    fn applies_half_push_and_dampen() {
-        // Minimal app with our system
-        let mut app = App::new();
-        app.add_event::<CollisionEvent>();
-        app.add_systems(Update, contact_separation);
-        app.insert_resource(GameConfig {
-            draw_circles: false,
-            rapier_debug: false,
-            metaballs_enabled: true,
-            draw_cluster_bounds: false,
-            window: crate::config::WindowConfig { width: 800.0, height: 600.0, title: "T".into() },
-            gravity: crate::config::GravityConfig { y: -9.8 },
-            bounce: crate::config::BounceConfig { restitution: 0.5 },
-            balls: crate::config::BallSpawnConfig {
-                count: 0,
-                radius_range: crate::config::SpawnRange { min: 5.0, max: 10.0 },
-                x_range: crate::config::SpawnRange { min: 0.0, max: 0.0 },
-                y_range: crate::config::SpawnRange { min: 0.0, max: 0.0 },
-                vel_x_range: crate::config::SpawnRange { min: 0.0, max: 0.0 },
-                vel_y_range: crate::config::SpawnRange { min: 0.0, max: 0.0 },
-            },
-            separation: crate::config::CollisionSeparationConfig {
-                enabled: true,
-                overlap_slop: 0.99,
-                push_strength: 1.0,
-                max_push: 100.0,
-                velocity_dampen: 0.5,
-            },
-            interactions: crate::config::InteractionConfig { explosion: crate::config::ExplosionConfig { enabled: true, impulse: 0.0, radius: 0.0, falloff_exp: 1.0 }, drag: crate::config::DragConfig { enabled: false, grab_radius: 0.0, pull_strength: 0.0, max_speed: 0.0 } },
-        });
-
-        // Two overlapping balls along x axis
-    let _e1 = app.world_mut().spawn((Ball, BallRadius(10.0), Transform::from_xyz(0.0, 0.0, 0.0), GlobalTransform::default(), Velocity::linear(Vec2::new(10.0, 0.0)))).id();
-    let _e2 = app.world_mut().spawn((Ball, BallRadius(10.0), Transform::from_xyz(18.0, 0.0, 0.0), GlobalTransform::default(), Velocity::linear(Vec2::new(-5.0, 0.0)))).id();
-
-        // Dist = 18, radii sum = 20, target = 19.8 => overlap = 1.8; half push each -> 0.9 expected.
-        // Send collision started event
-    // NOTE: CollisionEvent::Started requires flags in this crate version; constructing a Started event is unstable in unit context without flags type exposed.
-    // Instead of injecting a real event, directly invoke the system logic by crafting an EventReader with one event would require deeper harness.
-    // For now mark test as a placeholder.
-    // (Future improvement: create a custom schedule run with manual events resource mutation.)
-    // Skipping actual system invocation due to flags type access limitations.
-    // TODO: Implement event injection harness to validate separation adjustments.
-    // Placeholder test currently ignored.
-    // Intentionally no assertions.
-
-        app.update();
-
-    // Assertions pending harness.
+    fn compute_pair_push_basic() {
+        // Overlapping two equal radii balls
+        let cfg = crate::config::CollisionSeparationConfig { enabled: true, overlap_slop: 0.99, push_strength: 1.0, max_push: 100.0, velocity_dampen: 0.5 };
+        let r = 10.0;
+        let dist = 18.0; // radii sum 20 -> target 19.8 -> overlap 1.8 -> half push 0.9
+        let delta = Vec2::new(18.0, 0.0); // e1->e2
+        let (push_vec, normal) = compute_pair_push(dist, r, r, &cfg, delta).expect("should overlap");
+        assert!((push_vec.length() - 0.9).abs() < 1e-3, "expected ~0.9 push each, got {:?}", push_vec);
+        assert_eq!(normal, Vec2::X);
     }
+}
+
+/// Computes per-pair position push vector (applied in opposite directions) and collision normal if overlapping.
+fn compute_pair_push(dist: f32, r1: f32, r2: f32, cfg: &crate::config::CollisionSeparationConfig, delta: Vec2) -> Option<(Vec2, Vec2)> {
+    if dist <= 0.0 { return None; }
+    let target = (r1 + r2) * cfg.overlap_slop;
+    if dist >= target { return None; }
+    let overlap = target - dist;
+    if overlap <= 0.0 { return None; }
+    let normal = delta / dist; // direction e1->e2
+    let mut push_mag = overlap * cfg.push_strength * 0.5;
+    if push_mag > cfg.max_push { push_mag = cfg.max_push; }
+    let push_vec = normal * push_mag;
+    Some((push_vec, normal))
 }
