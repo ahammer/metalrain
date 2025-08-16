@@ -2,10 +2,13 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
-use crate::components::Ball;
+use crate::components::{Ball, BallRadius};
 use crate::config::GameConfig;
 
 pub struct BallSpawnPlugin;
+
+#[derive(Resource, Clone)]
+pub struct CircleMesh(pub Handle<Mesh>);
 
 impl Plugin for BallSpawnPlugin {
     fn build(&self, app: &mut App) {
@@ -19,8 +22,9 @@ fn spawn_balls(
     mut materials: ResMut<Assets<ColorMaterial>>,
     cfg: Res<GameConfig>,
 ) {
-    let circle = Mesh::from(Circle { radius: 0.5 });
-    let circle_handle = meshes.add(circle);
+    // Create shared unit circle mesh once (radius 0.5 so scale = diameter)
+    let circle_handle = meshes.add(Mesh::from(Circle { radius: 0.5 }));
+    commands.insert_resource(CircleMesh(circle_handle.clone()));
     let mut rng = rand::thread_rng();
     let c = &cfg.balls;
 
@@ -40,7 +44,7 @@ fn spawn_balls(
         );
         let material = materials.add(color);
 
-        commands
+    commands
             .spawn((
                 Transform::from_translation(Vec3::new(x, y, 0.0)),
                 GlobalTransform::default(),
@@ -51,6 +55,7 @@ fn spawn_balls(
                 Damping { linear_damping: 0.0, angular_damping: 0.0 },
                 ActiveEvents::COLLISION_EVENTS,
                 Ball,
+        BallRadius(radius),
             ))
             .with_children(|parent| {
                 parent.spawn(bevy::sprite::MaterialMesh2dBundle {

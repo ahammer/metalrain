@@ -6,6 +6,7 @@ mod rapier_physics;
 mod spawn;
 mod camera;
 mod game;
+mod emitter;
 
 use config::GameConfig;
 use game::GamePlugin;
