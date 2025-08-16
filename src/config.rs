@@ -45,6 +45,7 @@ pub struct GameConfig {
     pub rapier_debug: bool,
     pub draw_circles: bool,
     pub metaballs_enabled: bool,
+    pub draw_cluster_bounds: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -92,6 +93,7 @@ mod tests {
             rapier_debug: false,
             draw_circles: true,
             metaballs_enabled: true,
+            draw_cluster_bounds: false,
         )"#;
         let mut file = tempfile::NamedTempFile::new().expect("tmp file");
         file.write_all(sample.as_bytes()).unwrap();

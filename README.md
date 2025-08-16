@@ -15,6 +15,7 @@ Modular Bevy playground (Bevy 0.14 / Rapier 2D) showcasing a clean, extensible p
 - Rapier 2D gravity + elastic wall collisions (configurable restitution)
 - Optional Rapier debug physics overlay (enable via config `rapier_debug: true`)
 - Shared unit circle mesh reused for all balls (reduced GPU/CPU overhead; can hide via `draw_circles: false`)
+ - Optional cluster AABB gizmo rendering (enable via `draw_cluster_bounds: true`)
 - Clear radius semantics: `BallRadius` equals collider radius (render scale = `radius * 2.0`)
 - Extensible: drop-in new plugins; config-first for tunables
 
@@ -46,6 +47,7 @@ Tweak values in `assets/config/game.ron`:
 	rapier_debug: false,          // set true to visualize physics colliders / velocities
 	draw_circles: true,           // set false to hide per-ball circle meshes (still simulated & can rely on metaballs)
 	metaballs_enabled: true,      // set false to skip metaball overlay updates
+	draw_cluster_bounds: false,   // set true to draw per-cluster bounding boxes (gizmos)
 )
 ```
 Restart the app after edits (simple explicit reload for now). An asset-loader based hot reload could be added later.

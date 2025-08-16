@@ -28,4 +28,5 @@
     rapier_debug: false,
     draw_circles: false,
     metaballs_enabled: true,
+    draw_cluster_bounds: false,
 )

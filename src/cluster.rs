@@ -230,7 +230,9 @@ fn debug_draw_clusters(
     clusters: Res<Clusters>,
     _display: Option<Res<BallDisplayMaterials>>,
     mut gizmos: Gizmos,
+    cfg: Option<Res<crate::config::GameConfig>>,
 ) {
+    if let Some(cfg) = cfg { if !cfg.draw_cluster_bounds { return; } }
     for cl in clusters.0.iter() {
         let min = cl.min;
         let max = cl.max;
