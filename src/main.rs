@@ -10,6 +10,7 @@ mod emitter;
 mod separation;
 mod system_order;
 mod materials;
+mod cluster; // clustering of touching same-color balls
 
 use config::GameConfig;
 use game::GamePlugin;

@@ -10,6 +10,7 @@ Purpose: 2D Bevy (0.16) sandbox demonstrating modular plugin structure + RON-dri
 - `spawn.rs` (`BallSpawnPlugin`): Startup-only system `spawn_balls` that creates: shared circle mesh (radius 0.5, scaled per-entity to diameter via `Transform::scale`), randomized Transform, Velocity, Material. Reuses one mesh handle; add new geometry by following same pattern (one mesh, multiple entities).
 - `physics.rs` (`PhysicsPlugin`): Update-stage systems: gravity integration, translation update, window-bound collision w/ restitution + velocity damping threshold (`length_squared() < 1.0` -> zero-out). Bounds recalculated every frame from primary window (resizes honored automatically).
 - `camera.rs` (`CameraPlugin`): Startup camera spawn (`Camera2d`).
+- `cluster.rs` (`ClusterPlugin`): Recomputes per-frame connected components ("clusters") of touching same-color balls using spatial hashing + union-find; exposes `Clusters` resource and draws debug AABBs with gizmos (used later for metaball aggregation).
 
 ## Data / Flow Summary
 Startup: load config -> insert resource -> add plugins -> `spawn_balls` & `setup_camera` run.
@@ -33,12 +34,16 @@ Per-frame (Update): `apply_gravity` -> `move_balls` -> `bounce_on_bounds`. Syste
 - If linker error `LNK1189` on Windows appears, ensure `bevy` dependency does NOT enable `dynamic_linking`.
 
 ## Testing
-- Current tests: only config parsing (`config.rs`). If adding config structs, mirror test style with inline RON sample + assertions.
+- Config parsing test in `config.rs`.
+- Separation plugin placeholder (ignored) test scaffold.
+- Cluster tests (`cluster.rs`): singleton, chain merge, different-color separation.
+Add new system tests by spinning up a minimal `App`, inserting needed resources/components, running `app.update()`, and asserting over world state/resources.
 
 ## Common Pitfalls
 - Forgetting to register new plugin inside `GamePlugin` -> systems never run.
 - Scaling: radius is half of scale.x (entity scaled to diameter). When computing collisions with walls or other entities, derive radius as `transform.scale.x * 0.5`.
-- Ensure system ordering when adding new motion-altering systems (gravity -> modify velocity, then movement, then collision). Use explicit `in_schedule` or system ordering if tuple order insufficient.
+- Ensure system ordering when adding new motion-altering systems (gravity -> modify velocity, then movement, then collision). Use explicit sets / ordering if tuple order insufficient.
+- Clusters recompute every frame; avoid heavy per-entity allocations inside the loop (reuse vectors, keep algorithm near O(n)). If extending clustering data, prefer amortized allocations.
 
 ## Examples
 Spawn custom component:

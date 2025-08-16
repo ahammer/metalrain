@@ -6,6 +6,7 @@ use crate::rapier_physics::PhysicsSetupPlugin;
 use crate::separation::SeparationPlugin;
 use crate::system_order::{PrePhysicsSet, PostPhysicsAdjustSet};
 use crate::materials::MaterialsPlugin;
+use crate::cluster::ClusterPlugin;
 
 pub struct GamePlugin;
 
@@ -23,6 +24,7 @@ impl Plugin for GamePlugin {
             PhysicsSetupPlugin,
             BallEmitterPlugin,
             SeparationPlugin,
+            ClusterPlugin,
         ))
         .add_systems(Update, debug_entity_counts);
     }
