@@ -39,21 +39,25 @@ fn spawn_balls(
         );
         let material = materials.add(color);
 
-        commands.spawn((
-            bevy::sprite::MaterialMesh2dBundle {
-                mesh: circle_handle.clone().into(),
-                material: material.clone(),
-                transform: Transform::from_translation(Vec3::new(x, y, 0.0))
-                    .with_scale(Vec3::splat(radius * 2.0)),
-                ..default()
-            },
-            RigidBody::Dynamic,
-            Collider::ball(radius),
-            Velocity::linear(vel),
-            Restitution::coefficient(cfg.bounce.restitution),
-            Damping { linear_damping: 0.0, angular_damping: 0.0 },
-            ActiveEvents::COLLISION_EVENTS,
-            Ball,
-        ));
+        commands
+            .spawn((
+                Transform::from_translation(Vec3::new(x, y, 0.0)),
+                GlobalTransform::default(),
+                RigidBody::Dynamic,
+                Collider::ball(radius),
+                Velocity::linear(vel),
+                Restitution::coefficient(cfg.bounce.restitution),
+                Damping { linear_damping: 0.0, angular_damping: 0.0 },
+                ActiveEvents::COLLISION_EVENTS,
+                Ball,
+            ))
+            .with_children(|parent| {
+                parent.spawn(bevy::sprite::MaterialMesh2dBundle {
+                    mesh: circle_handle.clone().into(),
+                    material: material.clone(),
+                    transform: Transform::from_scale(Vec3::splat(radius * 2.0)),
+                    ..default()
+                });
+            });
     }
 }
