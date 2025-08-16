@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 mod config;
 mod components;
-mod physics;
+mod rapier_physics;
 mod spawn;
 mod camera;
 mod game;
