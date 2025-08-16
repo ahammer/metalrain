@@ -44,12 +44,7 @@ Tweak values in `assets/config/game.ron`:
 	),
 )
 ```
-Hot Reload: the running app now polls `assets/config/game.ron` ~4x/sec. Saving the file applies changes live:
-* Window: title + resolution update immediately (walls rebuild on resize event)
-* Gravity: Rapier gravity vector updated
-* Bounce: existing Restitution components updated; wall bounce uses updated value on next collision
-* Separation + spawn tunables: future spawns / systems read new values (already using the `GameConfig` resource)
-Fields controlling initial spawn count/ranges only affect future procedural emissions; existing balls are not retroactively changed.
+Restart the app after edits (simple explicit reload for now). An asset-loader based hot reload could be added later.
 
 ## Code Structure
 ```
@@ -143,6 +138,18 @@ Tuning tips:
 - Performance (many contacts): system iterates only over collision events, so scale is roughly proportional to actual contacts, not O(n^2). If needed, batch multiple pushes or use accumulated contact manifolds.
 
 Disable by setting `enabled: false` for A/B comparison vs pure Rapier response.
+
+## Metaball Cluster Visualization (Shader-Based)
+
+Added a single-pass metaball overlay that visualizes clusters of touching same-color balls as smooth blended blobs:
+
+- Data Source: `Clusters` resource (AABBs per stable cluster)
+- Implementation: Single full-screen rectangle (`metaballs.rs`) with a custom `MetaballsMaterial` (`assets/shaders/metaballs.wgsl`)
+- Shader: Accumulates Gaussian falloff from each cluster's AABB center using its max half-extent as influence radius, blends cluster palette colors, outputs semi-transparent alpha.
+- Toggle: Set `MetaballsToggle(false)` at runtime (e.g., from a debug system) to disable updates (material remains but stays static / invisible if count=0).
+- Performance: O(C) per-fragment where C = cluster count (uniform-capped at 256). Typical cluster counts should be far lower; adjust `MAX_CLUSTERS` in `metaballs.rs` if needed (ensure it matches WGSL constant).
+
+To disable entirely, remove `MetaballsPlugin` from `GamePlugin` in `game.rs`.
 
 ## License
 MIT (adjust as you wish).

@@ -11,10 +11,9 @@ mod separation;
 mod system_order;
 mod materials;
 mod cluster; // clustering of touching same-color balls
-mod config_hot_reload; // hot reload of game.ron
+mod metaballs; // shader-based cluster metaball visualization
 
 use config::GameConfig;
-use config_hot_reload::GameConfigPath;
 use game::GamePlugin;
 
 fn main() {
@@ -23,8 +22,7 @@ fn main() {
         .expect("Failed to load assets/config/game.ron");
 
     App::new()
-    .insert_resource(cfg.clone())
-    .insert_resource(GameConfigPath("assets/config/game.ron".to_string()))
+        .insert_resource(cfg.clone())
         .add_plugins(
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {

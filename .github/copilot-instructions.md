@@ -11,6 +11,7 @@ Purpose: 2D Bevy (0.16) sandbox demonstrating modular plugin structure + RON-dri
 - `physics.rs` (`PhysicsPlugin`): Update-stage systems: gravity integration, translation update, window-bound collision w/ restitution + velocity damping threshold (`length_squared() < 1.0` -> zero-out). Bounds recalculated every frame from primary window (resizes honored automatically).
 - `camera.rs` (`CameraPlugin`): Startup camera spawn (`Camera2d`).
 - `cluster.rs` (`ClusterPlugin`): Recomputes per-frame connected components ("clusters") of touching same-color balls using spatial hashing + union-find; exposes `Clusters` resource and draws debug AABBs with gizmos (used later for metaball aggregation).
+ - `metaballs.rs` (`MetaballsPlugin` + WGSL in `assets/shaders/metaballs.wgsl`): Fullscreen post-style pass rendering true metaballs from individual ball positions & radii via a bounded Wyvill kernel. Packs per-ball data into a uniform buffer (single draw) and analytically derives normals for simple lighting.
 
 ## Data / Flow Summary
 Startup: load config -> insert resource -> add plugins -> `spawn_balls` & `setup_camera` run.
@@ -27,6 +28,7 @@ Per-frame (Update): `apply_gravity` -> `move_balls` -> `bounce_on_bounds`. Syste
 - Adding ball-ball collisions: create new system after `move_balls` but before `bounce_on_bounds` (or after, depending on desired order), maybe stage with `SystemSet::after` labels if ordering gets complex.
 - Adding new spawn variants (e.g., different shapes): duplicate mesh generation, maybe refactor spawn to iterate config-driven shape list.
 - Config hot-reload: implement a system using `AssetServer::watch_for_changes` and reapply resource values cautiously (window changes via `Window` mut).
+ - Metaballs: To tweak look, adjust `MetaballsParams` (iso threshold & normal_z_scale). For more advanced shading (specular, environment), extend WGSL; keep array packing (Vec4) for alignment.
 
 ## Build & Run
 - Dev: `cargo run` (uses `[profile.dev] opt-level=1`).
@@ -60,5 +62,24 @@ Extend config:
 pub struct WindConfig { pub x: f32 }
 // Add to GameConfig, RON file, and apply inside a new system.
 ```
+
+### Metaballs Notes
+The metaball overlay is purely shader-based:
+* Uniform layout packs up to 1024 balls (Vec4: x,y,radius,cluster_index) and a color table of up to 256 cluster colors.
+* Kernel: `f = (1 - (d/R)^2)^3` for `d < R`, else 0. Field & gradient accumulated for all balls.
+* Iso-surface threshold (`iso`) and pseudo-normal Z scale (`normal_z_scale`) exposed via `MetaballsParams` resource (defaults 0.6 / 1.0).
+* Anti-aliasing: edge mask computed from signed distance approximation `(field - iso)/|grad|` with a derivative-based smoothing band.
+* Lighting: simple lambert + hemisphere; modify `metaballs.wgsl` to customize.
+* To disable/enable at runtime, toggle `MetaballsToggle(bool)` resource.
+
+Add a system to change parameters (example):
+```rust
+fn tweak_metaballs(mut params: ResMut<MetaballsParams>, keys: Res<Input<KeyCode>>) {
+	if keys.just_pressed(KeyCode::BracketLeft) { params.iso = (params.iso - 0.05).max(0.2); }
+	if keys.just_pressed(KeyCode::BracketRight) { params.iso = (params.iso + 0.05).min(1.5); }
+}
+```
+Register after the plugin so it runs each frame.
+
 
 Keep instructions concise; reflect real patterns. Update this file when adding modules, config fields, or system ordering constraints.
