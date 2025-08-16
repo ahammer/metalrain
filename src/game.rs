@@ -8,6 +8,7 @@ use crate::system_order::{PrePhysicsSet, PostPhysicsAdjustSet};
 use crate::materials::MaterialsPlugin;
 use crate::cluster::ClusterPlugin;
 use crate::metaballs::MetaballsPlugin;
+use crate::radial_gravity::RadialGravityPlugin;
 
 pub struct GamePlugin;
 
@@ -23,6 +24,7 @@ impl Plugin for GamePlugin {
             CameraPlugin,
             MaterialsPlugin,
             PhysicsSetupPlugin,
+            RadialGravityPlugin,
             BallEmitterPlugin,
             SeparationPlugin,
             ClusterPlugin,

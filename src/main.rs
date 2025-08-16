@@ -13,6 +13,7 @@ mod system_order;
 mod materials;
 mod cluster; // clustering of touching same-color balls
 mod metaballs; // shader-based cluster metaball visualization
+mod radial_gravity; // custom radial gravity force
 
 use config::GameConfig;
 use game::GamePlugin;

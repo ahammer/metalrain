@@ -31,14 +31,39 @@ fn spawn_balls(
     let mut rng = rand::thread_rng();
     let c = &cfg.balls;
 
+    // For omni-directional spawn we interpret configured ranges as window interior size fallback.
+    // Spawn positions picked on rectangle perimeter (random edge) then give velocity aiming toward center with noise.
     for _ in 0..c.count {
         let radius = rng.gen_range(c.radius_range.min..c.radius_range.max);
-        let x = rng.gen_range(c.x_range.min..c.x_range.max);
-        let y = rng.gen_range(c.y_range.min..c.y_range.max);
-        let vel = Vec2::new(
+        // Choose an edge: 0=left,1=right,2=bottom,3=top
+        let edge = rng.gen_range(0..4);
+        let (x, y) = match edge {
+            0 => { // left
+                let y = rng.gen_range(c.y_range.min..c.y_range.max);
+                (c.x_range.min, y)
+            }
+            1 => { // right
+                let y = rng.gen_range(c.y_range.min..c.y_range.max);
+                (c.x_range.max, y)
+            }
+            2 => { // bottom
+                let x = rng.gen_range(c.x_range.min..c.x_range.max);
+                (x, c.y_range.min)
+            }
+            _ => { // top
+                let x = rng.gen_range(c.x_range.min..c.x_range.max);
+                (x, c.y_range.max)
+            }
+        };
+        // Direction toward center (0,0)
+        let to_center = Vec2::new(-x, -y).normalize_or_zero();
+        // Add random variation scaled by configured velocity ranges.
+        let jitter = Vec2::new(
             rng.gen_range(c.vel_x_range.min..c.vel_x_range.max),
             rng.gen_range(c.vel_y_range.min..c.vel_y_range.max),
         );
+        let base_speed = jitter.length();
+        let vel = to_center * base_speed + jitter * 0.25; // mostly inward with some randomness
         // Choose material variant index
         let variant_idx = if let Some(p) = &display_palette { rng.gen_range(0..p.0.len()) } else { 0 };
         let (material, restitution) = if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) {

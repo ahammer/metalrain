@@ -55,21 +55,27 @@ fn emit_balls(
     timer.tick(time.delta());
     if !timer.finished() { return; }
 
-    // Spawn one ball above the visible top edge at a random horizontal position
+    // Omni-directional edge spawn
     let mut rng = rand::thread_rng();
     let radius = rng.gen_range(cfg.balls.radius_range.min..cfg.balls.radius_range.max);
     let half_w = window.width() * 0.5;
-    let x = rng.gen_range(-half_w + radius .. half_w - radius);
-    // Match the top gap used in wall creation (keep in sync with rapier_physics.rs top_gap)
-    let top_gap = 200.0;
-    // Spawn just below the bottom surface of the (raised) top wall so they can fall into view.
-    // Wall bottom is at half_h + top_gap; place center below that by radius + small offset.
-    let y = window.height() * 0.5 + top_gap - radius - 5.0; // off-screen but inside arena
-    // Random downward angle: pick a horizontal component within a spread and a downward (negative) vertical speed.
-    // Horizontal spread kept lower than vertical to bias motion mostly downward.
-    let horizontal = rng.gen_range(-25.0..25.0);
-    let vertical = rng.gen_range(-60.0..-20.0); // negative -> downward
-    let vel = Vec2::new(horizontal, vertical);
+    let half_h = window.height() * 0.5;
+    let edge = rng.gen_range(0..4);
+    let (x, y) = match edge {
+        0 => (-half_w - radius, rng.gen_range(-half_h..half_h)),       // left outside
+        1 => ( half_w + radius, rng.gen_range(-half_h..half_h)),       // right outside
+        2 => (rng.gen_range(-half_w..half_w), -half_h - radius),       // bottom
+        _ => (rng.gen_range(-half_w..half_w),  half_h + radius),       // top
+    };
+    let pos = Vec2::new(x, y);
+    let to_center = (-pos).normalize_or_zero();
+    // Random speed magnitude based on configured velocity ranges (reuse spread heuristically)
+    let base_speed = rng.gen_range(cfg.balls.vel_x_range.min..cfg.balls.vel_x_range.max).abs();
+    let jitter = Vec2::new(
+        rng.gen_range(cfg.balls.vel_x_range.min..cfg.balls.vel_x_range.max),
+        rng.gen_range(cfg.balls.vel_y_range.min..cfg.balls.vel_y_range.max),
+    );
+    let vel = to_center * base_speed + jitter * 0.2; // mostly inward
     let variant_idx = if let Some(p) = &display_palette { rng.gen_range(0..p.0.len()) } else { 0 };
     let (material, restitution) = if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) {
         (disp.0[variant_idx].clone(), phys.0[variant_idx].restitution)
@@ -85,7 +91,7 @@ fn emit_balls(
     spawn_ball_entity(
         &mut commands,
         &circle_handle,
-        Vec3::new(x, y, 0.0),
+    Vec3::new(x, y, 0.0),
         vel,
         radius,
         material,

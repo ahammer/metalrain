@@ -17,8 +17,9 @@ impl Plugin for PhysicsSetupPlugin {
 #[derive(Component)]
 struct ArenaWall;
 
-fn configure_gravity(mut rapier_cfg: ResMut<RapierConfiguration>, game_cfg: Res<GameConfig>) {
-    rapier_cfg.gravity = Vect::new(0.0, game_cfg.gravity.y);
+fn configure_gravity(mut rapier_cfg: ResMut<RapierConfiguration>, _game_cfg: Res<GameConfig>) {
+    // Global gravity disabled for custom radial gravity system.
+    rapier_cfg.gravity = Vect::new(0.0, 0.0);
 }
 
 fn spawn_walls(mut commands: Commands, windows: Query<&Window>) {
