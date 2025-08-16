@@ -25,7 +25,8 @@ fn spawn_balls(
     let c = &cfg.balls;
 
     for _ in 0..c.count {
-        let radius = rng.gen_range(c.radius_range.min..c.radius_range.max);
+    let base_radius = rng.gen_range(c.radius_range.min..c.radius_range.max);
+    let radius = base_radius * 2.0; // doubled size
         let x = rng.gen_range(c.x_range.min..c.x_range.max);
         let y = rng.gen_range(c.y_range.min..c.y_range.max);
         let vel = Vec2::new(
