@@ -7,6 +7,7 @@ use crate::separation::SeparationPlugin;
 use crate::system_order::{PrePhysicsSet, PostPhysicsAdjustSet};
 use crate::materials::MaterialsPlugin;
 use crate::cluster::ClusterPlugin;
+use crate::config_hot_reload::ConfigHotReloadPlugin;
 
 pub struct GamePlugin;
 
@@ -19,6 +20,7 @@ impl Plugin for GamePlugin {
                 PostPhysicsAdjustSet.after(PrePhysicsSet),
             ))
             .add_plugins((
+            ConfigHotReloadPlugin, // must come early so later plugins see updated resource each frame
             CameraPlugin,
             MaterialsPlugin,
             PhysicsSetupPlugin,

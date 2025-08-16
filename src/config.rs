@@ -2,30 +2,30 @@ use bevy::prelude::*;
 use serde::Deserialize;
 use std::{fs, path::Path};
 
-#[derive(Debug, Deserialize, Resource, Clone)]
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 pub struct WindowConfig {
     pub width: f32,
     pub height: f32,
     pub title: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct GravityConfig {
     pub y: f32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct BounceConfig {
     pub restitution: f32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct SpawnRange<T> {
     pub min: T,
     pub max: T,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct BallSpawnConfig {
     pub count: usize,
     pub radius_range: SpawnRange<f32>,
@@ -35,7 +35,7 @@ pub struct BallSpawnConfig {
     pub vel_y_range: SpawnRange<f32>,
 }
 
-#[derive(Debug, Deserialize, Resource, Clone)]
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 pub struct GameConfig {
     pub window: WindowConfig,
     pub gravity: GravityConfig,
@@ -44,7 +44,7 @@ pub struct GameConfig {
     pub separation: CollisionSeparationConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct CollisionSeparationConfig {
     pub enabled: bool,
     pub overlap_slop: f32,      // multiply radii sum by this to decide early push

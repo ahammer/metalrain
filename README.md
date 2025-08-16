@@ -44,7 +44,12 @@ Tweak values in `assets/config/game.ron`:
 	),
 )
 ```
-Restart the app after edits (simple explicit reload for now). An asset-loader based hot reload could be added later.
+Hot Reload: the running app now polls `assets/config/game.ron` ~4x/sec. Saving the file applies changes live:
+* Window: title + resolution update immediately (walls rebuild on resize event)
+* Gravity: Rapier gravity vector updated
+* Bounce: existing Restitution components updated; wall bounce uses updated value on next collision
+* Separation + spawn tunables: future spawns / systems read new values (already using the `GameConfig` resource)
+Fields controlling initial spawn count/ranges only affect future procedural emissions; existing balls are not retroactively changed.
 
 ## Code Structure
 ```
