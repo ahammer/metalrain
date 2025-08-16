@@ -1,15 +1,21 @@
 # Ball Matcher / Bouncing Balls Sandbox
 
-Modular Bevy 0.16 playground showcasing a clean plugin + RON configuration layout. Uses Rapier 2D physics for gravity and wall collisions. Spawns many colored balls that bounce within the window bounds.
+Modular Bevy playground (Bevy 0.14 / Rapier 2D) showcasing a clean, extensible plugin layout + RON-driven configuration. Spawns and continually emits colored balls that bounce within an arena with optional contact-based separation to reduce visual overlap.
 
 ## Features
-- Modular plugin architecture (`camera`, `spawn`, `rapier_physics`, aggregated by `GamePlugin`)
-- External `RON` configuration (`assets/config/game.ron`) for window, gravity, bounce, and spawn ranges
-- Randomized radius, color, position, and initial velocity per ball
+- Modular plugin architecture (all aggregated by `GamePlugin`)
+	- `camera`: 2D camera setup
+	- `spawn`: initial batch spawning
+	- `emitter`: timed continual spawning until coverage threshold
+	- `rapier_physics`: Rapier integration + dynamic arena walls + gravity
+	- `separation`: optional contact-based positional correction & velocity damping
+- External RON config (`assets/config/game.ron`) for window, gravity, bounce, spawn, and separation tuning
+- Randomized radius, color, position, and velocity (initial & emitted)
 - Rapier 2D gravity + elastic wall collisions (configurable restitution)
-- Debug physics overlay via `bevy_rapier2d` (enabled by default; can be disabled by removing `debug-render-2d` feature)
-- Shared circle mesh reused by all entities
-- Ready for extension into scenes / state machines
+- Debug physics overlay (disable by removing `debug-render-2d` feature)
+- Shared unit circle mesh reused for all balls (reduced GPU/CPU overhead)
+- Clear radius semantics: `BallRadius` equals collider radius (render scale = `radius * 2.0`)
+- Extensible: drop-in new plugins; config-first for tunables
 
 ## Requirements
 - Latest stable Rust (Bevy MSRV tracks latest stable)  
@@ -46,18 +52,21 @@ src/
 	config.rs        # GameConfig + RON deserialization
 	components.rs    # Components (Ball)
 	camera.rs        # CameraPlugin
-	spawn.rs         # BallSpawnPlugin (Startup spawning) + Rapier body/collider setup
+	spawn.rs         # BallSpawnPlugin (startup batch) + reusable spawn helper
+	emitter.rs       # BallEmitterPlugin (time-based emission until area coverage)
+	separation.rs    # SeparationPlugin (optional contact overlap mitigation)
 	rapier_physics.rs# RapierPhysicsPlugin (gravity, dynamic resizing arena walls)
 	game.rs          # Aggregates sub-plugins
 assets/config/game.ron  # Runtime configuration
 ```
 
 ### Component Set
-- `Ball` – tag component (Rapier supplies `Velocity`, `RigidBody`, `Collider`, etc.)
+- `Ball` – tag component (parent entity).
+- `BallRadius(f32)` – logical & collider radius (mesh scaled to diameter). 
 
 ### System Flow
-1. Startup: `CameraPlugin` spawns camera; `BallSpawnPlugin` spawns balls with Rapier dynamic bodies & circle colliders; `RapierPhysicsPlugin` sets gravity & creates arena walls.
-2. Update: Rapier steps simulation automatically; resize system rebuilds walls if window size changes.
+1. Startup: `camera` spawns camera; `spawn` creates initial batch; `rapier_physics` sets gravity & arena walls.
+2. Update: Rapier steps; `emitter` periodically adds balls (until coverage cap); `separation` post-processes contact starts; resize system rebuilds walls on window events.
 
 ## Coordinate System
 (0,0) is window center. Bounds recomputed every frame from the primary window (so resize works).
@@ -97,7 +106,7 @@ cargo run --release
 - Spatial partitioned queries for gameplay rules
 
 ## Collision Separation / Overlap Prevention
-Real-time overlap mitigation is enabled via the `SeparationPlugin`, which listens to Rapier `CollisionEvent::Started` events (so only actual contacts are processed). On contact:
+Real-time overlap mitigation (optional) is enabled via the `SeparationPlugin`, listening to Rapier `CollisionEvent::Started` events (so only actual contacts generate work). On contact:
 
 1. Compute target distance = (r1 + r2) * `overlap_slop`.
 2. If centers are closer than target, compute overlap amount and push each body half the corrective distance along the normal (clamped by `max_push` and scaled by `push_strength`).

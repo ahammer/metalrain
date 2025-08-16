@@ -1,10 +1,9 @@
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
 use crate::components::{Ball, BallRadius};
 use crate::config::GameConfig;
-use crate::spawn::CircleMesh;
+use crate::spawn::{spawn_ball_entity, CircleMesh};
 
 pub struct BallEmitterPlugin;
 
@@ -54,8 +53,7 @@ fn emit_balls(
 
     // Spawn one ball above the visible top edge at a random horizontal position
     let mut rng = rand::thread_rng();
-    let base_radius = rng.gen_range(cfg.balls.radius_range.min..cfg.balls.radius_range.max);
-    let radius = base_radius * 2.0; // follow doubled size logic
+    let radius = rng.gen_range(cfg.balls.radius_range.min..cfg.balls.radius_range.max);
     let half_w = window.width() * 0.5;
     let x = rng.gen_range(-half_w + radius .. half_w - radius);
     // Match the top gap used in wall creation (keep in sync with rapier_physics.rs top_gap)
@@ -75,26 +73,13 @@ fn emit_balls(
     );
     let material = materials.add(color);
 
-    commands
-        .spawn((
-            Transform::from_translation(Vec3::new(x, y, 0.0)),
-            GlobalTransform::default(),
-            VisibilityBundle::default(), // ensure proper visibility components on parent
-            RigidBody::Dynamic,
-            Collider::ball(radius),
-            Velocity::linear(vel),
-            Restitution::coefficient(cfg.bounce.restitution),
-            Damping { linear_damping: 0.0, angular_damping: 0.0 },
-            ActiveEvents::COLLISION_EVENTS,
-            Ball,
-            BallRadius(radius),
-        ))
-        .with_children(|parent| {
-            parent.spawn(bevy::sprite::MaterialMesh2dBundle {
-                mesh: circle_handle.into(),
-                material,
-                transform: Transform::from_scale(Vec3::splat(radius * 2.0)),
-                ..default()
-            });
-        });
+    spawn_ball_entity(
+        &mut commands,
+        &circle_handle,
+        Vec3::new(x, y, 0.0),
+        vel,
+        radius,
+        material,
+        cfg.bounce.restitution,
+    );
 }

@@ -29,8 +29,7 @@ fn main() {
                 }),
                 ..default()
             }),
-        )
-        .insert_resource(cfg) // keep owned copy after clone inserted earlier if needed elsewhere
+        ) // single insertion of config resource is enough
         .add_plugins(GamePlugin)
         .run();
 }

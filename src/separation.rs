@@ -24,7 +24,7 @@ fn contact_separation(
     // We'll gather corrections per entity to avoid multiple mutable borrows.
     use std::collections::HashMap;
     let mut pos_shifts: HashMap<Entity, Vec2> = HashMap::new();
-    let mut vel_dampen_normals: HashMap<Entity, Vec<Vec2>> = HashMap::new();
+    let mut vel_dampen_normals: HashMap<Entity, Vec2> = HashMap::new();
 
     for ev in ev_collisions.read() {
         if let CollisionEvent::Started(e1, e2, _flags) = ev {
@@ -52,8 +52,8 @@ fn contact_separation(
             pos_shifts.entry(*e2).and_modify(|v| *v += push_vec).or_insert(push_vec);
 
             if cfg.separation.velocity_dampen > 0.0 {
-                vel_dampen_normals.entry(*e1).or_default().push(normal);
-                vel_dampen_normals.entry(*e2).or_default().push(-normal); // opposite direction for other body
+                vel_dampen_normals.entry(*e1).and_modify(|v| *v += normal).or_insert(normal);
+                vel_dampen_normals.entry(*e2).and_modify(|v| *v -= normal).or_insert(-normal); // opposite direction for other body
             }
         }
     }
@@ -68,11 +68,9 @@ fn contact_separation(
 
     // Apply velocity damping along normals (project & reduce component)
     if cfg.separation.velocity_dampen > 0.0 {
-        for (entity, normals) in vel_dampen_normals.into_iter() {
+        for (entity, combined) in vel_dampen_normals.into_iter() {
             if let Ok((_, _transform, vel_opt, _)) = q_rb.get_mut(entity) {
                 if let Some(mut vel) = vel_opt {
-                    let mut combined = Vec2::ZERO;
-                    for n in normals { combined += n; }
                     if combined.length_squared() > 0.0 {
                         let n = combined.normalize();
                         let vn = vel.linvel.dot(n);
