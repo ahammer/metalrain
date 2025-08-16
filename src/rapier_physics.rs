@@ -47,12 +47,14 @@ fn create_walls(commands: &mut Commands, window: &Window) {
     let half_w = window.width() * 0.5;
     let half_h = window.height() * 0.5;
     let thickness = 10.0;
+    // Provide vertical gap above the visible window so we can spawn balls off-screen and let them fall in.
+    let top_gap = 200.0; // height of extra spawn space above visible area
     // Left
     commands.spawn((Collider::cuboid(thickness * 0.5, half_h), RigidBody::Fixed, Transform::from_xyz(-half_w - thickness * 0.5, 0.0, 0.0), GlobalTransform::default(), ArenaWall));
     // Right
     commands.spawn((Collider::cuboid(thickness * 0.5, half_h), RigidBody::Fixed, Transform::from_xyz(half_w + thickness * 0.5, 0.0, 0.0), GlobalTransform::default(), ArenaWall));
     // Bottom
     commands.spawn((Collider::cuboid(half_w, thickness * 0.5), RigidBody::Fixed, Transform::from_xyz(0.0, -half_h - thickness * 0.5, 0.0), GlobalTransform::default(), ArenaWall));
-    // Top
-    commands.spawn((Collider::cuboid(half_w, thickness * 0.5), RigidBody::Fixed, Transform::from_xyz(0.0, half_h + thickness * 0.5, 0.0), GlobalTransform::default(), ArenaWall));
+    // Top (shifted upward to leave spawn gap)
+    commands.spawn((Collider::cuboid(half_w, thickness * 0.5), RigidBody::Fixed, Transform::from_xyz(0.0, half_h + top_gap + thickness * 0.5, 0.0), GlobalTransform::default(), ArenaWall));
 }

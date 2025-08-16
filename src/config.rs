@@ -41,6 +41,16 @@ pub struct GameConfig {
     pub gravity: GravityConfig,
     pub bounce: BounceConfig,
     pub balls: BallSpawnConfig,
+    pub separation: CollisionSeparationConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CollisionSeparationConfig {
+    pub enabled: bool,
+    pub overlap_slop: f32,      // multiply radii sum by this to decide early push
+    pub push_strength: f32,     // scalar for position correction amount
+    pub max_push: f32,          // clamp for stability
+    pub velocity_dampen: f32,   // how much to damp relative velocity along normal (0..1)
 }
 
 impl GameConfig {
@@ -68,6 +78,13 @@ mod tests {
                 y_range: (min: -5.0, max: 5.0),
                 vel_x_range: (min: -1.0, max: 1.0),
                 vel_y_range: (min: 0.0, max: 2.0),
+            ),
+            separation: (
+                enabled: true,
+                overlap_slop: 0.98,
+                push_strength: 0.5,
+                max_push: 10.0,
+                velocity_dampen: 0.2,
             ),
         )"#;
         let mut file = tempfile::NamedTempFile::new().expect("tmp file");

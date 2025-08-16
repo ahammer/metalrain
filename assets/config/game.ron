@@ -18,4 +18,11 @@
         vel_x_range: (min: -200.0, max: 200.0),
         vel_y_range: (min: -50.0, max: 350.0),
     ),
+    separation: (
+        enabled: true,
+        overlap_slop: 0.98,
+        push_strength: 0.5,
+        max_push: 10.0,
+        velocity_dampen: 0.2,
+    ),
 )

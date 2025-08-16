@@ -52,12 +52,17 @@ fn emit_balls(
     timer.tick(time.delta());
     if !timer.finished() { return; }
 
-    // Spawn one ball at top middle (slightly inside window), with random radius & velocity downward
+    // Spawn one ball above the visible top edge at a random horizontal position
     let mut rng = rand::thread_rng();
     let base_radius = rng.gen_range(cfg.balls.radius_range.min..cfg.balls.radius_range.max);
     let radius = base_radius * 2.0; // follow doubled size logic
-    let x = 0.0;
-    let y = window.height() * 0.5 - radius - 2.0; // inside top
+    let half_w = window.width() * 0.5;
+    let x = rng.gen_range(-half_w + radius .. half_w - radius);
+    // Match the top gap used in wall creation (keep in sync with rapier_physics.rs top_gap)
+    let top_gap = 200.0;
+    // Spawn just below the bottom surface of the (raised) top wall so they can fall into view.
+    // Wall bottom is at half_h + top_gap; place center below that by radius + small offset.
+    let y = window.height() * 0.5 + top_gap - radius - 5.0; // off-screen but inside arena
     // Random downward angle: pick a horizontal component within a spread and a downward (negative) vertical speed.
     // Horizontal spread kept lower than vertical to bias motion mostly downward.
     let horizontal = rng.gen_range(-25.0..25.0);
