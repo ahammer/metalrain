@@ -110,8 +110,8 @@ Focus: Only opportunities to simplify, harden, or better organize for future gro
 Legend: [ ] not started. Order = highest leverage first (impact/effort).
 
 1. [x] Centralize color palette logic (single module) & replace duplicates (Low effort / High impact).
-2. [ ] Remove or feature-gate unused `physics.rs`; implement `--features legacy-physics` (Low / High clarity).
-3. [ ] Delete or implement `config_hot_reload.rs`; if implementing, minimal file watcher updating `GameConfig` (Low / High).
+2. [x] Remove unused `physics.rs` (deleted); legacy feature gating deferred (decide later if educational example restored) (Low / High clarity).
+3. [x] Delete empty `config_hot_reload.rs` placeholder (will reintroduce when implementing hot reload in item 14) (Low / High).
 4. [ ] Add `GameConfig::validate()` returning warnings; log them at startup (Low / Medium).
 5. [ ] Introduce basic CI (build + test + clippy + fmt) GitHub Action (Low / High ongoing benefit).
 6. [ ] Replace `expect` in config load with graceful fallback + error log (Low / Medium robustness).
