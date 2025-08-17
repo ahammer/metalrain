@@ -9,22 +9,52 @@ pub struct WindowConfig {
     pub height: f32,
     pub title: String,
 }
-impl Default for WindowConfig { fn default() -> Self { Self { width: 1280.0, height: 720.0, title: "Bevy Bouncing Balls".into() } } }
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            width: 1280.0,
+            height: 720.0,
+            title: "Bevy Bouncing Balls".into(),
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
-pub struct GravityConfig { pub y: f32 }
-impl Default for GravityConfig { fn default() -> Self { Self { y: -600.0 } } }
+pub struct GravityConfig {
+    pub y: f32,
+}
+impl Default for GravityConfig {
+    fn default() -> Self {
+        Self { y: -600.0 }
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
-pub struct BounceConfig { pub restitution: f32 }
-impl Default for BounceConfig { fn default() -> Self { Self { restitution: 0.85 } } }
+pub struct BounceConfig {
+    pub restitution: f32,
+}
+impl Default for BounceConfig {
+    fn default() -> Self {
+        Self { restitution: 0.85 }
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
-pub struct SpawnRange<T> { pub min: T, pub max: T }
-impl<T: Default> Default for SpawnRange<T> { fn default() -> Self { Self { min: Default::default(), max: Default::default() } } }
+pub struct SpawnRange<T> {
+    pub min: T,
+    pub max: T,
+}
+impl<T: Default> Default for SpawnRange<T> {
+    fn default() -> Self {
+        Self {
+            min: Default::default(),
+            max: Default::default(),
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
@@ -40,11 +70,26 @@ impl Default for BallSpawnConfig {
     fn default() -> Self {
         Self {
             count: 150,
-            radius_range: SpawnRange { min: 10.0, max: 20.0 },
-            x_range: SpawnRange { min: -576.0, max: 576.0 },
-            y_range: SpawnRange { min: -324.0, max: 324.0 },
-            vel_x_range: SpawnRange { min: -200.0, max: 200.0 },
-            vel_y_range: SpawnRange { min: -50.0, max: 350.0 },
+            radius_range: SpawnRange {
+                min: 10.0,
+                max: 20.0,
+            },
+            x_range: SpawnRange {
+                min: -576.0,
+                max: 576.0,
+            },
+            y_range: SpawnRange {
+                min: -324.0,
+                max: 324.0,
+            },
+            vel_x_range: SpawnRange {
+                min: -200.0,
+                max: 200.0,
+            },
+            vel_y_range: SpawnRange {
+                min: -50.0,
+                max: 350.0,
+            },
         }
     }
 }
@@ -58,22 +103,62 @@ pub struct CollisionSeparationConfig {
     pub max_push: f32,
     pub velocity_dampen: f32,
 }
-impl Default for CollisionSeparationConfig { fn default() -> Self { Self { enabled: true, overlap_slop: 0.98, push_strength: 0.5, max_push: 10.0, velocity_dampen: 0.2 } } }
+impl Default for CollisionSeparationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            overlap_slop: 0.98,
+            push_strength: 0.5,
+            max_push: 10.0,
+            velocity_dampen: 0.2,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
-pub struct ExplosionConfig { pub enabled: bool, pub impulse: f32, pub radius: f32, pub falloff_exp: f32 }
-impl Default for ExplosionConfig { fn default() -> Self { Self { enabled: true, impulse: 500.0, radius: 250.0, falloff_exp: 1.2 } } }
+pub struct ExplosionConfig {
+    pub enabled: bool,
+    pub impulse: f32,
+    pub radius: f32,
+    pub falloff_exp: f32,
+}
+impl Default for ExplosionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            impulse: 500.0,
+            radius: 250.0,
+            falloff_exp: 1.2,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
-pub struct DragConfig { pub enabled: bool, pub grab_radius: f32, pub pull_strength: f32, pub max_speed: f32 }
-impl Default for DragConfig { fn default() -> Self { Self { enabled: true, grab_radius: 35.0, pull_strength: 1000.0, max_speed: 1500.0 } } }
+pub struct DragConfig {
+    pub enabled: bool,
+    pub grab_radius: f32,
+    pub pull_strength: f32,
+    pub max_speed: f32,
+}
+impl Default for DragConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            grab_radius: 35.0,
+            pull_strength: 1000.0,
+            max_speed: 1500.0,
+        }
+    }
+}
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 #[serde(default)]
-pub struct InteractionConfig { pub explosion: ExplosionConfig, pub drag: DragConfig }
-impl Default for InteractionConfig { fn default() -> Self { Self { explosion: Default::default(), drag: Default::default() } } }
+pub struct InteractionConfig {
+    pub explosion: ExplosionConfig,
+    pub drag: DragConfig,
+}
 
 #[derive(Debug, Deserialize, Resource, Clone)]
 #[serde(default)]
@@ -107,11 +192,15 @@ impl Default for GameConfig {
 }
 
 impl GameConfig {
+    // These legacy single-file helpers are retained for potential direct usage in tools & tests.
+    // The layered loader is preferred in production startup path.
+    #[allow(dead_code)]
     pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self, String> {
         let data = fs::read_to_string(&path).map_err(|e| format!("read config: {e}"))?;
         ron::from_str(&data).map_err(|e| format!("parse RON: {e}"))
     }
 
+    #[allow(dead_code)]
     pub fn load_or_default(path: impl AsRef<Path>) -> (Self, Option<String>) {
         match Self::load_from_file(&path) {
             Ok(cfg) => (cfg, None),
@@ -146,7 +235,9 @@ impl GameConfig {
                                 break;
                             }
                         }
-                        if !replaced { bm.insert(k, incoming.unwrap()); }
+                        if !replaced {
+                            bm.insert(k, incoming.unwrap());
+                        }
                     }
                 }
                 (b, o) => *b = o,
@@ -158,7 +249,11 @@ impl GameConfig {
             match fs::read_to_string(path_ref) {
                 Ok(txt) => match ron::from_str::<Value>(&txt) {
                     Ok(val) => {
-                        if let Some(cur) = &mut merged { merge_value(cur, val); } else { merged = Some(val); }
+                        if let Some(cur) = &mut merged {
+                            merge_value(cur, val);
+                        } else {
+                            merged = Some(val);
+                        }
                         used.push(path_ref.as_os_str().to_string_lossy().to_string());
                     }
                     Err(e) => errors.push(format!("{}: parse error: {e}", path_ref.display())),
@@ -170,13 +265,13 @@ impl GameConfig {
         if let Some(val) = merged {
             match val.clone().into_rust::<GameConfig>() {
                 Ok(cfg) => (cfg, used, errors),
-                Err(e) => {
-                    (GameConfig::default(), used, {
-                        let mut evec = errors;
-                        evec.push(format!("failed to deserialize merged config; using defaults: {e}"));
-                        evec
-                    })
-                }
+                Err(e) => (GameConfig::default(), used, {
+                    let mut evec = errors;
+                    evec.push(format!(
+                        "failed to deserialize merged config; using defaults: {e}"
+                    ));
+                    evec
+                }),
             }
         } else {
             (GameConfig::default(), used, errors)
@@ -188,21 +283,123 @@ impl GameConfig {
     /// Call at startup and log each warning with `warn!`.
     pub fn validate(&self) -> Vec<String> {
         let mut w = Vec::new();
-        if self.window.width <= 0.0 || self.window.height <= 0.0 { w.push("window dimensions must be > 0".into()); }
-        if self.window.width * self.window.height > 10_000_000.0 { w.push(format!("very large window area: {}x{}", self.window.width, self.window.height)); }
-        if self.gravity.y.abs() < 1e-4 { w.push("gravity.y magnitude near zero; balls may float".into()); }
-        if self.gravity.y > 0.0 { w.push(format!("gravity.y is positive ({}); Y-up world? typical configs use negative for downward", self.gravity.y)); }
-        if self.gravity.y < -2000.0 { w.push(format!("gravity.y very large magnitude ({}); integration instability possible", self.gravity.y)); }
-        if !(0.0..=1.5).contains(&self.bounce.restitution) { w.push(format!("restitution {} outside recommended 0..1.5", self.bounce.restitution)); }
-        if self.bounce.restitution < 0.0 { w.push("restitution negative -> energy gain/clamping side effects".into()); }
-        if self.balls.count == 0 { w.push("balls.count is 0; nothing will spawn".into()); }
-        if self.balls.count > 50_000 { w.push(format!("balls.count {} very high; performance may suffer", self.balls.count)); }
-        fn check_range_f32(w: &mut Vec<String>, label: &str, r: &SpawnRange<f32>) { if r.min > r.max { w.push(format!("{label} min ({}) greater than max ({})", r.min, r.max)); } if (r.max - r.min).abs() < f32::EPSILON { w.push(format!("{label} min == max ({}) -> zero variation", r.min)); } }
-        check_range_f32(&mut w, "balls.radius_range", &self.balls.radius_range); if self.balls.radius_range.min <= 0.0 { w.push("balls.radius_range.min must be > 0".into()); }
-        check_range_f32(&mut w, "balls.x_range", &self.balls.x_range); check_range_f32(&mut w, "balls.y_range", &self.balls.y_range); check_range_f32(&mut w, "balls.vel_x_range", &self.balls.vel_x_range); check_range_f32(&mut w, "balls.vel_y_range", &self.balls.vel_y_range);
-        if self.separation.enabled { if !(0.0..=1.2).contains(&self.separation.overlap_slop) { w.push(format!("separation.overlap_slop {} outside 0..1.2 typical bounds", self.separation.overlap_slop)); } if self.separation.push_strength < 0.0 { w.push("separation.push_strength negative".into()); } if self.separation.max_push <= 0.0 { w.push("separation.max_push must be > 0".into()); } if !(0.0..=1.0).contains(&self.separation.velocity_dampen) { w.push(format!("separation.velocity_dampen {} outside 0..1", self.separation.velocity_dampen)); } }
-        if self.interactions.explosion.enabled { let ex = &self.interactions.explosion; if ex.impulse <= 0.0 { w.push("explosion.impulse must be > 0 when enabled".into()); } if ex.radius <= 0.0 { w.push("explosion.radius must be > 0".into()); } if ex.falloff_exp < 0.0 { w.push("explosion.falloff_exp negative -> increasing force with distance".into()); } if ex.falloff_exp > 8.0 { w.push(format!("explosion.falloff_exp {} very high (force extremely localized)", ex.falloff_exp)); } }
-        if self.interactions.drag.enabled { let dr = &self.interactions.drag; if dr.grab_radius <= 0.0 { w.push("drag.grab_radius must be > 0".into()); } if dr.pull_strength <= 0.0 { w.push("drag.pull_strength must be > 0".into()); } if dr.max_speed < 0.0 { w.push("drag.max_speed negative -> treated as cap?".into()); } if dr.max_speed != 0.0 && dr.max_speed < dr.pull_strength * 0.1 { w.push(format!("drag.max_speed {} may be too low relative to pull_strength {} -> jerky motion", dr.max_speed, dr.pull_strength)); } }
+        if self.window.width <= 0.0 || self.window.height <= 0.0 {
+            w.push("window dimensions must be > 0".into());
+        }
+        if self.window.width * self.window.height > 10_000_000.0 {
+            w.push(format!(
+                "very large window area: {}x{}",
+                self.window.width, self.window.height
+            ));
+        }
+        if self.gravity.y.abs() < 1e-4 {
+            w.push("gravity.y magnitude near zero; balls may float".into());
+        }
+        if self.gravity.y > 0.0 {
+            w.push(format!(
+                "gravity.y is positive ({}); Y-up world? typical configs use negative for downward",
+                self.gravity.y
+            ));
+        }
+        if self.gravity.y < -2000.0 {
+            w.push(format!(
+                "gravity.y very large magnitude ({}); integration instability possible",
+                self.gravity.y
+            ));
+        }
+        if !(0.0..=1.5).contains(&self.bounce.restitution) {
+            w.push(format!(
+                "restitution {} outside recommended 0..1.5",
+                self.bounce.restitution
+            ));
+        }
+        if self.bounce.restitution < 0.0 {
+            w.push("restitution negative -> energy gain/clamping side effects".into());
+        }
+        if self.balls.count == 0 {
+            w.push("balls.count is 0; nothing will spawn".into());
+        }
+        if self.balls.count > 50_000 {
+            w.push(format!(
+                "balls.count {} very high; performance may suffer",
+                self.balls.count
+            ));
+        }
+        fn check_range_f32(w: &mut Vec<String>, label: &str, r: &SpawnRange<f32>) {
+            if r.min > r.max {
+                w.push(format!(
+                    "{label} min ({}) greater than max ({})",
+                    r.min, r.max
+                ));
+            }
+            if (r.max - r.min).abs() < f32::EPSILON {
+                w.push(format!("{label} min == max ({}) -> zero variation", r.min));
+            }
+        }
+        check_range_f32(&mut w, "balls.radius_range", &self.balls.radius_range);
+        if self.balls.radius_range.min <= 0.0 {
+            w.push("balls.radius_range.min must be > 0".into());
+        }
+        check_range_f32(&mut w, "balls.x_range", &self.balls.x_range);
+        check_range_f32(&mut w, "balls.y_range", &self.balls.y_range);
+        check_range_f32(&mut w, "balls.vel_x_range", &self.balls.vel_x_range);
+        check_range_f32(&mut w, "balls.vel_y_range", &self.balls.vel_y_range);
+        if self.separation.enabled {
+            if !(0.0..=1.2).contains(&self.separation.overlap_slop) {
+                w.push(format!(
+                    "separation.overlap_slop {} outside 0..1.2 typical bounds",
+                    self.separation.overlap_slop
+                ));
+            }
+            if self.separation.push_strength < 0.0 {
+                w.push("separation.push_strength negative".into());
+            }
+            if self.separation.max_push <= 0.0 {
+                w.push("separation.max_push must be > 0".into());
+            }
+            if !(0.0..=1.0).contains(&self.separation.velocity_dampen) {
+                w.push(format!(
+                    "separation.velocity_dampen {} outside 0..1",
+                    self.separation.velocity_dampen
+                ));
+            }
+        }
+        if self.interactions.explosion.enabled {
+            let ex = &self.interactions.explosion;
+            if ex.impulse <= 0.0 {
+                w.push("explosion.impulse must be > 0 when enabled".into());
+            }
+            if ex.radius <= 0.0 {
+                w.push("explosion.radius must be > 0".into());
+            }
+            if ex.falloff_exp < 0.0 {
+                w.push("explosion.falloff_exp negative -> increasing force with distance".into());
+            }
+            if ex.falloff_exp > 8.0 {
+                w.push(format!(
+                    "explosion.falloff_exp {} very high (force extremely localized)",
+                    ex.falloff_exp
+                ));
+            }
+        }
+        if self.interactions.drag.enabled {
+            let dr = &self.interactions.drag;
+            if dr.grab_radius <= 0.0 {
+                w.push("drag.grab_radius must be > 0".into());
+            }
+            if dr.pull_strength <= 0.0 {
+                w.push("drag.pull_strength must be > 0".into());
+            }
+            if dr.max_speed < 0.0 {
+                w.push("drag.max_speed negative -> treated as cap?".into());
+            }
+            if dr.max_speed != 0.0 && dr.max_speed < dr.pull_strength * 0.1 {
+                w.push(format!(
+                    "drag.max_speed {} may be too low relative to pull_strength {} -> jerky motion",
+                    dr.max_speed, dr.pull_strength
+                ));
+            }
+        }
         w
     }
 }
@@ -247,33 +444,59 @@ mod tests {
         assert_eq!(cfg.window.width, 800.0);
         assert_eq!(cfg.balls.count, 10);
         assert_eq!(cfg.bounce.restitution, 0.5);
-    // Should produce no warnings for the nominal sample config
-    assert!(cfg.validate().is_empty(), "expected no validation warnings for sample config");
+        // Should produce no warnings for the nominal sample config
+        assert!(
+            cfg.validate().is_empty(),
+            "expected no validation warnings for sample config"
+        );
     }
 
     #[test]
     fn validate_detects_warnings() {
         // Intentionally craft a config with multiple issues
         let bad = GameConfig {
-            window: WindowConfig { width: -100.0, height: 0.0, title: "Bad".into() },
+            window: WindowConfig {
+                width: -100.0,
+                height: 0.0,
+                title: "Bad".into(),
+            },
             gravity: GravityConfig { y: 0.0 },
             bounce: BounceConfig { restitution: -0.2 },
             balls: BallSpawnConfig {
                 count: 0,
                 radius_range: SpawnRange { min: 0.0, max: 0.0 }, // zero + invalid min
-                x_range: SpawnRange { min: 10.0, max: -10.0 },   // inverted
+                x_range: SpawnRange {
+                    min: 10.0,
+                    max: -10.0,
+                }, // inverted
                 y_range: SpawnRange { min: 1.0, max: 1.0 },      // zero variation
                 vel_x_range: SpawnRange { min: 5.0, max: 1.0 },  // inverted
                 vel_y_range: SpawnRange { min: 0.0, max: 0.0 },  // zero
             },
-            separation: CollisionSeparationConfig { enabled: true, overlap_slop: 2.0, push_strength: -1.0, max_push: 0.0, velocity_dampen: 1.5 },
+            separation: CollisionSeparationConfig {
+                enabled: true,
+                overlap_slop: 2.0,
+                push_strength: -1.0,
+                max_push: 0.0,
+                velocity_dampen: 1.5,
+            },
             rapier_debug: false,
             draw_circles: true,
             metaballs_enabled: true,
             draw_cluster_bounds: false,
             interactions: InteractionConfig {
-                explosion: ExplosionConfig { enabled: true, impulse: 0.0, radius: -10.0, falloff_exp: -1.0 },
-                drag: DragConfig { enabled: true, grab_radius: 0.0, pull_strength: 0.0, max_speed: -5.0 },
+                explosion: ExplosionConfig {
+                    enabled: true,
+                    impulse: 0.0,
+                    radius: -10.0,
+                    falloff_exp: -1.0,
+                },
+                drag: DragConfig {
+                    enabled: true,
+                    grab_radius: 0.0,
+                    pull_strength: 0.0,
+                    max_speed: -5.0,
+                },
             },
         };
         let warnings = bad.validate();
@@ -290,7 +513,11 @@ mod tests {
         assert!(joined.contains("separation.velocity_dampen"));
         assert!(joined.contains("explosion.impulse must be > 0"));
         assert!(joined.contains("drag.max_speed negative"));
-        assert!(warnings.len() >= 12, "expected many warnings, got {}: {joined}", warnings.len());
+        assert!(
+            warnings.len() >= 12,
+            "expected many warnings, got {}: {joined}",
+            warnings.len()
+        );
     }
 
     #[test]
@@ -322,7 +549,7 @@ mod tests {
         assert_eq!(cfg.window.width, 900.0); // from base
         assert_eq!(cfg.window.title, "Custom Title"); // overridden
         assert_eq!(cfg.bounce.restitution, 1.1); // overridden
-        // Height default still present
+                                                 // Height default still present
         assert_eq!(cfg.window.height, WindowConfig::default().height);
     }
 

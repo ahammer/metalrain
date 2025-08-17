@@ -1,5 +1,5 @@
-use bevy::prelude::*;
-use crate::palette::BASE_COLORS; // added
+use crate::palette::BASE_COLORS;
+use bevy::prelude::*; // added
 
 // System set to ensure material palette is initialized before other Startup systems that depend on it.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -27,10 +27,7 @@ impl Plugin for MaterialsPlugin {
     }
 }
 
-fn setup_ball_materials(
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut commands: Commands,
-) {
+fn setup_ball_materials(mut materials: ResMut<Assets<ColorMaterial>>, mut commands: Commands) {
     // Use centralized palette
     let mut display_handles = Vec::with_capacity(BASE_COLORS.len());
     for c in BASE_COLORS.iter().copied() {

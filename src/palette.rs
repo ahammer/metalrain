@@ -15,7 +15,9 @@ pub const BASE_COLORS: [Color; 6] = [
 
 /// Returns a color for arbitrary index, wrapping around the base palette.
 #[inline]
-pub fn color_for_index(i: usize) -> Color { BASE_COLORS[i % BASE_COLORS.len()] }
+pub fn color_for_index(i: usize) -> Color {
+    BASE_COLORS[i % BASE_COLORS.len()]
+}
 
 #[cfg(test)]
 mod tests {
@@ -33,7 +35,9 @@ mod tests {
         // Ensure no two colors are exactly identical (protect against accidental duplicates)
         for (i, c1) in BASE_COLORS.iter().enumerate() {
             for (j, c2) in BASE_COLORS.iter().enumerate() {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 assert!(c1 != c2, "Palette contains duplicate colors at {i} and {j}");
             }
         }

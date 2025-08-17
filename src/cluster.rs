@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::palette::color_for_index;
+use bevy::prelude::*;
 
 use crate::components::{Ball, BallRadius};
 use crate::materials::{BallDisplayMaterials, BallMaterialIndex};
@@ -94,19 +94,36 @@ fn compute_clusters(
         positions.push(p);
         radii.push(r.0);
         colors.push(c.0);
-        if r.0 > max_radius { max_radius = r.0; }
+        if r.0 > max_radius {
+            max_radius = r.0;
+        }
     }
 
     // Build instantaneous (raw) connectivity with union-find
     let mut parent: Vec<usize> = (0..count).collect();
     let mut rank: Vec<u8> = vec![0; count];
-    fn find(parent: &mut [usize], i: usize) -> usize { if parent[i] != i { let root = find(parent, parent[i]); parent[i] = root; root } else { i } }
+    fn find(parent: &mut [usize], i: usize) -> usize {
+        if parent[i] != i {
+            let root = find(parent, parent[i]);
+            parent[i] = root;
+            root
+        } else {
+            i
+        }
+    }
     fn union(parent: &mut [usize], rank: &mut [u8], a: usize, b: usize) {
-        let mut ra = find(parent, a); let mut rb = find(parent, b);
-        if ra == rb { return; }
-        if rank[ra] < rank[rb] { std::mem::swap(&mut ra, &mut rb); }
+        let mut ra = find(parent, a);
+        let mut rb = find(parent, b);
+        if ra == rb {
+            return;
+        }
+        if rank[ra] < rank[rb] {
+            std::mem::swap(&mut ra, &mut rb);
+        }
         parent[rb] = ra;
-        if rank[ra] == rank[rb] { rank[ra] += 1; }
+        if rank[ra] == rank[rb] {
+            rank[ra] += 1;
+        }
     }
     let cell_size = (max_radius * 2.0).max(1.0);
     let inv_cell = 1.0 / cell_size;
@@ -125,29 +142,41 @@ fn compute_clusters(
                 let ci = colors[i];
                 let pi = positions[i];
                 let ri = radii[i];
-                let cx = cell.0; let cy = cell.1;
-                for dx in neighbor_offsets { for dy in neighbor_offsets {
-                    let ncell = Cell(cx + dx, cy + dy);
-                    if let Some(list) = grid.get(&ncell) {
-                        for &j in list {
-                            if j <= i { continue; }
-                            if colors[j] != ci { continue; }
-                            let pj = positions[j];
-                            let rj = radii[j];
-                            let delta = pj - pi;
-                            let dist2 = delta.length_squared();
-                            let touch = ri + rj;
-                            if dist2 <= touch * touch { union(&mut parent, &mut rank, i, j); }
+                let cx = cell.0;
+                let cy = cell.1;
+                for dx in neighbor_offsets {
+                    for dy in neighbor_offsets {
+                        let ncell = Cell(cx + dx, cy + dy);
+                        if let Some(list) = grid.get(&ncell) {
+                            for &j in list {
+                                if j <= i {
+                                    continue;
+                                }
+                                if colors[j] != ci {
+                                    continue;
+                                }
+                                let pj = positions[j];
+                                let rj = radii[j];
+                                let delta = pj - pi;
+                                let dist2 = delta.length_squared();
+                                let touch = ri + rj;
+                                if dist2 <= touch * touch {
+                                    union(&mut parent, &mut rank, i, j);
+                                }
+                            }
                         }
                     }
-                }}
+                }
             }
         }
     }
 
     // Build raw clusters (index lists)
     let mut raw: HashMap<usize, Vec<usize>> = HashMap::default();
-    for i in 0..count { let root = find(&mut parent, i); raw.entry(root).or_default().push(i); }
+    for i in 0..count {
+        let root = find(&mut parent, i);
+        raw.entry(root).or_default().push(i);
+    }
 
     let now = time.elapsed_seconds();
     let mut seen: HashSet<Entity> = HashSet::default();
@@ -158,20 +187,39 @@ fn compute_clusters(
         let multi = indices.len() > 1;
         // Collect existing persistent cluster ids among members
         let mut existing_ids: HashSet<u64> = HashSet::default();
-        for &idx in indices { if let Some(p) = persistence.map.get(&entities[idx]) { existing_ids.insert(p.cluster_id); } }
+        for &idx in indices {
+            if let Some(p) = persistence.map.get(&entities[idx]) {
+                existing_ids.insert(p.cluster_id);
+            }
+        }
         // Choose target id
-        let target_id = if let Some(&id) = existing_ids.iter().next() { id } else { let id = persistence.next_cluster_id; persistence.next_cluster_id += 1; id };
+        let target_id = if let Some(&id) = existing_ids.iter().next() {
+            id
+        } else {
+            let id = persistence.next_cluster_id;
+            persistence.next_cluster_id += 1;
+            id
+        };
         // If multiple existing ids, reassign them to target
         if existing_ids.len() > 1 {
-            for (_e, p) in persistence.map.iter_mut() { if existing_ids.contains(&p.cluster_id) { p.cluster_id = target_id; } }
+            for (_e, p) in persistence.map.iter_mut() {
+                if existing_ids.contains(&p.cluster_id) {
+                    p.cluster_id = target_id;
+                }
+            }
         }
         // Update / insert members
         for &idx in indices {
             let e = entities[idx];
             let color = colors[idx];
-            let entry = persistence.map.entry(e).or_insert(BallPersist { cluster_id: target_id, last_touch_time: now, color_index: color });
+            let entry = persistence.map.entry(e).or_insert(BallPersist {
+                cluster_id: target_id,
+                last_touch_time: now,
+                color_index: color,
+            });
             entry.color_index = color;
-            if multi { // only update touch time if actually touching others
+            if multi {
+                // only update touch time if actually touching others
                 entry.last_touch_time = now;
             }
             // If singleton (multi false) we do not refresh last_touch_time so potential detach countdown proceeds.
@@ -190,7 +238,9 @@ fn compute_clusters(
     let mut to_reassign: Vec<Entity> = Vec::new();
     for (e, p) in persistence.map.iter() {
         let isolated_long_enough = now - p.last_touch_time > DETACH_THRESHOLD;
-        if isolated_long_enough { to_reassign.push(*e); }
+        if isolated_long_enough {
+            to_reassign.push(*e);
+        }
     }
     for e in to_reassign {
         let new_id = persistence.next_cluster_id; // capture
@@ -206,7 +256,9 @@ fn compute_clusters(
         // Find position & radius via index search (could build map for perf; acceptable for now)
         // Since dataset moderate, linear search fine; TODO: optimize with HashMap<Entity, idx> if needed.
         if let Some(idx) = entities.iter().position(|ee| ee == e) {
-            let cl = agg.entry(p.cluster_id).or_insert_with(|| Cluster::new(p.color_index));
+            let cl = agg
+                .entry(p.cluster_id)
+                .or_insert_with(|| Cluster::new(p.color_index));
             cl.entities.push(*e);
             let pos = positions[idx];
             let r = radii[idx];
@@ -215,15 +267,27 @@ fn compute_clusters(
             cl.centroid += pos * area;
             let min_p = pos - Vec2::splat(r);
             let max_p = pos + Vec2::splat(r);
-            if min_p.x < cl.min.x { cl.min.x = min_p.x; }
-            if min_p.y < cl.min.y { cl.min.y = min_p.y; }
-            if max_p.x > cl.max.x { cl.max.x = max_p.x; }
-            if max_p.y > cl.max.y { cl.max.y = max_p.y; }
+            if min_p.x < cl.min.x {
+                cl.min.x = min_p.x;
+            }
+            if min_p.y < cl.min.y {
+                cl.min.y = min_p.y;
+            }
+            if max_p.x > cl.max.x {
+                cl.max.x = max_p.x;
+            }
+            if max_p.y > cl.max.y {
+                cl.max.y = max_p.y;
+            }
         }
     }
 
     clusters.0 = agg.into_values().collect();
-    for cl in clusters.0.iter_mut() { if cl.total_area > 0.0 { cl.centroid /= cl.total_area; } }
+    for cl in clusters.0.iter_mut() {
+        if cl.total_area > 0.0 {
+            cl.centroid /= cl.total_area;
+        }
+    }
 }
 
 /// Debug rendering using Gizmos; draws an AABB per cluster in its color.
@@ -233,12 +297,18 @@ fn debug_draw_clusters(
     mut gizmos: Gizmos,
     cfg: Option<Res<crate::config::GameConfig>>,
 ) {
-    if let Some(cfg) = cfg { if !cfg.draw_cluster_bounds { return; } }
+    if let Some(cfg) = cfg {
+        if !cfg.draw_cluster_bounds {
+            return;
+        }
+    }
     for cl in clusters.0.iter() {
         let min = cl.min;
         let max = cl.max;
         let size = max - min;
-        if !size.x.is_finite() { continue; }
+        if !size.x.is_finite() {
+            continue;
+        }
         let center = min + size * 0.5;
         let color = color_for_index(cl.color_index);
         gizmos.rect_2d(center, 0.0, size, color);
@@ -251,10 +321,10 @@ mod tests {
 
     fn make_app() -> App {
         let mut app = App::new();
-    app.add_plugins(MinimalPlugins); // provides Time resource
-    app.add_systems(Update, compute_clusters);
-    app.init_resource::<Clusters>();
-    app.init_resource::<ClusterPersistence>();
+        app.add_plugins(MinimalPlugins); // provides Time resource
+        app.add_systems(Update, compute_clusters);
+        app.init_resource::<Clusters>();
+        app.init_resource::<ClusterPersistence>();
         app
     }
 
@@ -262,9 +332,21 @@ mod tests {
     fn singleton_clusters() {
         let mut app = make_app();
         // create two balls different colors far apart
-        app.world_mut().spawn((Ball, BallRadius(5.0), BallMaterialIndex(0), Transform::from_xyz(0.0, 0.0, 0.0), GlobalTransform::default()));
-        app.world_mut().spawn((Ball, BallRadius(5.0), BallMaterialIndex(1), Transform::from_xyz(100.0, 0.0, 0.0), GlobalTransform::default()));
-    app.update(); // first frame builds persistence
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(5.0),
+            BallMaterialIndex(0),
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(5.0),
+            BallMaterialIndex(1),
+            Transform::from_xyz(100.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
+        app.update(); // first frame builds persistence
         let clusters = app.world().resource::<Clusters>();
         assert_eq!(clusters.0.len(), 2);
         assert!(clusters.0.iter().all(|c| c.entities.len() == 1));
@@ -274,12 +356,34 @@ mod tests {
     fn touching_chain_same_color() {
         let mut app = make_app();
         // three balls in a horizontal line, touching (centers 2r apart)
-        app.world_mut().spawn((Ball, BallRadius(10.0), BallMaterialIndex(2), Transform::from_xyz(0.0, 0.0, 0.0), GlobalTransform::default()));
-        app.world_mut().spawn((Ball, BallRadius(10.0), BallMaterialIndex(2), Transform::from_xyz(20.0, 0.0, 0.0), GlobalTransform::default()));
-        app.world_mut().spawn((Ball, BallRadius(10.0), BallMaterialIndex(2), Transform::from_xyz(40.0, 0.0, 0.0), GlobalTransform::default()));
-    app.update();
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(10.0),
+            BallMaterialIndex(2),
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(10.0),
+            BallMaterialIndex(2),
+            Transform::from_xyz(20.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(10.0),
+            BallMaterialIndex(2),
+            Transform::from_xyz(40.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
+        app.update();
         let clusters = app.world().resource::<Clusters>();
-        assert_eq!(clusters.0.len(), 1, "All touching chain should be one cluster");
+        assert_eq!(
+            clusters.0.len(),
+            1,
+            "All touching chain should be one cluster"
+        );
         assert_eq!(clusters.0[0].entities.len(), 3);
     }
 
@@ -287,8 +391,20 @@ mod tests {
     fn adjacent_different_colors_not_merged() {
         let mut app = make_app();
         // two touching but different color => separate clusters
-        app.world_mut().spawn((Ball, BallRadius(10.0), BallMaterialIndex(0), Transform::from_xyz(0.0, 0.0, 0.0), GlobalTransform::default()));
-        app.world_mut().spawn((Ball, BallRadius(10.0), BallMaterialIndex(1), Transform::from_xyz(20.0, 0.0, 0.0), GlobalTransform::default()));
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(10.0),
+            BallMaterialIndex(0),
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(10.0),
+            BallMaterialIndex(1),
+            Transform::from_xyz(20.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
         app.update();
         let clusters = app.world().resource::<Clusters>();
         assert_eq!(clusters.0.len(), 2, "Different colors must not merge");
@@ -298,14 +414,31 @@ mod tests {
     fn detaches_after_threshold() {
         let mut app = make_app();
         // two balls touching initially
-        app.world_mut().spawn((Ball, BallRadius(10.0), BallMaterialIndex(0), Transform::from_xyz(0.0, 0.0, 0.0), GlobalTransform::default()));
-        app.world_mut().spawn((Ball, BallRadius(10.0), BallMaterialIndex(0), Transform::from_xyz(19.0, 0.0, 0.0), GlobalTransform::default())); // slightly overlapping (touch threshold 20)
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(10.0),
+            BallMaterialIndex(0),
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        ));
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(10.0),
+            BallMaterialIndex(0),
+            Transform::from_xyz(19.0, 0.0, 0.0),
+            GlobalTransform::default(),
+        )); // slightly overlapping (touch threshold 20)
         app.update();
         // Move second ball far away without updating time enough (simulate frames < threshold)
         {
             let mut q = app.world_mut().query::<&mut Transform>();
             let mut moved = false;
-            for mut tf in q.iter_mut(app.world_mut()) { if !moved { tf.translation.x = 200.0; moved = true; } }
+            for mut tf in q.iter_mut(app.world_mut()) {
+                if !moved {
+                    tf.translation.x = 200.0;
+                    moved = true;
+                }
+            }
         }
         // Advance time less than threshold
         // Advance time by running updates with a fixed delta (simulate 0.25s < threshold)
@@ -317,6 +450,14 @@ mod tests {
         app.update(); // recompute with advanced time
         let clusters_mid = app.world().resource::<Clusters>();
         // Should still be one cluster of size 2 (lingering)
-        assert_eq!(clusters_mid.0.iter().map(|c| c.entities.len()).sum::<usize>(), 2, "Should still consider both in lingering cluster before threshold");
+        assert_eq!(
+            clusters_mid
+                .0
+                .iter()
+                .map(|c| c.entities.len())
+                .sum::<usize>(),
+            2,
+            "Should still consider both in lingering cluster before threshold"
+        );
     }
 }

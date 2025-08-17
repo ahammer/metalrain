@@ -113,7 +113,7 @@ Legend: [ ] not started. Order = highest leverage first (impact/effort).
 2. [x] Remove unused `physics.rs` (deleted); legacy feature gating deferred (decide later if educational example restored) (Low / High clarity).
 3. [x] Delete empty `config_hot_reload.rs` placeholder (will reintroduce when implementing hot reload in item 14) (Low / High).
 4. [x] Add `GameConfig::validate()` returning warnings; log them at startup (Low / Medium).
-5. [ ] Introduce basic CI (build + test + clippy + fmt) GitHub Action (Low / High ongoing benefit).
+5. [x] Introduce basic CI (build + test + clippy + fmt) GitHub Action + local hooks (Low / High ongoing benefit). Added `.github/workflows/ci.yml` (format, clippy -D warnings, tests, wasm build), cargo alias `ci`, and optional pre-commit scripts.
 6. [x] Replace `expect` in config load with layered graceful fallback + error log (implemented: `GameConfig::load_layered` + warnings; defaults used when files missing) (Low / Medium robustness).
 7. [ ] Create feature flags for optional systems (clusters, metaballs, radial-gravity, emitter) (Low-Med / Medium).
 8. [ ] Add module docs & top-level architecture doc stub (`docs/architecture.md`) (Low / Medium onboarding).

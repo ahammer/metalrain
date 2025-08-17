@@ -5,21 +5,21 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::RapierDebugRenderPlugin;
 
-mod config;
-mod components;
-mod rapier_physics;
-mod spawn;
 mod camera;
-mod game;
-mod emitter;
-mod separation;
-mod system_order;
-mod materials;
 mod cluster; // clustering of touching same-color balls
-mod metaballs; // shader-based cluster metaball visualization
-mod radial_gravity; // custom radial gravity force
+mod components;
+mod config;
+mod emitter;
+mod game;
 mod input_interaction; // tap explosion & drag interactions
-mod palette; // centralized color palette
+mod materials;
+mod metaballs; // shader-based cluster metaball visualization
+mod palette;
+mod radial_gravity; // custom radial gravity force
+mod rapier_physics;
+mod separation;
+mod spawn;
+mod system_order; // centralized color palette
 
 use config::GameConfig;
 
@@ -67,17 +67,15 @@ fn main() {
 
     let mut app = App::new();
     app.insert_resource(cfg.clone())
-        .add_plugins(
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: cfg.window.title.clone(),
-                    resolution: (cfg.window.width, cfg.window.height).into(),
-                    resizable: true,
-                    ..default()
-                }),
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: cfg.window.title.clone(),
+                resolution: (cfg.window.width, cfg.window.height).into(),
+                resizable: true,
                 ..default()
             }),
-        );
+            ..default()
+        }));
 
     // Add core game plugins
     app.add_plugins(GamePlugin);

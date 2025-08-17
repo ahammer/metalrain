@@ -3,3 +3,7 @@ rustflags = [
   "--cfg=getrandom_backend=\"wasm_js\"",
   "-C", "target-feature=+simd128"
 ]
+
+[alias]
+# Aggregate local CI style checks; usage: cargo ci
+ci = "fmt --all -- --check && clippy --all-targets --all-features -- -D warnings && test --all --all-features --no-fail-fast"

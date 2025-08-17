@@ -28,6 +28,20 @@ cargo build --release --target wasm32-unknown-unknown
 ```
 Artifacts appear in `target/wasm32-unknown-unknown/release/` and are post-processed in CI with `wasm-bindgen`.
 
+### Local Quality Gates
+Before committing you can run the aggregated checks:
+```powershell
+cargo ci
+```
+This expands to `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test`.
+
+Optional git pre-commit hook (Unix):
+```bash
+git config core.hooksPath scripts
+cp scripts/pre-commit .git/hooks/pre-commit
+```
+On Windows PowerShell you may instead copy `scripts/pre-commit.ps1` as needed.
+
 ## What You See
 - Elastic bouncing balls (random position, velocity, radius, color)
 - Optional overlap separation & velocity damping

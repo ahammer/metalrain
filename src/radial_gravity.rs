@@ -20,7 +20,9 @@ fn apply_radial_gravity(
     time: Res<Time>,
 ) {
     let g = cfg.gravity.y.abs();
-    if g <= 0.0 { return; }
+    if g <= 0.0 {
+        return;
+    }
     let dt = time.delta_seconds();
     for (transform, mut vel) in q.iter_mut() {
         let pos = transform.translation.truncate();
@@ -30,8 +32,12 @@ fn apply_radial_gravity(
 
 /// Pure helper used by the system and unit tests: returns velocity delta for one step.
 fn radial_gravity_delta(g: f32, dt: f32, pos: Vec2) -> Vec2 {
-    if g <= 0.0 || dt <= 0.0 { return Vec2::ZERO; }
-    if pos.length_squared() < 1e-6 { return Vec2::ZERO; }
+    if g <= 0.0 || dt <= 0.0 {
+        return Vec2::ZERO;
+    }
+    if pos.length_squared() < 1e-6 {
+        return Vec2::ZERO;
+    }
     let dir_to_center = -pos.normalize();
     dir_to_center * g * dt
 }
@@ -46,14 +52,23 @@ mod tests {
         let dt = 0.016;
         let pos = Vec2::new(100.0, 0.0);
         let delta = radial_gravity_delta(g, dt, pos);
-        assert!(delta.x < 0.0, "Expected negative x delta toward origin, got {delta:?}");
+        assert!(
+            delta.x < 0.0,
+            "Expected negative x delta toward origin, got {delta:?}"
+        );
         assert!(delta.length() > 0.0);
     }
 
     #[test]
     fn radial_gravity_zero_when_center_or_zero_dt() {
-        assert_eq!(radial_gravity_delta(100.0, 0.0, Vec2::new(10.0, 0.0)), Vec2::ZERO);
-        assert_eq!(radial_gravity_delta(0.0, 0.016, Vec2::new(10.0, 0.0)), Vec2::ZERO);
+        assert_eq!(
+            radial_gravity_delta(100.0, 0.0, Vec2::new(10.0, 0.0)),
+            Vec2::ZERO
+        );
+        assert_eq!(
+            radial_gravity_delta(0.0, 0.016, Vec2::new(10.0, 0.0)),
+            Vec2::ZERO
+        );
         assert_eq!(radial_gravity_delta(100.0, 0.016, Vec2::ZERO), Vec2::ZERO);
     }
 }

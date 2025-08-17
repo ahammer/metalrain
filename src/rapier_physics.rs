@@ -7,8 +7,8 @@ pub struct PhysicsSetupPlugin; // our wrapper to configure Rapier & arena
 
 impl Plugin for PhysicsSetupPlugin {
     fn build(&self, app: &mut App) {
-    app.add_plugins((RapierPhysicsPlugin::<NoUserData>::default(),))
-    .add_systems(Startup, configure_gravity);
+        app.add_plugins((RapierPhysicsPlugin::<NoUserData>::default(),))
+            .add_systems(Startup, configure_gravity);
     }
 }
 
