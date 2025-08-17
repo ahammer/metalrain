@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 
 use crate::camera::CameraPlugin;
-use crate::emitter::BallEmitterPlugin;
+use crate::spawn::BallSpawnPlugin;
 use crate::rapier_physics::PhysicsSetupPlugin;
 use crate::separation::SeparationPlugin;
 use crate::system_order::{PrePhysicsSet, PostPhysicsAdjustSet};
@@ -30,7 +30,7 @@ impl Plugin for GamePlugin {
             MaterialsPlugin,
             PhysicsSetupPlugin,
             RadialGravityPlugin,
-            BallEmitterPlugin,
+            BallSpawnPlugin, // initial burst only
             SeparationPlugin,
             ClusterPlugin,
             MetaballsPlugin,

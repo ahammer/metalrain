@@ -1,5 +1,9 @@
 use bevy::prelude::*;
 
+// System set to ensure material palette is initialized before other Startup systems that depend on it.
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub struct BallMaterialsInitSet;
+
 /// Resource containing the visual color materials used for balls.
 #[derive(Resource)]
 pub struct BallDisplayMaterials(pub Vec<Handle<ColorMaterial>>);
@@ -18,7 +22,7 @@ pub struct MaterialsPlugin;
 
 impl Plugin for MaterialsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ball_materials);
+        app.add_systems(Startup, setup_ball_materials.in_set(BallMaterialsInitSet));
     }
 }
 

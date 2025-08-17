@@ -3,7 +3,7 @@ use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
 use crate::components::{Ball, BallRadius};
-use crate::materials::{BallDisplayMaterials, BallPhysicsMaterials, BallMaterialIndex};
+use crate::materials::{BallDisplayMaterials, BallPhysicsMaterials, BallMaterialIndex, BallMaterialsInitSet};
 use crate::config::GameConfig;
 
 pub struct BallSpawnPlugin;
@@ -13,7 +13,8 @@ pub struct CircleMesh(pub Handle<Mesh>);
 
 impl Plugin for BallSpawnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_balls);
+        // Ensure we spawn only after materials have been initialized so palette-based randomization works.
+        app.add_systems(Startup, spawn_balls.after(BallMaterialsInitSet));
     }
 }
 
@@ -31,43 +32,57 @@ fn spawn_balls(
     let mut rng = rand::thread_rng();
     let c = &cfg.balls;
 
-    // For omni-directional spawn we interpret configured ranges as window interior size fallback.
-    // Spawn positions picked on rectangle perimeter (random edge) then give velocity aiming toward center with noise.
-    for _ in 0..c.count {
-        let radius = rng.gen_range(c.radius_range.min..c.radius_range.max);
-        // Choose an edge: 0=left,1=right,2=bottom,3=top
-        let edge = rng.gen_range(0..4);
-        let (x, y) = match edge {
-            0 => { // left
-                let y = rng.gen_range(c.y_range.min..c.y_range.max);
-                (c.x_range.min, y)
-            }
-            1 => { // right
-                let y = rng.gen_range(c.y_range.min..c.y_range.max);
-                (c.x_range.max, y)
-            }
-            2 => { // bottom
-                let x = rng.gen_range(c.x_range.min..c.x_range.max);
-                (x, c.y_range.min)
-            }
-            _ => { // top
-                let x = rng.gen_range(c.x_range.min..c.x_range.max);
-                (x, c.y_range.max)
-            }
-        };
-        // Direction toward center (0,0)
-        let to_center = Vec2::new(-x, -y).normalize_or_zero();
-        // Add random variation scaled by configured velocity ranges.
-        let jitter = Vec2::new(
-            rng.gen_range(c.vel_x_range.min..c.vel_x_range.max),
-            rng.gen_range(c.vel_y_range.min..c.vel_y_range.max),
+    // Determine ring radius OFF-SCREEN: choose a circle whose radius exceeds the window half-diagonal
+    // so every spawn starts fully outside view (even in corners).
+    // half diagonal = sqrt((w/2)^2 + (h/2)^2). Add max ball radius + small margin.
+    let half_w = cfg.window.width * 0.5;
+    let half_h = cfg.window.height * 0.5;
+    let half_diag = (half_w * half_w + half_h * half_h).sqrt();
+    let max_ball_r = c.radius_range.max.max(c.radius_range.min);
+    let ring_radius = half_diag + max_ball_r + 10.0; // 10px safety margin
+    let center = Vec2::ZERO;
+    let count = c.count.max(1);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let angle = t * std::f32::consts::TAU;
+        let dir = Vec2::new(angle.cos(), angle.sin());
+        let radius = if c.radius_range.min < c.radius_range.max {
+            rng.gen_range(c.radius_range.min..c.radius_range.max)
+        } else { c.radius_range.min };
+    let pos2 = center + dir * ring_radius;
+
+        // Derive a reasonable max speed from provided velocity ranges (use absolute extremes)
+        let vx_ext = c.vel_x_range.max.abs().max(c.vel_x_range.min.abs());
+        let vy_ext = c.vel_y_range.max.abs().max(c.vel_y_range.min.abs());
+        let max_speed = vx_ext.max(vy_ext).max(1.0); // ensure > 0
+        // Sample a base speed between 30% and 100% of that max for variety
+        let base_speed = rng.gen_range(0.30 * max_speed..max_speed);
+
+        // Chaos: add tangential component + random scalar jitter so motion not perfectly radial.
+        let tangential = Vec2::new(-dir.y, dir.x);
+        let tangential_factor = rng.gen_range(-0.6..0.6); // spin variation
+        let radial_jitter = rng.gen_range(0.85..1.15);    // vary inward magnitude
+        let extra_noise = Vec2::new(
+            rng.gen_range(-0.25..0.25) * base_speed,
+            rng.gen_range(-0.25..0.25) * base_speed,
         );
-        let base_speed = jitter.length();
-        let vel = to_center * base_speed + jitter * 0.25; // mostly inward with some randomness
-        // Choose material variant index
-        let variant_idx = if let Some(p) = &display_palette { rng.gen_range(0..p.0.len()) } else { 0 };
-        let (material, restitution) = if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) {
-            (disp.0[variant_idx].clone(), phys.0[variant_idx].restitution)
+        let vel = (-dir * base_speed * radial_jitter) + (tangential * base_speed * tangential_factor) + extra_noise;
+
+        // Choose material variant index & restitution
+        let (material, restitution, variant_idx) = if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) {
+            if !disp.0.is_empty() && !phys.0.is_empty() {
+                let idx_range_end = disp.0.len().min(phys.0.len());
+                let idx = if idx_range_end > 1 { rng.gen_range(0..idx_range_end) } else { 0 };
+                (disp.0[idx].clone(), phys.0[idx].restitution, idx)
+            } else {
+                let color = Color::srgb(
+                    rng.gen::<f32>() * 0.9 + 0.1,
+                    rng.gen::<f32>() * 0.9 + 0.1,
+                    rng.gen::<f32>() * 0.9 + 0.1,
+                );
+                (materials.add(color), cfg.bounce.restitution, 0)
+            }
         } else {
             // Fallback to random color if palettes missing (should not happen after MaterialsPlugin loads)
             let color = Color::srgb(
@@ -75,12 +90,13 @@ fn spawn_balls(
                 rng.gen::<f32>() * 0.9 + 0.1,
                 rng.gen::<f32>() * 0.9 + 0.1,
             );
-            (materials.add(color), cfg.bounce.restitution)
+            (materials.add(color), cfg.bounce.restitution, 0)
         };
+
         spawn_ball_entity(
             &mut commands,
             &circle_handle,
-            Vec3::new(x, y, 0.0),
+            Vec3::new(pos2.x, pos2.y, 0.0),
             vel,
             radius,
             material,
@@ -89,6 +105,8 @@ fn spawn_balls(
             cfg.draw_circles,
         );
     }
+
+    info!("spawned {} balls in off-screen ring (radius {:.1})", count, ring_radius);
 }
 
 /// Reusable helper to spawn a single ball.
