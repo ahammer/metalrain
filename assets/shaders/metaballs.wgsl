@@ -18,6 +18,8 @@ struct MetaballsData {
     roughness: f32,         // perceptual roughness in [0,1]
     env_intensity: f32,     // environment reflection intensity
     spec_intensity: f32,    // direct specular multiplier
+    debug_view: u32,        // 0=Normal shaded,1=Heightfield,2=ColorInfo
+    _pad_dbg: vec3<f32>,
     // (header now 64 bytes; arrays follow aligned to 16)
     balls: array<vec4<f32>, MAX_BALLS>,          // (x, y, radius, cluster_index as float)
     cluster_colors: array<vec4<f32>, MAX_CLUSTERS>, // (r,g,b,_)
@@ -100,7 +102,30 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let field_normal = normalize(vec3<f32>(grad, metaballs.normal_z_scale));
     let n = normalize(mix(field_normal, sphere_normal, 0.6));
 
-    // Lighting: single directional + environment reflection approximation.
+    // Branch early for debug view variants that bypass full shading.
+    if (metaballs.debug_view == 1u) { // Heightfield: visualize raw field value pre-iso with edge mask
+        let grad_len = max(length(grad), 1e-5);
+        let s = (field - metaballs.iso) / grad_len;
+        let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
+        let aa = 1.5 * px;
+        let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
+        let gray = clamp(field, 0.0, 4.0) / 4.0; // normalized approx
+        return vec4<f32>(vec3<f32>(gray), mask);
+    }
+    if (metaballs.debug_view == 2u) { // ColorInfo: show cluster color table directly, no lighting
+        let grad_len = max(length(grad), 1e-5);
+        let s = (field - metaballs.iso) / grad_len;
+        let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
+        let aa = 1.5 * px;
+        let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
+        var base_col: vec3<f32> = vec3<f32>(0.5,0.5,0.5);
+        if (nearest_cluster < metaballs.cluster_color_count) {
+            base_col = metaballs.cluster_colors[nearest_cluster].rgb;
+        }
+        return vec4<f32>(base_col, mask);
+    }
+
+    // Lighting: single directional + environment reflection approximation (Normal mode only).
     let L = normalize(vec3<f32>(0.6, 0.5, 1.0));
     let V = normalize(vec3<f32>(0.0, 0.0, 1.0));
     let H = normalize(L + V);

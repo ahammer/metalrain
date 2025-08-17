@@ -34,6 +34,9 @@ struct MetaballsUniform {
     roughness: f32,
     env_intensity: f32,
     spec_intensity: f32,
+    // Debug view variant selector: 0=Normal shaded metaballs, 1=Heightfield (grayscale field), 2=ColorInfo (cluster index coloring)
+    debug_view: u32,
+    _pad2: Vec3, // align to 16 bytes (u32 + 12 bytes padding)
     // Per-ball packed data: (x, y, radius, cluster_index as float)
     balls: [Vec4; MAX_BALLS],
     // Cluster colors as linear RGB in xyz, w unused (or could store pre-mult factor)
@@ -54,6 +57,8 @@ impl Default for MetaballsUniform {
             roughness: 0.5,
             env_intensity: 0.0,
             spec_intensity: 0.5,
+            debug_view: 0,
+            _pad2: Vec3::ZERO,
             balls: [Vec4::ZERO; MAX_BALLS],
             cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
         }
@@ -164,6 +169,8 @@ fn update_metaballs_material(
     q_mat: Query<&MeshMaterial2d<MetaballsMaterial>, With<MetaballsQuad>>,
     toggle: Res<MetaballsToggle>,
     params: Res<MetaballsParams>,
+    #[cfg(feature = "debug")]
+    debug_overrides: Option<Res<crate::debug::DebugVisualOverrides>>,
 ) {
     if !toggle.0 {
         return;
@@ -182,6 +189,18 @@ fn update_metaballs_material(
     mat.data.roughness = params.roughness.clamp(0.04, 1.0);
     mat.data.env_intensity = params.env_intensity.max(0.0);
     mat.data.spec_intensity = params.spec_intensity.max(0.0);
+    // Apply debug view (only when debug feature compiled). Falls back to 0 (Normal).
+    #[cfg(feature = "debug")]
+    {
+        if let Some(overrides) = debug_overrides {
+            use crate::debug::MetaballsViewVariant;
+            mat.data.debug_view = match overrides.metaballs_view_variant {
+                MetaballsViewVariant::Normal => 0,
+                MetaballsViewVariant::Heightfield => 1,
+                MetaballsViewVariant::ColorInfo => 2,
+            } as u32;
+        }
+    }
     // Derive radius_scale so that field at boundary ~ iso.
     // Kernel f = (1 - (d/R)^2)^3. Want radius_visual = R such that f(d=R) = 0 (already), but iso typically <1.
     // If we want iso to hit at d = R_physical, we need original kernel value at physical radius to equal iso.
