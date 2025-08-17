@@ -31,7 +31,7 @@ impl Plugin for DebugPlugin {
     fn build(&self, app: &mut App) {
         use keys::debug_key_input_system;
         use logging::debug_logging_system;
-        use overlay::{debug_overlay_spawn, debug_overlay_update};
+    use overlay::{debug_overlay_spawn, debug_overlay_update, debug_config_overlay_update};
         use stats::debug_stats_collect_system;
         use modes::apply_mode_visual_overrides_system;
     use modes::propagate_metaballs_view_system;
@@ -84,7 +84,9 @@ impl Plugin for DebugPlugin {
             propagate_metaballs_view_system,
                     toggle_circle_visibility,
                     toggle_rapier_debug,
-                    debug_logging_system,
+            debug_logging_system,
+        #[cfg(not(test))]
+        debug_config_overlay_update,
             #[cfg(not(test))]
             debug_overlay_update,
                 )
