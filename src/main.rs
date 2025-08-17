@@ -81,9 +81,21 @@ fn main() {
     // Add core game plugins
     app.add_plugins(GamePlugin);
 
-    // Conditionally add rapier debug render if enabled
-    if cfg.rapier_debug {
-        app.add_plugins(RapierDebugRenderPlugin::default());
+    // Add rapier debug render if config requests OR when debug feature compiled (we'll gate visibility at runtime by mode)
+    #[cfg(feature = "debug")]
+    {
+        if cfg.rapier_debug {
+            app.add_plugins(RapierDebugRenderPlugin::default());
+        } else {
+            // Always add in debug builds to allow mode 4 activation
+            app.add_plugins(RapierDebugRenderPlugin::default());
+        }
+    }
+    #[cfg(not(feature = "debug"))]
+    {
+        if cfg.rapier_debug {
+            app.add_plugins(RapierDebugRenderPlugin::default());
+        }
     }
 
     #[cfg(target_arch = "wasm32")]

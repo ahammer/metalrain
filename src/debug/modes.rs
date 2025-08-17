@@ -23,10 +23,14 @@ pub struct DebugState {
     pub frame_counter: u64,
     pub last_ball_count: usize,
     pub last_cluster_count: usize,
+    // Alert cooldown tracking (frame indices of last emitted alerts)
+    pub last_frame_time_alert_frame: u64,
+    pub last_ball_alert_frame: u64,
+    pub last_cluster_alert_frame: u64,
 }
 
 #[cfg(feature = "debug")]
-impl Default for DebugState { fn default() -> Self { Self { mode: DebugRenderMode::Metaballs, last_mode: DebugRenderMode::Metaballs, overlay_visible: true, log_interval: 1.0, time_accum: 0.0, frame_counter: 0, last_ball_count: 0, last_cluster_count: 0 } } }
+impl Default for DebugState { fn default() -> Self { Self { mode: DebugRenderMode::Metaballs, last_mode: DebugRenderMode::Metaballs, overlay_visible: true, log_interval: 1.0, time_accum: 0.0, frame_counter: 0, last_ball_count: 0, last_cluster_count: 0, last_frame_time_alert_frame: 0, last_ball_alert_frame: 0, last_cluster_alert_frame: 0 } } }
 
 #[cfg(feature = "debug")]
 #[derive(Resource, Default, Debug, Clone)]
@@ -64,7 +68,7 @@ pub fn propagate_metaballs_view_system(
         MetaballsViewVariant::ColorInfo => 2u32,
     };
     if view_id == last.0 { return; }
-    if let Ok(handle_comp) = q_mat.get_single() {
+    if let Ok(handle_comp) = q_mat.single() {
         if let Some(mat) = materials.get_mut(&handle_comp.0) {
             mat.set_debug_view(view_id);
             last.0 = view_id;

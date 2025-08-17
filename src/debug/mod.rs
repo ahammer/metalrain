@@ -4,7 +4,7 @@
 #[cfg(feature = "debug")]
 mod modes;
 #[cfg(feature = "debug")]
-mod keys;
+pub mod keys; // pub for testing
 #[cfg(feature = "debug")]
 mod stats;
 #[cfg(feature = "debug")]
@@ -36,6 +36,9 @@ impl Plugin for DebugPlugin {
         use modes::apply_mode_visual_overrides_system;
     use modes::propagate_metaballs_view_system;
         use crate::components::BallCircleVisual;
+    #[cfg(feature = "debug")]
+    use bevy_rapier2d::render::DebugRenderContext;
+
 
         fn toggle_circle_visibility(
             state: Res<modes::DebugState>,
@@ -48,13 +51,24 @@ impl Plugin for DebugPlugin {
             }
         }
 
+        #[cfg(feature = "debug")]
+        fn toggle_rapier_debug(state: Res<modes::DebugState>, ctx: Option<ResMut<DebugRenderContext>>) {
+            if let Some(mut c) = ctx {
+                use modes::DebugRenderMode::*;
+                let enable = matches!(state.mode, RapierWireframe);
+                if c.enabled != enable { c.enabled = enable; }
+            }
+        }
+
         app.init_resource::<modes::DebugState>()
-        .init_resource::<modes::DebugStats>()
+            .init_resource::<modes::DebugStats>()
             .init_resource::<modes::DebugVisualOverrides>()
-        .init_resource::<modes::LastAppliedMetaballsView>()
-            .configure_sets(Update, DebugPreRenderSet.after(PostPhysicsAdjustSet))
-            .add_systems(Startup, debug_overlay_spawn)
-            .add_systems(
+            .init_resource::<modes::LastAppliedMetaballsView>()
+            .configure_sets(Update, DebugPreRenderSet.after(PostPhysicsAdjustSet));
+        // In tests, skip overlay spawn (AssetServer not present with MinimalPlugins)
+    #[cfg(all(not(test)))]
+    app.add_systems(Startup, debug_overlay_spawn);
+    app.add_systems(
                 Update,
                 (
                     debug_key_input_system,
@@ -62,8 +76,10 @@ impl Plugin for DebugPlugin {
                     apply_mode_visual_overrides_system,
             propagate_metaballs_view_system,
                     toggle_circle_visibility,
+                    toggle_rapier_debug,
                     debug_logging_system,
-                    debug_overlay_update,
+            #[cfg(not(test))]
+            debug_overlay_update,
                 )
                     .in_set(DebugPreRenderSet),
             );
