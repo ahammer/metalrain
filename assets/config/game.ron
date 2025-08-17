@@ -29,7 +29,7 @@
     draw_circles: false,
     metaballs_enabled: true,
     metaballs: (
-        iso: 0.3,
+        iso: 0.1,
         normal_z_scale: 0.5,
         metallic: 1.0,
         roughness: 0.2,
@@ -37,6 +37,7 @@
         spec_intensity: 0.5,
         hard_cluster_boundaries: false,
         color_blend_exponent: 1.0,
+    radius_multiplier: 1.0,
     ),
     draw_cluster_bounds: false,
     interactions: (

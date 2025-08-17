@@ -131,6 +131,7 @@ fn poll_and_reload_config(
             p.spec_intensity = new_cfg.metaballs.spec_intensity;
             p.hard_cluster_boundaries = new_cfg.metaballs.hard_cluster_boundaries;
             p.color_blend_exponent = new_cfg.metaballs.color_blend_exponent.max(0.01);
+            p.radius_multiplier = new_cfg.metaballs.radius_multiplier.max(0.0001);
         }
     }
 }

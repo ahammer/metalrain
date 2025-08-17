@@ -206,6 +206,9 @@ pub struct MetaballsRenderConfig {
     pub hard_cluster_boundaries: bool,
     /// Exponent applied to per-ball field contribution when color blending (>=1). Higher -> more localized colors, lower (<1) -> more wash/mixing.
     pub color_blend_exponent: f32,
+    /// Multiplier applied to each physical ball radius ONLY for the metaballs distance field (visual expansion / contraction).
+    /// Does not change physics or circle debug rendering. Values >1.0 make blobs fuse earlier; <1.0 tighten them.
+    pub radius_multiplier: f32,
 }
 impl Default for MetaballsRenderConfig {
     fn default() -> Self {
@@ -218,6 +221,7 @@ impl Default for MetaballsRenderConfig {
             spec_intensity: 0.5,
             hard_cluster_boundaries: false,
             color_blend_exponent: 1.0,
+            radius_multiplier: 1.0,
         }
     }
 }
@@ -431,6 +435,17 @@ impl GameConfig {
                 ));
             }
         }
+        if self.metaballs.radius_multiplier <= 0.0 {
+            w.push(format!(
+                "metaballs.radius_multiplier {} must be > 0 (visual scaling)",
+                self.metaballs.radius_multiplier
+            ));
+        } else if self.metaballs.radius_multiplier > 5.0 {
+            w.push(format!(
+                "metaballs.radius_multiplier {} very large (visual field may become overly blobby)",
+                self.metaballs.radius_multiplier
+            ));
+        }
         w
     }
 }
@@ -472,6 +487,7 @@ mod tests {
                 spec_intensity: 0.4,
                 hard_cluster_boundaries: false,
                 color_blend_exponent: 1.0,
+                radius_multiplier: 1.25,
             ),
             draw_cluster_bounds: false,
             interactions: (
@@ -535,6 +551,7 @@ mod tests {
                 spec_intensity: 0.5,
                 hard_cluster_boundaries: false,
                 color_blend_exponent: 1.0,
+                radius_multiplier: 1.0,
             },
             draw_cluster_bounds: false,
             interactions: InteractionConfig {

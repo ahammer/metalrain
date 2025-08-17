@@ -21,6 +21,7 @@ struct MetaballsData {
     debug_view: u32,        // 0=Normal shaded,1=Heightfield,2=ColorInfo
     color_mode: u32,        // 0 = smooth blend, 1 = hard nearest cluster
     color_blend_exponent: f32, // exponent applied to contribution when blending colors
+    radius_multiplier: f32,    // user visual expansion factor (multiplies each stored radius before radius_scale)
     _pad_dbg: vec2<f32>,
     // (header now 64 bytes; arrays follow aligned to 16)
     balls: array<vec4<f32>, MAX_BALLS>,          // (x, y, radius, cluster_index as float)
@@ -62,7 +63,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     for (var i: u32 = 0u; i < metaballs.ball_count; i = i + 1u) {
         let b = metaballs.balls[i];
         let center = b.xy;
-        let radius = b.z;
+    let radius = b.z * metaballs.radius_multiplier; // apply user-configured multiplier
         if (radius <= 0.0) { continue; }
         let d = p - center;
         let d2 = dot(d, d);
@@ -71,20 +72,24 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if (d2 < r2) {
             let x = 1.0 - d2 / r2; // in [0,1]
             let x2 = x * x;
-            let fi = x2 * x; // contribution
+            let fi = x2 * x; // contribution of THIS ball
             field = field + fi;
             grad = grad + (-6.0 / r2) * d * x2;
+            // Track nearest ball for lighting / debug
             if (d2 < nearest_d2) {
                 nearest_d2 = d2;
                 nearest_cluster = u32(b.w + 0.5);
                 nearest_local_r2 = r2;
                 nearest_center = center;
             }
-            // For blending accumulate weighted color (if color_mode==0)
+            // Smooth color blending should use each ball's own cluster/color index, NOT the current nearest.
+            // Previous implementation mistakenly looked up the nearest ball's cluster for every contributing ball,
+            // which collapsed colors to local regions and visually reduced merging cues.
             if (metaballs.color_mode == 0u) {
+                let this_cluster = u32(b.w + 0.5);
                 let w = pow(fi, metaballs.color_blend_exponent);
-                if (nearest_cluster < metaballs.cluster_color_count) {
-                    let c = metaballs.cluster_colors[nearest_cluster].rgb;
+                if (this_cluster < metaballs.cluster_color_count) {
+                    let c = metaballs.cluster_colors[this_cluster].rgb;
                     blend_sum += c * w;
                     weight_sum += w;
                 }
