@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::palette::color_for_index;
 
 use crate::components::{Ball, BallRadius};
 use crate::materials::{BallDisplayMaterials, BallMaterialIndex};
@@ -239,15 +240,7 @@ fn debug_draw_clusters(
         let size = max - min;
         if !size.x.is_finite() { continue; }
         let center = min + size * 0.5;
-        // Map color index to stable palette (duplicated from materials for debug only)
-        let color = match cl.color_index % 6 {
-            0 => Color::srgb(0.90, 0.20, 0.25),
-            1 => Color::srgb(0.20, 0.55, 0.90),
-            2 => Color::srgb(0.95, 0.75, 0.15),
-            3 => Color::srgb(0.20, 0.80, 0.45),
-            4 => Color::srgb(0.65, 0.45, 0.95),
-            _ => Color::srgb(0.95, 0.50, 0.15),
-        };
+        let color = color_for_index(cl.color_index);
         gizmos.rect_2d(center, 0.0, size, color);
     }
 }

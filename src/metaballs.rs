@@ -10,6 +10,7 @@ use crate::cluster::Clusters;
 use crate::config::GameConfig;
 use crate::components::{Ball, BallRadius};
 use crate::materials::BallMaterialIndex;
+use crate::palette::color_for_index; // added
 
 // Limits chosen to keep uniform size reasonable (< 64KB)
 pub const MAX_BALLS: usize = 1024; // each uses one Vec4
@@ -166,14 +167,7 @@ fn update_metaballs_material(
     let mut color_count = 0usize;
     for cl in clusters.0.iter() { // clusters already grouped by color index; one entry per cluster color instance (could dedupe by color_index if desired)
         if color_count >= MAX_CLUSTERS { break; }
-        let color = match cl.color_index % 6 {
-            0 => Color::srgb(0.90, 0.20, 0.25),
-            1 => Color::srgb(0.20, 0.55, 0.90),
-            2 => Color::srgb(0.95, 0.75, 0.15),
-            3 => Color::srgb(0.20, 0.80, 0.45),
-            4 => Color::srgb(0.65, 0.45, 0.95),
-            _ => Color::srgb(0.95, 0.50, 0.15),
-        };
+        let color = color_for_index(cl.color_index);
         let srgb = color.to_srgba();
         mat.data.cluster_colors[color_count] = Vec4::new(srgb.red, srgb.green, srgb.blue, 1.0);
         color_count += 1;
