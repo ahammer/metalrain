@@ -35,6 +35,18 @@ impl Plugin for DebugPlugin {
         use stats::debug_stats_collect_system;
         use modes::apply_mode_visual_overrides_system;
     use modes::propagate_metaballs_view_system;
+        use crate::components::BallCircleVisual;
+
+        fn toggle_circle_visibility(
+            state: Res<modes::DebugState>,
+            mut q: Query<&mut Visibility, With<BallCircleVisual>>,
+        ) {
+            use modes::DebugRenderMode::*;
+            let show = matches!(state.mode, BallsFlat | BallsWithClusters | RapierWireframe);
+            for mut vis in q.iter_mut() {
+                vis.set_if_neq(if show { Visibility::Visible } else { Visibility::Hidden });
+            }
+        }
 
         app.init_resource::<modes::DebugState>()
         .init_resource::<modes::DebugStats>()
@@ -49,6 +61,7 @@ impl Plugin for DebugPlugin {
                     debug_stats_collect_system,
                     apply_mode_visual_overrides_system,
             propagate_metaballs_view_system,
+                    toggle_circle_visibility,
                     debug_logging_system,
                     debug_overlay_update,
                 )

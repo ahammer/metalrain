@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
-use crate::components::{Ball, BallRadius};
+use crate::components::{Ball, BallRadius, BallCircleVisual};
 use crate::config::GameConfig;
 use crate::materials::{
     BallDisplayMaterials, BallMaterialIndex, BallMaterialsInitSet, BallPhysicsMaterials,
@@ -160,6 +160,7 @@ pub fn spawn_ball_entity(
                 Mesh2d::from(circle_mesh.clone()),
                 MeshMaterial2d(material),
                 Transform::from_scale(Vec3::splat(radius * 2.0)),
+                BallCircleVisual,
             ));
         });
     }
