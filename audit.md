@@ -109,7 +109,7 @@ Focus: Only opportunities to simplify, harden, or better organize for future gro
 ## Impact vs Effort Checklist
 Legend: [ ] not started. Order = highest leverage first (impact/effort).
 
-1. [ ] Centralize color palette logic (single module) & replace duplicates (Low effort / High impact).
+1. [x] Centralize color palette logic (single module) & replace duplicates (Low effort / High impact).
 2. [ ] Remove or feature-gate unused `physics.rs`; implement `--features legacy-physics` (Low / High clarity).
 3. [ ] Delete or implement `config_hot_reload.rs`; if implementing, minimal file watcher updating `GameConfig` (Low / High).
 4. [ ] Add `GameConfig::validate()` returning warnings; log them at startup (Low / Medium).
