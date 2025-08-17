@@ -42,7 +42,7 @@ impl Plugin for DebugPlugin {
 
         fn toggle_circle_visibility(
             state: Res<modes::DebugState>,
-            mut q_circles: Query<&mut Visibility, With<BallCircleVisual>>,
+            mut q_circles: Query<&mut Visibility, (With<BallCircleVisual>, Without<crate::metaballs::MetaballsQuad>)>,
             mut q_metaballs_quad: Query<&mut Visibility, With<crate::metaballs::MetaballsQuad>>,
         ) {
             use modes::DebugRenderMode::*;
