@@ -21,6 +21,8 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app
+            // Explicit background clear so switching off metaballs (which rendered a full-screen quad) produces a fresh frame
+            .insert_resource(ClearColor(Color::BLACK))
             // Register custom system sets (order constraints added later as needed)
             .configure_sets(
                 Update,

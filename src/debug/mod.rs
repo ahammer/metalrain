@@ -42,12 +42,19 @@ impl Plugin for DebugPlugin {
 
         fn toggle_circle_visibility(
             state: Res<modes::DebugState>,
-            mut q: Query<&mut Visibility, With<BallCircleVisual>>,
+            mut q_circles: Query<&mut Visibility, With<BallCircleVisual>>,
+            mut q_metaballs_quad: Query<&mut Visibility, With<crate::metaballs::MetaballsQuad>>,
         ) {
             use modes::DebugRenderMode::*;
-            let show = matches!(state.mode, BallsFlat | BallsWithClusters | RapierWireframe);
-            for mut vis in q.iter_mut() {
-                vis.set_if_neq(if show { Visibility::Visible } else { Visibility::Hidden });
+            // Circles shown for flat / cluster / rapier modes
+            let show_circles = matches!(state.mode, BallsFlat | BallsWithClusters | RapierWireframe);
+            for mut vis in q_circles.iter_mut() {
+                vis.set_if_neq(if show_circles { Visibility::Visible } else { Visibility::Hidden });
+            }
+            // Metaballs quad only visible for metaball-based modes
+            let show_metaballs = matches!(state.mode, Metaballs | MetaballHeightfield | MetaballColorInfo);
+            if let Ok(mut vis) = q_metaballs_quad.single_mut() {
+                vis.set_if_neq(if show_metaballs { Visibility::Visible } else { Visibility::Hidden });
             }
         }
 

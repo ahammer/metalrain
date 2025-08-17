@@ -162,6 +162,7 @@ fn setup_metaballs(
         Mesh2d::from(mesh_handle),
         MeshMaterial2d(material_handle),
         Transform::from_xyz(0.0, 0.0, 50.0),
+    Visibility::Visible,
         MetaballsQuad,
     ));
 }
