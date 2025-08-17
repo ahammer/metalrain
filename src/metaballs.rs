@@ -36,7 +36,10 @@ pub(crate) struct MetaballsUniform {
     spec_intensity: f32,
     // Debug view variant selector: 0=Normal shaded metaballs, 1=Heightfield (grayscale field), 2=ColorInfo (cluster index coloring)
     debug_view: u32,
-    _pad2: Vec3, // align to 16 bytes (u32 + 12 bytes padding)
+    // 0 = smooth blend, 1 = hard cluster boundary
+    color_mode: u32,
+    color_blend_exponent: f32,
+    _pad2: Vec2, // align to 16 bytes (u32+f32+vec2)
     // Per-ball packed data: (x, y, radius, cluster_index as float)
     balls: [Vec4; MAX_BALLS],
     // Cluster colors as linear RGB in xyz, w unused (or could store pre-mult factor)
@@ -58,7 +61,9 @@ impl Default for MetaballsUniform {
             env_intensity: 0.0,
             spec_intensity: 0.5,
             debug_view: 0,
-            _pad2: Vec3::ZERO,
+            color_mode: 0,
+            color_blend_exponent: 1.0,
+            _pad2: Vec2::ZERO,
             balls: [Vec4::ZERO; MAX_BALLS],
             cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
         }
@@ -96,6 +101,8 @@ pub struct MetaballsParams {
     pub roughness: f32,
     pub env_intensity: f32,
     pub spec_intensity: f32,
+    pub hard_cluster_boundaries: bool,
+    pub color_blend_exponent: f32,
 }
 #[derive(Component)]
 pub struct MetaballsQuad;
@@ -109,6 +116,8 @@ impl Default for MetaballsParams {
             roughness: 0.5,
             env_intensity: 0.0,
             spec_intensity: 0.5,
+            hard_cluster_boundaries: false,
+            color_blend_exponent: 1.0,
         }
     }
 }
@@ -120,7 +129,7 @@ impl Plugin for MetaballsPlugin {
         app.init_resource::<MetaballsToggle>()
             .init_resource::<MetaballsParams>()
             .add_plugins((Material2dPlugin::<MetaballsMaterial>::default(),))
-            .add_systems(Startup, (initialize_toggle_from_config, setup_metaballs))
+            .add_systems(Startup, (initialize_toggle_from_config, apply_config_to_params, setup_metaballs))
             .add_systems(
                 Update,
                 (
@@ -134,6 +143,17 @@ impl Plugin for MetaballsPlugin {
 
 fn initialize_toggle_from_config(mut toggle: ResMut<MetaballsToggle>, cfg: Res<GameConfig>) {
     toggle.0 = cfg.metaballs_enabled;
+}
+
+fn apply_config_to_params(mut params: ResMut<MetaballsParams>, cfg: Res<GameConfig>) {
+    params.iso = cfg.metaballs.iso;
+    params.normal_z_scale = cfg.metaballs.normal_z_scale;
+    params.metallic = cfg.metaballs.metallic;
+    params.roughness = cfg.metaballs.roughness;
+    params.env_intensity = cfg.metaballs.env_intensity;
+    params.spec_intensity = cfg.metaballs.spec_intensity;
+    params.hard_cluster_boundaries = cfg.metaballs.hard_cluster_boundaries;
+    params.color_blend_exponent = cfg.metaballs.color_blend_exponent.max(0.01);
 }
 
 // (Removed duplicate private MetaballsQuad definition)
@@ -196,6 +216,8 @@ fn update_metaballs_material(
     mat.data.roughness = params.roughness.clamp(0.04, 1.0);
     mat.data.env_intensity = params.env_intensity.max(0.0);
     mat.data.spec_intensity = params.spec_intensity.max(0.0);
+    mat.data.color_mode = if params.hard_cluster_boundaries { 1 } else { 0 };
+    mat.data.color_blend_exponent = params.color_blend_exponent.max(0.01);
     // Apply debug view (only when debug feature compiled). Falls back to 0 (Normal).
     #[cfg(feature = "debug")]
     {

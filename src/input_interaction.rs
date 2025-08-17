@@ -267,6 +267,7 @@ mod tests {
             rapier_debug: false,
             draw_circles: false,
             metaballs_enabled: false,
+            metaballs: crate::config::MetaballsRenderConfig::default(),
             draw_cluster_bounds: false,
             interactions: crate::config::InteractionConfig {
                 explosion: crate::config::ExplosionConfig {
@@ -334,6 +335,7 @@ mod tests {
             rapier_debug: false,
             draw_circles: false,
             metaballs_enabled: false,
+            metaballs: crate::config::MetaballsRenderConfig::default(),
             draw_cluster_bounds: false,
             interactions: crate::config::InteractionConfig {
                 explosion: crate::config::ExplosionConfig {

@@ -13,11 +13,13 @@ Purpose: 2D Bevy (0.16) sandbox demonstrating modular plugin structure + RON-dri
 - `camera.rs` (`CameraPlugin`): Startup camera spawn (`Camera2d`).
 - `cluster.rs` (`ClusterPlugin`): Recomputes per-frame connected components ("clusters") of touching same-color balls using spatial hashing + union-find; exposes `Clusters` resource and draws debug AABBs with gizmos (used later for metaball aggregation).
  - `metaballs.rs` (`MetaballsPlugin` + WGSL in `assets/shaders/metaballs.wgsl`): Fullscreen post-style pass rendering true metaballs from individual ball positions & radii via a bounded Wyvill kernel. Packs per-ball data into a uniform buffer (single draw) and analytically derives normals for simple lighting.
- - Metaballs shading now supports metallic PBR-ish highlights and hard cluster material boundaries:
-	 * New params in `MetaballsParams`: `metallic`, `roughness`, `env_intensity`, `spec_intensity` (plus existing `iso`, `normal_z_scale`).
-	 * Shader picks base color from nearest contributing ball (hard edge) instead of blending cluster colors.
-	 * Spherical-ish normals: mixes field gradient with reconstructed sphere normal for more convex highlight rolloff.
-	 * Keys: `[`/`]` adjust iso, `M` toggle metallic, `-`/`=` tweak roughness, `E` toggle environment intensity, `P` toggle specular.
+ - Metaballs shading supports PBR-ish highlights and selectable color blending:
+ 	 * Config section `metaballs` in `game.ron` defines: `iso`, `normal_z_scale`, `metallic`, `roughness`, `env_intensity`, `spec_intensity`, `hard_cluster_boundaries` (bool), `color_blend_exponent` (f32).
+ 	 * When `hard_cluster_boundaries` = true: nearest contributing ball/cluster defines color (bubble look).
+ 	 * When false: colors smoothly blend weighted by field contribution^`color_blend_exponent` (1.0 = linear, >1 tightens local color, <1 (not recommended <0.5) increases wash).
+ 	 * Runtime `MetaballsParams` mirrors these and can still be adjusted by keys.
+ 	 * Spherical-ish normals: mixes field gradient with reconstructed sphere normal for more convex highlight rolloff.
+ 	 * Keys: `[`/`]` iso, `M` metallic toggle extremes, `-`/`=` roughness, `E` env intensity toggle, `P` specular toggle (color blending mode currently driven via config only).
 
 ## Data / Flow Summary
 Startup: load config -> insert resource -> add plugins -> `spawn_balls` & `setup_camera` run.
@@ -78,7 +80,7 @@ The metaball overlay is purely shader-based:
 * Uniform layout packs up to 1024 balls (Vec4: x,y,radius,cluster_index) and a color table of up to 256 cluster colors.
 * Kernel: `f = (1 - (d/R)^2)^3` for `d < R`, else 0. Field & gradient accumulated for all balls.
 * Iso-surface threshold (`iso`), pseudo-normal Z scale (`normal_z_scale`), plus metallic shading params: `metallic` (0-1), `roughness` (0.04-1), `env_intensity`, `spec_intensity`. Defaults currently: metallic=0.5, roughness=0.5, env_intensity=0.0, spec_intensity=0.5.
-* Hard color boundaries: nearest ball defines material color; no cross-fading across isosurface unions.
+* Color mode: choose between smooth blending (default) or hard boundaries (see config `hard_cluster_boundaries`).
 * Lighting: GGX-like specular + simple hemi environment blend; environment & spec scaled by params.
 * Anti-aliasing: edge mask computed from signed distance approximation `(field - iso)/|grad|` with a derivative-based smoothing band.
 * Lighting: simple lambert + hemisphere; modify `metaballs.wgsl` to customize.

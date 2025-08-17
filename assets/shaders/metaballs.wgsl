@@ -19,7 +19,9 @@ struct MetaballsData {
     env_intensity: f32,     // environment reflection intensity
     spec_intensity: f32,    // direct specular multiplier
     debug_view: u32,        // 0=Normal shaded,1=Heightfield,2=ColorInfo
-    _pad_dbg: vec3<f32>,
+    color_mode: u32,        // 0 = smooth blend, 1 = hard nearest cluster
+    color_blend_exponent: f32, // exponent applied to contribution when blending colors
+    _pad_dbg: vec2<f32>,
     // (header now 64 bytes; arrays follow aligned to 16)
     balls: array<vec4<f32>, MAX_BALLS>,          // (x, y, radius, cluster_index as float)
     cluster_colors: array<vec4<f32>, MAX_CLUSTERS>, // (r,g,b,_)
@@ -49,11 +51,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let p = in.world_pos;
     var field: f32 = 0.0;
     var grad: vec2<f32> = vec2<f32>(0.0);
-    // For hard boundaries choose nearest contributing ball (distance based) -> material color.
+    // Track nearest ball for hard-boundary mode and build accumulators for smooth blending.
     var nearest_d2: f32 = 1e30;
     var nearest_cluster: u32 = 0u;
     var nearest_local_r2: f32 = 1.0; // for spherical normal correction
     var nearest_center: vec2<f32> = vec2<f32>(0.0);
+    var blend_sum: vec3<f32> = vec3<f32>(0.0);
+    var weight_sum: f32 = 0.0;
     // Accumulate field & gradient
     for (var i: u32 = 0u; i < metaballs.ball_count; i = i + 1u) {
         let b = metaballs.balls[i];
@@ -76,6 +80,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 nearest_local_r2 = r2;
                 nearest_center = center;
             }
+            // For blending accumulate weighted color (if color_mode==0)
+            if (metaballs.color_mode == 0u) {
+                let w = pow(fi, metaballs.color_blend_exponent);
+                if (nearest_cluster < metaballs.cluster_color_count) {
+                    let c = metaballs.cluster_colors[nearest_cluster].rgb;
+                    blend_sum += c * w;
+                    weight_sum += w;
+                }
+            }
         }
     }
     if (field <= 0.0001) { return vec4<f32>(0.0); }
@@ -87,10 +100,18 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let aa = 1.5 * px;
     let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
 
-    // Material base color from nearest contributing cluster.
+    // Derive material base color.
     var base_col: vec3<f32> = vec3<f32>(0.8,0.8,0.8);
-    if (nearest_cluster < metaballs.cluster_color_count) {
-        base_col = metaballs.cluster_colors[nearest_cluster].rgb;
+    if (metaballs.color_mode == 0u) {
+        if (weight_sum > 0.0) {
+            base_col = blend_sum / weight_sum;
+        } else if (nearest_cluster < metaballs.cluster_color_count) {
+            base_col = metaballs.cluster_colors[nearest_cluster].rgb;
+        }
+    } else { // hard boundary
+        if (nearest_cluster < metaballs.cluster_color_count) {
+            base_col = metaballs.cluster_colors[nearest_cluster].rgb;
+        }
     }
 
     // Reconstruct a more spherical-ish normal: combine field gradient with a sphere normal of nearest ball.
