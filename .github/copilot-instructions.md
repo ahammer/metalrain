@@ -13,6 +13,7 @@ Purpose: 2D Bevy (0.16) sandbox demonstrating modular plugin structure + RON-dri
 - `camera.rs` (`CameraPlugin`): Startup camera spawn (`Camera2d`).
 - `cluster.rs` (`ClusterPlugin`): Recomputes per-frame connected components ("clusters") of touching same-color balls using spatial hashing + union-find; exposes `Clusters` resource and draws debug AABBs with gizmos (used later for metaball aggregation).
  - `metaballs.rs` (`MetaballsPlugin` + WGSL in `assets/shaders/metaballs.wgsl`): Fullscreen post-style pass rendering true metaballs from individual ball positions & radii via a bounded Wyvill kernel. Packs per-ball data into a uniform buffer (single draw) and analytically derives normals for simple lighting.
+ - `debug` (feature gated): Runtime stats overlay (top-left) plus bottom-left config snapshot (current `GameConfig` summary). Toggle visibility with `F1`.
  - Metaballs shading supports PBR-ish highlights and selectable color blending:
  	 * Config section `metaballs` in `game.ron` defines: `iso`, `normal_z_scale`, `metallic`, `roughness`, `env_intensity`, `spec_intensity`, `hard_cluster_boundaries` (bool), `color_blend_exponent` (f32).
  	 * When `hard_cluster_boundaries` = true: nearest contributing ball/cluster defines color (bubble look).
