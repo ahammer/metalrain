@@ -296,11 +296,36 @@ fn debug_draw_clusters(
     _display: Option<Res<BallDisplayMaterials>>,
     mut gizmos: Gizmos,
     cfg: Option<Res<crate::config::GameConfig>>,
+    #[cfg(feature = "debug")] debug_overrides: Option<Res<crate::debug::DebugVisualOverrides>>,
+    #[cfg(feature = "debug")] debug_state: Option<Res<crate::debug::DebugState>>,
 ) {
-    if let Some(cfg) = cfg {
-        if !cfg.draw_cluster_bounds {
-            return;
+    #[cfg(feature = "debug")]
+    {
+        // Only draw in mode 3 (BallsWithClusters) unless an explicit override allows.
+        if let (Some(state), Some(over)) = (debug_state.as_ref(), debug_overrides.as_ref()) {
+            use crate::debug::DebugRenderMode;
+            let mode_allows = matches!(state.mode, DebugRenderMode::BallsWithClusters);
+            let explicit = over.draw_cluster_bounds.unwrap_or(false);
+            if !(mode_allows || explicit) {
+                return;
+            }
+        } else {
+            // If debug feature compiled but resources missing, fall back to config gate below.
         }
+    }
+    #[cfg(not(feature = "debug"))]
+    {
+        if let Some(cfg) = cfg {
+            if !cfg.draw_cluster_bounds { return; }
+        }
+    }
+    #[cfg(feature = "debug")]
+    if !cfg.as_ref().map(|c| c.draw_cluster_bounds).unwrap_or(true) {
+        // Config still can disable globally unless override forced.
+        // If override forces drawing but config off, we allowed earlier only if explicit override set.
+        // Here we early return when config is off and no explicit override.
+        if let Some(over) = debug_overrides.as_ref() { if !over.draw_cluster_bounds.unwrap_or(false) { return; } }
+        else { return; }
     }
     for cl in clusters.0.iter() {
         let min = cl.min;
