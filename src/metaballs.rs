@@ -18,7 +18,7 @@ pub const MAX_BALLS: usize = 1024; // each uses one Vec4
 pub const MAX_CLUSTERS: usize = 256; // color table size
 
 #[derive(Clone, Copy, ShaderType, Debug)]
-struct MetaballsUniform {
+pub(crate) struct MetaballsUniform {
     // Counts
     ball_count: u32,
     cluster_color_count: u32,
@@ -71,6 +71,11 @@ pub struct MetaballsMaterial {
     data: MetaballsUniform,
 }
 
+impl MetaballsMaterial {
+    #[cfg(feature = "debug")]
+    pub fn set_debug_view(&mut self, view: u32) { self.data.debug_view = view; }
+}
+
 impl Material2d for MetaballsMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/metaballs.wgsl".into()
@@ -92,6 +97,8 @@ pub struct MetaballsParams {
     pub env_intensity: f32,
     pub spec_intensity: f32,
 }
+#[derive(Component)]
+pub struct MetaballsQuad;
 
 impl Default for MetaballsParams {
     fn default() -> Self {
@@ -129,8 +136,7 @@ fn initialize_toggle_from_config(mut toggle: ResMut<MetaballsToggle>, cfg: Res<G
     toggle.0 = cfg.metaballs_enabled;
 }
 
-#[derive(Component)]
-struct MetaballsQuad;
+// (Removed duplicate private MetaballsQuad definition)
 
 fn setup_metaballs(
     mut commands: Commands,

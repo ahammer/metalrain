@@ -47,3 +47,27 @@ pub fn apply_mode_visual_overrides_system(mut overrides: ResMut<DebugVisualOverr
     let metaballs_on = matches!(state.mode, Metaballs | MetaballHeightfield | MetaballColorInfo);
     metaballs_toggle.0 = metaballs_on;
 }
+
+#[derive(Resource, Default)]
+pub struct LastAppliedMetaballsView(pub u32);
+
+pub fn propagate_metaballs_view_system(
+    overrides: Res<DebugVisualOverrides>,
+    mut last: ResMut<LastAppliedMetaballsView>,
+    mut materials: ResMut<Assets<crate::metaballs::MetaballsMaterial>>,
+    q_mat: Query<&bevy::sprite::MeshMaterial2d<crate::metaballs::MetaballsMaterial>, With<crate::metaballs::MetaballsQuad>>,
+) {
+    // Only run if changed
+    let view_id = match overrides.metaballs_view_variant {
+        MetaballsViewVariant::Normal => 0u32,
+        MetaballsViewVariant::Heightfield => 1u32,
+        MetaballsViewVariant::ColorInfo => 2u32,
+    };
+    if view_id == last.0 { return; }
+    if let Ok(handle_comp) = q_mat.get_single() {
+        if let Some(mat) = materials.get_mut(&handle_comp.0) {
+            mat.set_debug_view(view_id);
+            last.0 = view_id;
+        }
+    }
+}

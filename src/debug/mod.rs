@@ -34,10 +34,12 @@ impl Plugin for DebugPlugin {
         use overlay::{debug_overlay_spawn, debug_overlay_update};
         use stats::debug_stats_collect_system;
         use modes::apply_mode_visual_overrides_system;
+    use modes::propagate_metaballs_view_system;
 
         app.init_resource::<modes::DebugState>()
-            .init_resource::<modes::DebugStats>()
+        .init_resource::<modes::DebugStats>()
             .init_resource::<modes::DebugVisualOverrides>()
+        .init_resource::<modes::LastAppliedMetaballsView>()
             .configure_sets(Update, DebugPreRenderSet.after(PostPhysicsAdjustSet))
             .add_systems(Startup, debug_overlay_spawn)
             .add_systems(
@@ -46,6 +48,7 @@ impl Plugin for DebugPlugin {
                     debug_key_input_system,
                     debug_stats_collect_system,
                     apply_mode_visual_overrides_system,
+            propagate_metaballs_view_system,
                     debug_logging_system,
                     debug_overlay_update,
                 )
