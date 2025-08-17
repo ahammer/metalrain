@@ -4,13 +4,11 @@
 use bevy::prelude::*;
 
 /// Base SRGB palette (kept small & high-contrast). Update here only.
-pub const BASE_COLORS: [Color; 6] = [
-    Color::srgb(0.90, 0.20, 0.25), // red
+pub const BASE_COLORS: [Color; 4] = [
+    Color::srgb(1.0, 0.20, 0.25), // red
     Color::srgb(0.20, 0.55, 0.90), // blue
-    Color::srgb(0.95, 0.75, 0.15), // yellow
-    Color::srgb(0.20, 0.80, 0.45), // green
-    Color::srgb(0.65, 0.45, 0.95), // purple
-    Color::srgb(0.95, 0.50, 0.15), // orange
+    Color::srgb(1.0, 1.0, 0.15), // yellow
+    Color::srgb(0.20, 0.80, 0.45) // green
 ];
 
 /// Returns a color for arbitrary index, wrapping around the base palette.

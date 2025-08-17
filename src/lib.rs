@@ -14,3 +14,4 @@ pub mod rapier_physics;
 pub mod separation;
 pub mod spawn;
 pub mod system_order;
+pub mod config_hot_reload;

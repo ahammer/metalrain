@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use serde::Deserialize;
 use std::{fs, path::Path};
 
-#[derive(Debug, Deserialize, Resource, Clone)]
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
 pub struct WindowConfig {
     pub width: f32,
@@ -19,7 +19,7 @@ impl Default for WindowConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct GravityConfig {
     pub y: f32,
@@ -30,7 +30,7 @@ impl Default for GravityConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct BounceConfig {
     pub restitution: f32,
@@ -41,7 +41,7 @@ impl Default for BounceConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct SpawnRange<T> {
     pub min: T,
@@ -56,7 +56,7 @@ impl<T: Default> Default for SpawnRange<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct BallSpawnConfig {
     pub count: usize,
@@ -94,7 +94,7 @@ impl Default for BallSpawnConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct CollisionSeparationConfig {
     pub enabled: bool,
@@ -115,7 +115,7 @@ impl Default for CollisionSeparationConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct ExplosionConfig {
     pub enabled: bool,
@@ -134,7 +134,7 @@ impl Default for ExplosionConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct DragConfig {
     pub enabled: bool,
@@ -153,14 +153,14 @@ impl Default for DragConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct InteractionConfig {
     pub explosion: ExplosionConfig,
     pub drag: DragConfig,
 }
 
-#[derive(Debug, Deserialize, Resource, Clone)]
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
 pub struct GameConfig {
     pub window: WindowConfig,
@@ -193,7 +193,7 @@ impl Default for GameConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Resource, Clone)]
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
 pub struct MetaballsRenderConfig {
     pub iso: f32,

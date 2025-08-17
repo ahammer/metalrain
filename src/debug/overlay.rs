@@ -79,8 +79,8 @@ pub(crate) fn debug_config_overlay_update(
 ) {
     if let Ok(mut text) = q_text.single_mut() {
         if !state.overlay_visible { text.0.clear(); return; }
-        // GameConfig is static after startup (unless hot-reload added later). Only regenerate string if state visibility changed or first run (when text empty).
-        if !(state.is_changed()) && !text.0.is_empty() { return; }
+    // Regenerate when state visibility toggled OR config changed OR first run.
+    if !(state.is_changed() || cfg.is_changed()) && !text.0.is_empty() { return; }
         // Compact multi-line representation; keep within ~120 cols.
         let b = &cfg.balls;
         let sep = &cfg.separation;
