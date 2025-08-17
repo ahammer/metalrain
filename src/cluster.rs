@@ -44,7 +44,7 @@ struct BallPersist {
 /// Resource tracking per-ball persistence info.
 #[derive(Resource, Default)]
 struct ClusterPersistence {
-    map: bevy::utils::HashMap<Entity, BallPersist>,
+    map: std::collections::HashMap<Entity, BallPersist>,
     next_cluster_id: u64,
 }
 
@@ -127,8 +127,8 @@ fn compute_clusters(
     }
     let cell_size = (max_radius * 2.0).max(1.0);
     let inv_cell = 1.0 / cell_size;
-    use bevy::utils::{HashMap, HashSet};
-    let mut grid: HashMap<Cell, Vec<usize>> = HashMap::default();
+    use std::collections::{HashMap, HashSet};
+    let mut grid: HashMap<Cell, Vec<usize>> = HashMap::new();
     for (i, p) in positions.iter().enumerate() {
         let cx = (p.x * inv_cell).floor() as i32;
         let cy = (p.y * inv_cell).floor() as i32;
@@ -172,21 +172,21 @@ fn compute_clusters(
     }
 
     // Build raw clusters (index lists)
-    let mut raw: HashMap<usize, Vec<usize>> = HashMap::default();
+    let mut raw: HashMap<usize, Vec<usize>> = HashMap::new();
     for i in 0..count {
         let root = find(&mut parent, i);
         raw.entry(root).or_default().push(i);
     }
 
-    let now = time.elapsed_seconds();
-    let mut seen: HashSet<Entity> = HashSet::default();
+    let now = time.elapsed_secs();
+    let mut seen: HashSet<Entity> = HashSet::new();
 
     // Map raw clusters to persistent cluster ids (merge if previously separate but now connected)
     for indices in raw.values() {
         // Determine if this cluster has >1 members (contact cluster)
         let multi = indices.len() > 1;
         // Collect existing persistent cluster ids among members
-        let mut existing_ids: HashSet<u64> = HashSet::default();
+    let mut existing_ids: HashSet<u64> = HashSet::new();
         for &idx in indices {
             if let Some(p) = persistence.map.get(&entities[idx]) {
                 existing_ids.insert(p.cluster_id);
@@ -251,7 +251,7 @@ fn compute_clusters(
     }
 
     // Aggregate stable clusters from persistence map
-    let mut agg: HashMap<u64, Cluster> = HashMap::default();
+    let mut agg: HashMap<u64, Cluster> = HashMap::new();
     for (e, p) in persistence.map.iter() {
         // Find position & radius via index search (could build map for perf; acceptable for now)
         // Since dataset moderate, linear search fine; TODO: optimize with HashMap<Entity, idx> if needed.
@@ -309,9 +309,10 @@ fn debug_draw_clusters(
         if !size.x.is_finite() {
             continue;
         }
-        let center = min + size * 0.5;
-        let color = color_for_index(cl.color_index);
-        gizmos.rect_2d(center, 0.0, size, color);
+    let center = min + size * 0.5;
+    let color = color_for_index(cl.color_index);
+    // New Bevy 0.16 rect_2d signature: (isometry, size, color)
+    gizmos.rect_2d(Isometry2d::from_translation(center), size, color);
     }
 }
 

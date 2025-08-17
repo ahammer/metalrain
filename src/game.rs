@@ -46,7 +46,7 @@ fn debug_entity_counts(
     q_balls: Query<&crate::components::Ball>,
     q_cam: Query<&Camera>,
 ) {
-    *timer += time.delta_seconds();
+    *timer += time.delta_secs();
     if *timer > 1.0 {
         *timer = 0.0;
         info!(

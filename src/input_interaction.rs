@@ -37,8 +37,11 @@ fn cursor_world_pos(
     camera_q: &Query<(&Camera, &GlobalTransform)>,
     screen_pos: Vec2,
 ) -> Option<Vec2> {
-    let (camera, cam_tf) = camera_q.iter().next()?; // single camera
-    camera.viewport_to_world_2d(cam_tf, screen_pos)
+    let (camera, cam_tf) = camera_q.iter().next()?; // single camera assumption
+    match camera.viewport_to_world_2d(cam_tf, screen_pos) {
+        Ok(world) => Some(world),
+        Err(_) => None,
+    }
 }
 
 /// Unified pointer (mouse or first touch) world position.
@@ -88,7 +91,7 @@ fn handle_tap_explosion(
         return;
     }
 
-    let Ok(window) = windows_q.get_single() else {
+    let Ok(window) = windows_q.single() else {
         return;
     };
     let Some(world_pos) = primary_pointer_world_pos(window, &touches, &camera_q) else {
@@ -129,7 +132,7 @@ fn begin_or_end_drag(
     if !drag_cfg.enabled {
         return;
     }
-    let Ok(window) = windows_q.get_single() else {
+    let Ok(window) = windows_q.single() else {
         return;
     };
     let Some(world_pos) = primary_pointer_world_pos(window, &touches, &camera_q) else {
@@ -198,13 +201,13 @@ fn apply_drag_force(
     let Some(active_entity) = active.entity else {
         return;
     };
-    let Ok(window) = windows_q.get_single() else {
+    let Ok(window) = windows_q.single() else {
         return;
     };
     let Some(world_pos) = primary_pointer_world_pos(window, &touches, &camera_q) else {
         return;
     };
-    let dt = time.delta_seconds();
+    let dt = time.delta_secs();
 
     if let Ok((tf, _radius, mut vel)) = q.get_mut(active_entity) {
         let pos = tf.translation.truncate();

@@ -7,6 +7,8 @@ use crate::config::GameConfig;
 use crate::materials::{
     BallDisplayMaterials, BallMaterialIndex, BallMaterialsInitSet, BallPhysicsMaterials,
 };
+use bevy::sprite::MeshMaterial2d;
+use bevy::prelude::Mesh2d; // Mesh2d public import
 
 pub struct BallSpawnPlugin;
 
@@ -136,32 +138,29 @@ pub fn spawn_ball_entity(
     variant_idx: usize,
     draw_circles: bool,
 ) {
-    commands
-        .spawn((
-            Transform::from_translation(translation),
-            GlobalTransform::default(),
-            VisibilityBundle::default(),
-            RigidBody::Dynamic,
-            Collider::ball(radius),
-            Velocity::linear(linear_vel),
-            Restitution::coefficient(restitution),
-            Damping {
-                linear_damping: 0.0,
-                angular_damping: 0.0,
-            },
-            ActiveEvents::COLLISION_EVENTS,
-            Ball,
-            BallRadius(radius),
-            BallMaterialIndex(variant_idx),
-        ))
-        .with_children(|parent| {
-            if draw_circles {
-                parent.spawn(bevy::sprite::MaterialMesh2dBundle {
-                    mesh: circle_mesh.clone().into(),
-                    material,
-                    transform: Transform::from_scale(Vec3::splat(radius * 2.0)),
-                    ..default()
-                });
-            }
+    let mut entity = commands.spawn((
+        Transform::from_translation(translation),
+        GlobalTransform::default(),
+        RigidBody::Dynamic,
+        Collider::ball(radius),
+        Velocity::linear(linear_vel),
+        Restitution::coefficient(restitution),
+        Damping {
+            linear_damping: 0.0,
+            angular_damping: 0.0,
+        },
+        ActiveEvents::COLLISION_EVENTS,
+        Ball,
+        BallRadius(radius),
+        BallMaterialIndex(variant_idx),
+    ));
+    if draw_circles {
+        entity.with_children(|parent| {
+            parent.spawn((
+                Mesh2d::from(circle_mesh.clone()),
+                MeshMaterial2d(material),
+                Transform::from_scale(Vec3::splat(radius * 2.0)),
+            ));
         });
+    }
 }

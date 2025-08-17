@@ -4,7 +4,8 @@
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
-use bevy::sprite::{Material2d, Material2dPlugin, MaterialMesh2dBundle};
+use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
+use bevy::prelude::Mesh2d; // Bevy 0.16: Mesh2d is re-exported via prelude; prior internal path caused privacy error.
 
 use crate::cluster::Clusters;
 use crate::components::{Ball, BallRadius};
@@ -132,7 +133,7 @@ fn setup_metaballs(
     mut materials: ResMut<Assets<MetaballsMaterial>>,
     windows: Query<&Window>,
 ) {
-    let (w, h) = if let Ok(window) = windows.get_single() {
+    let (w, h) = if let Ok(window) = windows.single() {
         (window.width(), window.height())
     } else {
         (800.0, 600.0)
@@ -143,13 +144,13 @@ fn setup_metaballs(
     mat.data.window_size = Vec2::new(w, h);
     let material_handle = materials.add(mat);
 
+    // Bevy 0.16 migration note: Replaced deprecated MaterialMesh2dBundle usage with explicit
+    // component insertion (Mesh2d + MeshMaterial2d + Transform). Visibility components are
+    // auto-inferred by engine defaults for simple cases; add explicitly if specialized control needed.
     commands.spawn((
-        MaterialMesh2dBundle::<MetaballsMaterial> {
-            mesh: mesh_handle.into(),
-            material: material_handle,
-            transform: Transform::from_xyz(0.0, 0.0, 50.0),
-            ..default()
-        },
+        Mesh2d::from(mesh_handle),
+        MeshMaterial2d(material_handle),
+        Transform::from_xyz(0.0, 0.0, 50.0),
         MetaballsQuad,
     ));
 }
@@ -160,17 +161,17 @@ fn update_metaballs_material(
     clusters: Res<Clusters>,
     q_balls: Query<(&Transform, &BallRadius, &BallMaterialIndex), With<Ball>>,
     mut materials: ResMut<Assets<MetaballsMaterial>>,
-    q_mat: Query<&Handle<MetaballsMaterial>, With<MetaballsQuad>>,
+    q_mat: Query<&MeshMaterial2d<MetaballsMaterial>, With<MetaballsQuad>>,
     toggle: Res<MetaballsToggle>,
     params: Res<MetaballsParams>,
 ) {
     if !toggle.0 {
         return;
     }
-    let Ok(handle) = q_mat.get_single() else {
+    let Ok(handle_comp) = q_mat.single() else {
         return;
     };
-    let Some(mat) = materials.get_mut(handle) else {
+    let Some(mat) = materials.get_mut(&handle_comp.0) else {
         return;
     };
 
@@ -228,16 +229,16 @@ fn update_metaballs_material(
 
 fn resize_fullscreen_quad(
     windows: Query<&Window>,
-    q_mat: Query<&Handle<MetaballsMaterial>, With<MetaballsQuad>>,
+    q_mat: Query<&MeshMaterial2d<MetaballsMaterial>, With<MetaballsQuad>>,
     mut materials: ResMut<Assets<MetaballsMaterial>>,
 ) {
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
-    let Ok(handle) = q_mat.get_single() else {
+    let Ok(handle_comp) = q_mat.single() else {
         return;
     };
-    if let Some(mat) = materials.get_mut(handle) {
+    if let Some(mat) = materials.get_mut(&handle_comp.0) {
         if mat.data.window_size.x != window.width() || mat.data.window_size.y != window.height() {
             mat.data.window_size = Vec2::new(window.width(), window.height());
         }

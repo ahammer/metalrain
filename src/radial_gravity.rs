@@ -23,7 +23,7 @@ fn apply_radial_gravity(
     if g <= 0.0 {
         return;
     }
-    let dt = time.delta_seconds();
+    let dt = time.delta_secs();
     for (transform, mut vel) in q.iter_mut() {
         let pos = transform.translation.truncate();
         vel.linvel += radial_gravity_delta(g, dt, pos);

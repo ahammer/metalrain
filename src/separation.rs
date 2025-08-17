@@ -27,10 +27,10 @@ fn contact_separation(
     }
 
     // Use Bevy's fast hash map (fxhash) to gather per-entity corrections to avoid repeated mutable borrows.
-    use bevy::utils::HashMap;
+    use std::collections::HashMap;
     // Heuristic capacity: collisions roughly ~entities in dense scenarios.
-    let mut pos_shifts: HashMap<Entity, Vec2> = HashMap::default();
-    let mut vel_normals: HashMap<Entity, Vec2> = HashMap::default();
+    let mut pos_shifts: HashMap<Entity, Vec2> = HashMap::new();
+    let mut vel_normals: HashMap<Entity, Vec2> = HashMap::new();
 
     for ev in ev_collisions.read() {
         let CollisionEvent::Started(e1, e2, _flags) = ev else {

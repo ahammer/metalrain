@@ -12,7 +12,15 @@ impl Plugin for PhysicsSetupPlugin {
     }
 }
 
-fn configure_gravity(mut rapier_cfg: ResMut<RapierConfiguration>, _game_cfg: Res<GameConfig>) {
-    // Global gravity disabled for custom radial gravity system.
-    rapier_cfg.gravity = Vect::new(0.0, 0.0);
+fn configure_gravity(
+    mut q_cfg: Query<&mut RapierConfiguration>,
+    _game_cfg: Res<GameConfig>,
+) {
+    // Bevy/Rapier migration note (0.16 / recent rapier): RapierConfiguration is now queried
+    // as a component instead of taken as a ResMut<...>. We use Query::single_mut() (new
+    // unified error handling API) instead of deprecated get_single_mut().
+    if let Ok(mut cfg) = q_cfg.single_mut() {
+        // Disable global gravity; custom radial gravity system applies forces per body.
+        cfg.gravity = Vect::new(0.0, 0.0);
+    }
 }

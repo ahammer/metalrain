@@ -46,7 +46,7 @@ fn emit_balls(
     if !control.enabled {
         return;
     }
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 

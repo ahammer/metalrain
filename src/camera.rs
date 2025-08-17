@@ -9,5 +9,6 @@ impl Plugin for CameraPlugin {
 }
 
 fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    // Bevy 0.16+: spawn Camera2d component directly; Required Components supply defaults.
+    commands.spawn(Camera2d);
 }
