@@ -301,16 +301,12 @@ fn debug_draw_clusters(
 ) {
     #[cfg(feature = "debug")]
     {
-        // Only draw in mode 3 (BallsWithClusters) unless an explicit override allows.
-        if let (Some(state), Some(over)) = (debug_state.as_ref(), debug_overrides.as_ref()) {
-            use crate::debug::DebugRenderMode;
-            let mode_allows = matches!(state.mode, DebugRenderMode::BallsWithClusters);
+        // Draw only if explicitly overridden or config allows; previous dedicated mode removed.
+        if let (Some(_state), Some(over)) = (debug_state.as_ref(), debug_overrides.as_ref()) {
             let explicit = over.draw_cluster_bounds.unwrap_or(false);
-            if !(mode_allows || explicit) {
-                return;
+            if !explicit {
+                // fall through to config gate below (still may draw if config enables)
             }
-        } else {
-            // If debug feature compiled but resources missing, fall back to config gate below.
         }
     }
     #[cfg(not(feature = "debug"))]

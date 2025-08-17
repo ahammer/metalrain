@@ -6,7 +6,7 @@ use crate::metaballs::MetaballsToggle;
 
 #[cfg(feature = "debug")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DebugRenderMode { Metaballs, BallsFlat, BallsWithClusters, RapierWireframe, MetaballHeightfield, MetaballColorInfo }
+pub enum DebugRenderMode { Metaballs, RapierWireframe, MetaballHeightfield, MetaballColorInfo }
 
 #[cfg(feature = "debug")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,10 +46,9 @@ impl Default for DebugVisualOverrides { fn default() -> Self { Self { draw_circl
 #[cfg(feature = "debug")]
 pub fn apply_mode_visual_overrides_system(mut overrides: ResMut<DebugVisualOverrides>, state: Res<DebugState>, mut metaballs_toggle: ResMut<MetaballsToggle>) {
     use DebugRenderMode::*;
-    let variant = match state.mode { Metaballs => MetaballsViewVariant::Normal, BallsFlat => MetaballsViewVariant::Normal, BallsWithClusters => MetaballsViewVariant::Normal, RapierWireframe => MetaballsViewVariant::Normal, MetaballHeightfield => MetaballsViewVariant::Heightfield, MetaballColorInfo => MetaballsViewVariant::ColorInfo };
+    let variant = match state.mode { Metaballs => MetaballsViewVariant::Normal, RapierWireframe => MetaballsViewVariant::Normal, MetaballHeightfield => MetaballsViewVariant::Heightfield, MetaballColorInfo => MetaballsViewVariant::ColorInfo };
     overrides.metaballs_view_variant = variant;
-    let metaballs_on = matches!(state.mode, Metaballs | MetaballHeightfield | MetaballColorInfo);
-    metaballs_toggle.0 = metaballs_on;
+    metaballs_toggle.0 = matches!(state.mode, Metaballs | MetaballHeightfield | MetaballColorInfo);
 }
 
 #[derive(Resource, Default)]

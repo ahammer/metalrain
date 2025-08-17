@@ -46,8 +46,8 @@ impl Plugin for DebugPlugin {
             mut q_metaballs_quad: Query<&mut Visibility, With<crate::metaballs::MetaballsQuad>>,
         ) {
             use modes::DebugRenderMode::*;
-            // Circles shown for flat / cluster / rapier modes
-            let show_circles = matches!(state.mode, BallsFlat | BallsWithClusters | RapierWireframe);
+            // Circles only shown for rapier wireframe mode now
+            let show_circles = matches!(state.mode, RapierWireframe);
             for mut vis in q_circles.iter_mut() {
                 vis.set_if_neq(if show_circles { Visibility::Visible } else { Visibility::Hidden });
             }

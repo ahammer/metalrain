@@ -4,13 +4,11 @@ Date: 2025-08-17
 Scope: Implements audit items 7 & 8 (in‑game debug UI + feature flags) plus explicit user requirements for numbered view modes (1‑6) and AI/CLI friendly runtime logging.
 
 ## Objectives
-1. Provide six keyboard‑selectable visualization / debug modes:
-   1. Metaball render (current shaded metaball view)
-   2. Flat shaded balls only (individual circle meshes, metaball pass hidden)
-   3. Flat shaded balls + cluster AABB boxes
-   4. Rapier debug wireframe view (colliders, joints)
-   5. Metaball heightfield (grayscale scalar field visualization)
-   6. Metaball color information (debug: per-cluster color index / nearest ball color boundaries)
+1. Provide four keyboard‑selectable visualization / debug modes (reduced from original six):
+  1. Metaball render (current shaded metaball view)
+  2. Rapier debug wireframe view (colliders, joints) with optional circle meshes
+  3. Metaball heightfield (grayscale scalar field visualization)
+  4. Metaball color information (debug: per-cluster color index / nearest ball color boundaries)
 2. Supply both on‑screen GUI + textual (CLI/log) diagnostics: FPS, ball count, cluster count, active mode, truncated metaball packing stats.
 3. Add compile‑time feature flags so that in release (or when `--no-default-features`) the entire debug UI & mode switching are compiled out (keystrokes no‑op, zero runtime cost).
 4. Provide AI‑agent friendly, minimally verbose, structured runtime logs summarizing simulation state periodically (≤1 line/sec default) & important state transitions (mode changes).
@@ -57,11 +55,9 @@ Existing systems interplay:
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugRenderMode {
   Metaballs,           // 1
-  BallsFlat,           // 2
-  BallsWithClusters,   // 3
-  RapierWireframe,     // 4
-  MetaballHeightfield, // 5
-  MetaballColorInfo,   // 6
+  RapierWireframe,     // 2
+  MetaballHeightfield, // 3
+  MetaballColorInfo,   // 4
 }
 
 #[cfg(feature="debug")]
@@ -104,14 +100,12 @@ Initialization:
 
 ## Mode Mapping Table
 
-| Mode | MetaballsToggle | Circles | Cluster AABB | Rapier Debug | Metaballs Variant |
-|------|-----------------|---------|--------------|--------------|-------------------|
-| 1 Metaballs | true | false (unless config requested) | false | false | Normal |
-| 2 Balls Flat | false | true | false | false | Normal (ignored) |
-| 3 Balls + Clusters | false | true | true | false | Normal (ignored) |
-| 4 Rapier Wireframe | false | true (optional) | false | true | Normal (ignored) |
-| 5 Heightfield | true | false | false | false | Heightfield |
-| 6 Color Info | true | false | false | false | ColorInfo |
+| Mode | MetaballsToggle | Circles | Rapier Debug | Metaballs Variant |
+|------|-----------------|---------|--------------|-------------------|
+| 1 Metaballs | true | false (unless config requested) | false | Normal |
+| 2 Rapier Wireframe | false | true (optional) | true | Normal (ignored) |
+| 3 Heightfield | true | false | false | Heightfield |
+| 4 Color Info | true | false | false | ColorInfo |
 
 Notes:
 - If base config had `draw_circles=true` while in mode 1 (metaballs) we *override* to false to avoid duplicated visuals.
@@ -123,12 +117,14 @@ Add uniform field `debug_view: u32` (0=Normal,1=Heightfield,2=ColorInfo). In fra
 - Heightfield: output grayscale based on field value (optionally encode iso difference with subtle outline).
 - ColorInfo: output cluster color index (e.g., map cluster index to palette color but desaturate / overlay cluster id text unreachable in shader; textual ID will appear in overlay list instead).
 
-## Input Handling
+## Input Handling (Updated for 4 Modes)
 
 `keys.rs` system runs early in `Update` (before rendering systems). Pseudocode:
 ```
 if just_pressed(Digit1) { set_mode(Metaballs) }
-... up to Digit6
+if just_pressed(Digit2) { set_mode(RapierWireframe) }
+if just_pressed(Digit3) { set_mode(MetaballHeightfield) }
+if just_pressed(Digit4) { set_mode(MetaballColorInfo) }
 if just_pressed(F1) { state.overlay_visible = !state.overlay_visible }
 ```
 `set_mode` updates `DebugState`, recomputes overrides, logs mode change (`info!(event="mode_change", from=?, to=?, frame=? ...)`).
@@ -160,7 +156,7 @@ Logging goals:
 Format examples:
 ```
 SIM frame=1234 t=12.345s fps=59.8 ft_ms=16.7 balls=150 clusters=12 mode=Metaballs variant=Normal encoded=150/1024 trunc=false
-MODE_CHANGE from=BallsFlat to=Metaballs frame=1240 balls=150 clusters=12
+MODE_CHANGE from=RapierWireframe to=Metaballs frame=1240 balls=150 clusters=12
 ALERT cluster_spike old=12 new=25 frame=2000
 ```
 Parsing considerations:
