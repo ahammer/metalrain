@@ -115,20 +115,20 @@ Legend: [ ] not started. Order = highest leverage first (impact/effort).
 4. [x] Add `GameConfig::validate()` returning warnings; log them at startup (Low / Medium).
 5. [x] Introduce basic CI (build + test + clippy + fmt) GitHub Action + local hooks (Low / High ongoing benefit). Added `.github/workflows/ci.yml` (format, clippy -D warnings, tests, wasm build), cargo alias `ci`, and optional pre-commit scripts.
 6. [x] Replace `expect` in config load with layered graceful fallback + error log (implemented: `GameConfig::load_layered` + warnings; defaults used when files missing) (Low / Medium robustness).
-7. [ ] Create feature flags for optional systems (clusters, metaballs, radial-gravity, emitter) (Low-Med / Medium).
-8. [ ] Add module docs & top-level architecture doc stub (`docs/architecture.md`) (Low / Medium onboarding).
-9. [ ] Extract pointer acquisition helper to reduce duplication across interaction systems (Low / Medium clarity).
-10. [ ] Add palette consistency test + basic integration test spawn & run frames (Low / Medium).
-11. [ ] Refactor clustering to pre-build `entity_index` map to remove O(N^2) position searches (Med / Medium perf & clarity).
-12. [ ] Refactor separation system to reuse frame-local scratch buffers (Med / Medium perf).
-13. [ ] Add instrumentation (`tracing`) & spans to heavy systems (Med / Medium profiling leverage).
-14. [ ] Implement config hot reload (full) with `notify` crate & change events (Med / Medium productivity).
-15. [ ] Add property tests for clustering invariants (`proptest`) (Med / Medium reliability).
-16. [ ] Add benchmark suite (`criterion`) for clustering & separation (Med / Medium perf regression guard).
-17. [ ] Replace hash-map based persistence with component-based approach (High effort / Medium-High perf future scaling).
-18. [ ] Evaluate using Rapier contact events directly for cluster building (High / Potential High simplification).
-19. [ ] Migrate metaballs data to storage buffer when Bevy exposes stable API (High / High scalability). 
-20. [ ] Build in-game debug UI (egui) for live tweaking & toggles (High / Medium developer productivity).
+7. [ ] Build in-game debug UI (egui) for live tweaking & toggles (High / Medium developer productivity).
+8. [ ] Create feature flags for optional systems (Debug) (Low-Med / Medium).
+9. [ ] Add module docs & top-level architecture doc stub (`docs/architecture.md`) (Low / Medium onboarding).
+10. [ ] Extract pointer acquisition helper to reduce duplication across interaction systems (Low / Medium clarity).
+11. [ ] Folder/Structural organization (Med Clarity)
+12. [ ] Refactor clustering to pre-build `entity_index` map to remove O(N^2) position searches (Med / Medium perf & clarity).
+13. [ ] Refactor separation system to reuse frame-local scratch buffers (Med / Medium perf).
+14. [ ] Add instrumentation (`tracing`) & spans to heavy systems (Med / Medium profiling leverage).
+15. [ ] Implement config hot reload (full) with `notify` crate & change events (Med / Medium productivity).
+16. [ ] Add property tests for clustering invariants (`proptest`) (Med / Medium reliability).
+17. [ ] Add benchmark suite (`criterion`) for clustering & separation (Med / Medium perf regression guard).
+18. [ ] Replace hash-map based persistence with component-based approach (High effort / Medium-High perf future scaling).
+19. [ ] Evaluate using Rapier contact events directly for cluster building (High / Potential High simplification).
+20. [ ] Migrate metaballs data to storage buffer when Bevy exposes stable API (High / High scalability). 
 21. [ ] Implement PD-controlled drag smoothing & event-based drag end (Med / UX improvement).
 22. [x] Add layered config merging (base + local override) (implemented: `GameConfig::load_layered` supporting multiple paths & deep map merge) (Low-Med / Medium flexibility).
 23. [ ] Add `.cargo/config.toml` with target-specific opt settings & alias tasks (Low / Medium convenience).
