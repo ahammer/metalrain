@@ -112,9 +112,9 @@ Legend: [ ] not started. Order = highest leverage first (impact/effort).
 1. [x] Centralize color palette logic (single module) & replace duplicates (Low effort / High impact).
 2. [x] Remove unused `physics.rs` (deleted); legacy feature gating deferred (decide later if educational example restored) (Low / High clarity).
 3. [x] Delete empty `config_hot_reload.rs` placeholder (will reintroduce when implementing hot reload in item 14) (Low / High).
-4. [ ] Add `GameConfig::validate()` returning warnings; log them at startup (Low / Medium).
+4. [x] Add `GameConfig::validate()` returning warnings; log them at startup (Low / Medium).
 5. [ ] Introduce basic CI (build + test + clippy + fmt) GitHub Action (Low / High ongoing benefit).
-6. [ ] Replace `expect` in config load with graceful fallback + error log (Low / Medium robustness).
+6. [x] Replace `expect` in config load with layered graceful fallback + error log (implemented: `GameConfig::load_layered` + warnings; defaults used when files missing) (Low / Medium robustness).
 7. [ ] Create feature flags for optional systems (clusters, metaballs, radial-gravity, emitter) (Low-Med / Medium).
 8. [ ] Add module docs & top-level architecture doc stub (`docs/architecture.md`) (Low / Medium onboarding).
 9. [ ] Extract pointer acquisition helper to reduce duplication across interaction systems (Low / Medium clarity).
@@ -130,7 +130,7 @@ Legend: [ ] not started. Order = highest leverage first (impact/effort).
 19. [ ] Migrate metaballs data to storage buffer when Bevy exposes stable API (High / High scalability). 
 20. [ ] Build in-game debug UI (egui) for live tweaking & toggles (High / Medium developer productivity).
 21. [ ] Implement PD-controlled drag smoothing & event-based drag end (Med / UX improvement).
-22. [ ] Add layered config merging (base + local override) (Low-Med / Medium flexibility).
+22. [x] Add layered config merging (base + local override) (implemented: `GameConfig::load_layered` supporting multiple paths & deep map merge) (Low-Med / Medium flexibility).
 23. [ ] Add `.cargo/config.toml` with target-specific opt settings & alias tasks (Low / Medium convenience).
 24. [ ] Introduce `justfile` with standard tasks (Low / Medium productivity).
 25. [ ] Add documentation diagram & update README (Low / Medium).
@@ -174,20 +174,6 @@ src/
 fn compute_clusters(...) {
     let _span = info_span!("compute_clusters", entities = count).entered();
     // ... existing logic
-}
-```
-
-## Appendix: Config Validation Sketch
-```rust
-impl GameConfig {
-  pub fn validate(&self) -> Vec<String> {
-    let mut w = Vec::new();
-    if self.balls.radius_range.min <= 0.0 { w.push("ball radius min must be >0".into()); }
-    if self.balls.radius_range.min > self.balls.radius_range.max { w.push("radius min>max".into()); }
-    if self.separation.push_strength < 0.0 { w.push("push_strength negative".into()); }
-    // ...
-    w
-  }
 }
 ```
 

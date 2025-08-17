@@ -32,8 +32,20 @@ fn load_config() -> GameConfig {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn load_config() -> GameConfig {
-    GameConfig::load_from_file("assets/config/game.ron")
-        .expect("Failed to load assets/config/game.ron")
+    // Layered loading: base config, optional local override.
+    let (cfg, used, errors) = GameConfig::load_layered([
+        std::path::Path::new("assets/config/game.ron"),
+        std::path::Path::new("assets/config/game.local.ron"),
+    ]);
+    for e in errors {
+        warn!("CONFIG LOAD ISSUE: {e}");
+    }
+    if used.is_empty() {
+        warn!("No config files loaded; using defaults");
+    } else {
+        info!(?used, "Config layers loaded");
+    }
+    cfg
 }
 use game::GamePlugin;
 
@@ -45,6 +57,13 @@ fn main() {
     }
 
     let cfg = load_config();
+
+    info!(?cfg, "Loaded GameConfig");
+
+    // Run config validation and log non-fatal warnings.
+    for warn in cfg.validate() {
+        warn!("CONFIG WARNING: {warn}");
+    }
 
     let mut app = App::new();
     app.insert_resource(cfg.clone())
