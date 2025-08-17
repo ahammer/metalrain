@@ -20,6 +20,7 @@ mod rapier_physics;
 mod separation;
 mod spawn;
 mod system_order; // centralized color palette
+mod debug; // debug feature plugin (gated internally)
 
 use config::GameConfig;
 

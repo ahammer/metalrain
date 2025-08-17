@@ -1,0 +1,49 @@
+#[cfg(feature = "debug")]
+use bevy::prelude::*;
+
+#[cfg(feature = "debug")]
+use crate::metaballs::MetaballsToggle;
+
+#[cfg(feature = "debug")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugRenderMode { Metaballs, BallsFlat, BallsWithClusters, RapierWireframe, MetaballHeightfield, MetaballColorInfo }
+
+#[cfg(feature = "debug")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetaballsViewVariant { Normal, Heightfield, ColorInfo }
+
+#[cfg(feature = "debug")]
+#[derive(Resource)]
+pub struct DebugState {
+    pub mode: DebugRenderMode,
+    pub last_mode: DebugRenderMode,
+    pub overlay_visible: bool,
+    pub log_interval: f32,
+    pub time_accum: f32,
+    pub frame_counter: u64,
+    pub last_ball_count: usize,
+    pub last_cluster_count: usize,
+}
+
+#[cfg(feature = "debug")]
+impl Default for DebugState { fn default() -> Self { Self { mode: DebugRenderMode::Metaballs, last_mode: DebugRenderMode::Metaballs, overlay_visible: true, log_interval: 1.0, time_accum: 0.0, frame_counter: 0, last_ball_count: 0, last_cluster_count: 0 } } }
+
+#[cfg(feature = "debug")]
+#[derive(Resource, Default, Debug, Clone)]
+pub struct DebugStats { pub fps: f32, pub frame_time_ms: f32, pub ball_count: usize, pub cluster_count: usize, pub truncated_balls: bool, pub metaballs_encoded: usize }
+
+#[cfg(feature = "debug")]
+#[derive(Resource, Debug, Clone)]
+pub struct DebugVisualOverrides { pub draw_circles: Option<bool>, pub draw_cluster_bounds: Option<bool>, pub rapier_debug_enabled: Option<bool>, pub metaballs_enabled: Option<bool>, pub metaballs_view_variant: MetaballsViewVariant }
+
+#[cfg(feature = "debug")]
+impl Default for DebugVisualOverrides { fn default() -> Self { Self { draw_circles: None, draw_cluster_bounds: None, rapier_debug_enabled: None, metaballs_enabled: None, metaballs_view_variant: MetaballsViewVariant::Normal } } }
+
+#[cfg(feature = "debug")]
+pub fn apply_mode_visual_overrides_system(mut overrides: ResMut<DebugVisualOverrides>, state: Res<DebugState>, mut metaballs_toggle: ResMut<MetaballsToggle>) {
+    use DebugRenderMode::*;
+    let variant = match state.mode { Metaballs => MetaballsViewVariant::Normal, BallsFlat => MetaballsViewVariant::Normal, BallsWithClusters => MetaballsViewVariant::Normal, RapierWireframe => MetaballsViewVariant::Normal, MetaballHeightfield => MetaballsViewVariant::Heightfield, MetaballColorInfo => MetaballsViewVariant::ColorInfo };
+    overrides.metaballs_view_variant = variant;
+    let metaballs_on = matches!(state.mode, Metaballs | MetaballHeightfield | MetaballColorInfo);
+    metaballs_toggle.0 = metaballs_on;
+}

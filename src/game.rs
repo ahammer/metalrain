@@ -14,6 +14,7 @@ use crate::rapier_physics::PhysicsSetupPlugin;
 use crate::separation::SeparationPlugin;
 use crate::spawn::BallSpawnPlugin;
 use crate::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
+use crate::debug::DebugPlugin;
 
 pub struct GamePlugin;
 
@@ -35,6 +36,7 @@ impl Plugin for GamePlugin {
                 ClusterPlugin,
                 MetaballsPlugin,
                 InputInteractionPlugin,
+                DebugPlugin,
             ))
             .add_systems(Update, debug_entity_counts);
     }

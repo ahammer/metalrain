@@ -30,3 +30,8 @@ codegen-units = 1
 lto = "thin"
 strip = true
 opt-level = "z"
+
+[features]
+default = []
+# Enable with: cargo run --features debug
+debug = []
