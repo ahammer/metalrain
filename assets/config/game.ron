@@ -29,9 +29,9 @@
     draw_circles: false,
     metaballs_enabled: true,
     metaballs: (
-        iso: 0.6,
+        iso: 0.80,
         normal_z_scale: 0.5,
-    radius_multiplier: 0.9,
+        radius_multiplier: 0.8,
     ),
     draw_cluster_bounds: false,
     interactions: (

@@ -103,45 +103,23 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     if (used == 0u) { return vec4<f32>(0.0); }
-    // Aggregate total field & gradient (sum of contributions) for iso surface.
-    var total_field: f32 = 0.0;
-    var total_grad: vec2<f32> = vec2<f32>(0.0, 0.0);
-    for (var k: u32 = 0u; k < used; k = k + 1u) {
-        total_field = total_field + k_field[k];
-        total_grad = total_grad + k_grad[k];
-    }
-
-    // Heightfield view: show scalar field (pre-iso) as grayscale.
-    if (metaballs.debug_view == 1u) {
-        let gray = clamp(total_field / metaballs.iso, 0.0, 1.0);
-        return vec4<f32>(vec3<f32>(gray, gray, gray), 1.0);
-    }
-
-    // Determine dominant cluster (for ColorInfo mode) & also compute blended color for Normal.
+    // Determine dominant cluster (max field at this pixel). We only blend balls WITHIN that cluster.
     var best_i: u32 = 0u;
     var best_field: f32 = k_field[0u];
     for (var k: u32 = 1u; k < used; k = k + 1u) {
         if (k_field[k] > best_field) { best_field = k_field[k]; best_i = k; }
     }
-
-    // Blended color based on field^exponent weights.
-    var blend_col: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
-    var blend_w_sum: f32 = 0.0;
-    let exp = metaballs.color_blend_exponent;
-    for (var k: u32 = 0u; k < used; k = k + 1u) {
-        let w = pow(k_field[k], exp);
-        if (w > 0.0) {
-            blend_w_sum = blend_w_sum + w;
-            blend_col = blend_col + w * metaballs.cluster_colors[k_indices[k]].rgb;
-        }
+    // Heightfield (debug_view==1): show only the dominant cluster's scalar field normalized.
+    if (metaballs.debug_view == 1u) {
+        let gray = clamp(best_field / metaballs.iso, 0.0, 1.0);
+        return vec4<f32>(vec3<f32>(gray, gray, gray), 1.0);
     }
-    if (blend_w_sum > 0.0) { blend_col = blend_col / blend_w_sum; }
-    let color_info_col = metaballs.cluster_colors[k_indices[best_i]].rgb;
-    let base_col = select(blend_col, color_info_col, metaballs.debug_view == 2u);
-
-    // Edge AA mask from total field & total gradient (analytic derivative of summed field).
-    let grad_len = max(length(total_grad), 1e-5);
-    let s = (total_field - metaballs.iso) / grad_len;
+    // Base color comes from dominant cluster (ColorInfo identical in this mode now).
+    let base_col = metaballs.cluster_colors[k_indices[best_i]].rgb;
+    // Edge AA mask from dominant cluster field/gradient only: prevents cross-cluster blending.
+    let grad = k_grad[best_i];
+    let grad_len = max(length(grad), 1e-5);
+    let s = (best_field - metaballs.iso) / grad_len;
     let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
     let aa = 1.5 * px;
     let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
