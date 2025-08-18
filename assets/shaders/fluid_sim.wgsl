@@ -1,5 +1,7 @@
 // fluid_sim.wgsl - Minimal 2D Stable Fluids style compute passes + display.
-// NOTE: First iteration keeps things deliberately simple; optimization & advanced advection can follow.
+// Additions: metaball / physics ball coupling via inject_balls pass (binding 8 storage buffer) which
+// blends per-ball velocity & dye into the simulation BEFORE velocity advection. This is a naive O(N_cells * N_balls)
+// approach adequate for small grids; optimize later with splatting per ball or tile culling.
 
 struct SimUniform {
     grid_size: vec2<u32>,
@@ -12,6 +14,7 @@ struct SimUniform {
     force_pos: vec2<f32>,
     force_radius: f32,
     force_strength: f32,
+    ball_count: u32,
 }
 @group(0) @binding(0) var<uniform> sim: SimUniform;
 
@@ -25,6 +28,15 @@ struct SimUniform {
 @group(0) @binding(6) var pressure_out: texture_storage_2d<r16float, write>;
 // Needs read + write because we write in compute_divergence then read in jacobi_pressure
 @group(0) @binding(7) var divergence_tex: texture_storage_2d<r16float, read_write>;
+// Ball injection buffer (array length fixed in Rust; we use ball_count to gate loops)
+struct BallInstance {
+    grid_pos: vec2<f32>,
+    grid_vel: vec2<f32>,
+    radius: f32,
+    vel_inject: f32,
+    color: vec4<f32>,
+};
+@group(0) @binding(8) var<storage, read> balls: array<BallInstance>;
 
 // Utility sampling (nearest) for velocity (packed in RG, BA unused)
 fn read_velocity(coord: vec2<i32>) -> vec2<f32> {
@@ -128,6 +140,36 @@ fn add_force(@builtin(global_invocation_id) gid_in: vec3<u32>) {
         write_velocity(gid, vel);
         // inject color (scalar_b reused if bound suitably) - optional handled in dye pass for simplicity
     }
+}
+
+// Inject per-ball velocity (adds to velocity_out) and dye (writes to scalar_b) before advection.
+// Strategy: Each invocation checks distance to each ball; naive O(N*M) but N=grid cells, M=balls (<=1024).
+// Later optimization: splat each ball in its own pass or restrict loop radius.
+@compute @workgroup_size(8,8,1)
+fn inject_balls(@builtin(global_invocation_id) gid_in: vec3<u32>) {
+    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
+    if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
+    let pos = vec2<f32>(f32(gid.x), f32(gid.y));
+    var vel = read_velocity(gid);
+    var dye = textureLoad(scalar_a, gid);
+    // Accumulate influences
+    for (var i: u32 = 0u; i < sim.ball_count; i = i + 1u) {
+        let b = balls[i];
+        let d = pos - b.grid_pos;
+        let r = b.radius;
+        if (r <= 0.0) { continue; }
+        let dist2 = dot(d,d);
+        let r2 = r*r;
+        if (dist2 > r2) { continue; }
+        let falloff = 1.0 - dist2 / r2; // simple linear falloff inside radius
+        // Velocity contribution: impulse toward ball velocity direction (swirl not applied here)
+        vel += b.grid_vel * b.vel_inject * falloff * sim.dt;
+        // Dye blending: lerp existing toward ball color, weighted by falloff
+    let ball_color = b.color;
+    dye = mix(dye, ball_color, falloff * 0.25); // 0.25 controls how quickly field saturates
+    }
+    write_velocity(gid, vel);
+    textureStore(scalar_b, gid, dye);
 }
 
 // Display shader (sample dye texture) - material bind group (group=2 in Bevy 2D materials)

@@ -17,12 +17,13 @@ pub struct FluidSimPlugin;
 impl Plugin for FluidSimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FluidSimSettings>()
+            .init_resource::<FluidBallInstances>()
             .add_plugins((Material2dPlugin::<FluidDisplayMaterial>::default(),))
             .add_systems(Startup, setup_fluid_sim)
             .add_systems(Startup, setup_fluid_display.after(setup_fluid_sim))
             .add_systems(Update, debug_fluid_once)
             .add_systems(Update, resize_display_quad)
-            .add_systems(Update, (update_sim_uniforms, input_force_position));
+            .add_systems(Update, (gather_ball_instances, update_sim_uniforms, input_force_position));
         // Display quad & compute dispatch systems will be added when GPU pipelines are implemented.
 
         // Add render-world compute dispatch after pipelines compile. We operate in RenderApp so we can
@@ -31,8 +32,8 @@ impl Plugin for FluidSimPlugin {
             let render_app = app.sub_app_mut(bevy::render::RenderApp);
             render_app
                 .init_resource::<FluidPipelines>()
-                .add_systems(bevy::render::ExtractSchedule, (extract_fluid_resources, extract_fluid_gpu, extract_fluid_settings))
-                .add_systems(bevy::render::Render, (prepare_fluid_pipelines, run_fluid_sim_compute.after(prepare_fluid_pipelines)));
+                .add_systems(bevy::render::ExtractSchedule, (extract_fluid_resources, extract_fluid_gpu, extract_fluid_settings, extract_fluid_ball_instances))
+                .add_systems(bevy::render::Render, (prepare_fluid_pipelines, prepare_ball_gpu_buffer.after(prepare_fluid_pipelines), run_fluid_sim_compute.after(prepare_ball_gpu_buffer)));
         }
     }
 }
@@ -49,6 +50,54 @@ fn extract_fluid_settings(mut commands: Commands, src: Option<Res<FluidSimSettin
     if let Some(s) = src { commands.insert_resource(s.as_ref().clone()); }
 }
 
+// Extraction: copy ball injection buffer metadata & (later) staging buffer handle into render world.
+fn extract_fluid_ball_instances(mut commands: Commands, src: Option<Res<FluidBallInstances>>) {
+    if let Some(b) = src { commands.insert_resource(b.as_ref().clone()); }
+}
+
+/// Render-world GPU buffer for ball instances (storage buffer consumed by inject pass).
+#[derive(Resource)]
+pub struct FluidBallGpu {
+    pub buffer: Buffer,
+    pub capacity: usize, // number of instances capacity (not bytes)
+}
+
+fn prepare_ball_gpu_buffer(
+    mut commands: Commands,
+    mut existing: Option<ResMut<FluidBallGpu>>,
+    balls: Option<Res<FluidBallInstances>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    let Some(balls) = balls else { return; };
+    let needed = balls.items.len().min(FLUID_MAX_BALLS);
+    let elem_size = std::mem::size_of::<FluidBallInstance>();
+    let required_bytes = (needed.max(1) * elem_size) as u64; // at least 1 to avoid zero-sized buffer issues
+    let mut recreate = false;
+    if let Some(ref gpu) = existing { if gpu.capacity < needed { recreate = true; } }
+    if existing.is_none() { recreate = true; }
+    if recreate {
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("fluid-ball-buffer"),
+            size: required_bytes,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let gpu_res = FluidBallGpu { buffer, capacity: needed };
+        // Write bytes immediately then insert
+        if needed > 0 {
+            let bytes = unsafe { std::slice::from_raw_parts(balls.items.as_ptr() as *const u8, needed * elem_size) };
+            render_queue.write_buffer(&gpu_res.buffer, 0, bytes);
+        }
+        commands.insert_resource(gpu_res);
+    } else if let Some(mut gpu) = existing { // reuse existing
+        if needed > 0 {
+            let bytes = unsafe { std::slice::from_raw_parts(balls.items.as_ptr() as *const u8, needed * elem_size) };
+            render_queue.write_buffer(&gpu.buffer, 0, bytes);
+        }
+    }
+}
+
 #[derive(Resource, Clone)]
 pub struct FluidSimSettings {
     pub resolution: UVec2,
@@ -57,6 +106,40 @@ pub struct FluidSimSettings {
     pub dissipation: f32,
     pub velocity_dissipation: f32,
     pub force_strength: f32,
+}
+
+// ---------------- Ball -> fluid injection data (main world) -----------------
+// We gather per-frame ball state (position, velocity, radius, color) then upload to GPU as a
+// storage buffer consumed by an inject compute pass. This keeps shader logic simple and avoids
+// needing to sample many individual textures.
+// Mapping assumptions: current world coordinate system roughly matches window pixel space.
+// We approximate conversion to grid coordinates with a simple scaling (see gather_ball_instances).
+// Future improvement: inject actual window size and camera transform to derive precise mapping.
+
+/// Limit on number of balls injected into fluid (kept modest to bound buffer size).
+pub const FLUID_MAX_BALLS: usize = 1024;
+
+/// POD struct mirrored in WGSL for each ball injection instance.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, ShaderType)]
+pub struct FluidBallInstance {
+    /// World-space center (xy). We convert to grid coordinates in Rust before upload.
+    pub grid_pos: Vec2,
+    /// Ball velocity in world units (mapped to grid via same scale factor as position).
+    pub grid_vel: Vec2,
+    /// Radius in grid cells.
+    pub radius: f32,
+    /// Injection strength scale for velocity (could vary by ball mass / size); for now 1.0.
+    pub vel_inject: f32,
+    /// Packed color (linear RGB) used for dye injection; alpha unused.
+    pub color: Vec4,
+}
+
+/// CPU-side collection of ball instances for current frame.
+#[derive(Resource, Default, Clone)]
+pub struct FluidBallInstances {
+    pub count: usize,
+    pub items: Vec<FluidBallInstance>,
 }
 
 impl Default for FluidSimSettings {
@@ -92,6 +175,7 @@ impl FluidSimResources {
 #[derive(Resource)]
 pub struct FluidPipelines {
     pub layout: Option<BindGroupLayout>,
+    pub inject_balls: CachedComputePipelineId,
     pub add_force: CachedComputePipelineId,
     pub advect_velocity: CachedComputePipelineId,
     pub compute_divergence: CachedComputePipelineId,
@@ -104,7 +188,7 @@ impl Default for FluidPipelines {
     fn default() -> Self {
         // Use dummy zero ids until queued; these will be replaced.
         let zero = CachedComputePipelineId::INVALID;
-        Self { layout: None, add_force: zero, advect_velocity: zero, compute_divergence: zero, jacobi_pressure: zero, project_velocity: zero, advect_dye: zero }
+    Self { layout: None, inject_balls: zero, add_force: zero, advect_velocity: zero, compute_divergence: zero, jacobi_pressure: zero, project_velocity: zero, advect_dye: zero }
     }
 }
 
@@ -150,6 +234,7 @@ pub struct SimUniform {
     pub force_pos: Vec2,
     pub force_radius: f32,
     pub force_strength: f32,
+    pub ball_count: u32, // number of active FluidBallInstance entries (<= FLUID_MAX_BALLS)
 }
 
 impl Default for SimUniform {
@@ -165,6 +250,7 @@ impl Default for SimUniform {
             force_pos: Vec2::new(128.0,128.0),
             force_radius: 32.0,
             force_strength: 150.0,
+            ball_count: 0,
         }
     }
 }
@@ -185,7 +271,7 @@ fn setup_fluid_sim(
             _ => 4,
         };
         let data_size = (size.width * size.height) as usize * pixel_size;
-        let data = vec![0u8; data_size];
+    let data = vec![0u8; data_size];
         let mut img = Image::default();
         img.data = Some(data);
         img.texture_descriptor = TextureDescriptor {
@@ -273,6 +359,7 @@ fn setup_fluid_sim(
     // Jacobi coefficients alpha/beta for Poisson solve: alpha = -h^2, beta = 0.25 (if 4 neighbors)
     sim_u.jacobi_alpha = -1.0; // assuming h=1
     sim_u.jacobi_beta = 0.25;
+    sim_u.ball_count = 0;
 
     use std::mem::size_of;
     let raw_size = size_of::<SimUniform>() as u64;
@@ -340,6 +427,7 @@ fn run_fluid_sim_compute(
     gpu_images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
     sim_res: Option<ResMut<FluidSimResources>>,
     sim_gpu: Option<Res<FluidSimGpu>>,
+    ball_gpu: Option<Res<FluidBallGpu>>,
     settings: Option<Res<FluidSimSettings>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -347,6 +435,7 @@ fn run_fluid_sim_compute(
     let (Some(sim_res), Some(sim_gpu)) = (sim_res, sim_gpu) else { return };
     let Some(layout) = pipelines.layout.as_ref() else { return };
     let required = [
+    pipelines.inject_balls,
         pipelines.add_force,
         pipelines.advect_velocity,
         pipelines.compute_divergence,
@@ -375,7 +464,8 @@ fn run_fluid_sim_compute(
     let make_bg = |vel_in: &TextureView, vel_out: &TextureView,
                    dye_in: &TextureView, dye_out: &TextureView,
                    p_in: &TextureView, p_out: &TextureView,
-                   divergence: &TextureView| {
+                   divergence: &TextureView,
+                   ball_buf: Option<&FluidBallGpu>| {
         render_device.create_bind_group(
             Some("fluid-sim-bind-group"),
             layout,
@@ -388,6 +478,8 @@ fn run_fluid_sim_compute(
                 BindGroupEntry { binding: 5, resource: BindingResource::TextureView(p_in) },
                 BindGroupEntry { binding: 6, resource: BindingResource::TextureView(p_out) },
                 BindGroupEntry { binding: 7, resource: BindingResource::TextureView(divergence) },
+                // Storage buffer optional (can bind empty zero-sized buffer if None; here we skip binding by using a dummy if absent)
+                BindGroupEntry { binding: 8, resource: if let Some(bb) = ball_buf { bb.buffer.as_entire_binding() } else { sim_gpu.uniform_buffer.as_entire_binding() } },
             ],
         )
     };
@@ -408,8 +500,27 @@ fn run_fluid_sim_compute(
     let grid = sim_gpu.sim.grid_size;
     let extent = Extent3d { width: grid.x, height: grid.y, depth_or_array_layers: 1 };
 
+    // 0. Inject balls (velocity_a -> velocity_b & dye_a -> dye_b) then copy both back
+    let ball_gpu_ref: Option<&FluidBallGpu> = ball_gpu.as_ref().map(|r| r.as_ref());
+    let mut bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
+    run_pass(pipelines.inject_balls, &bg, "inject_balls", &mut encoder, grid);
+    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            extent,
+        );
+    }
+    if let (Some(db_tex), Some(da_tex)) = (gpu_images.get(dye_back), gpu_images.get(dye_front)) {
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo { texture: &db_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            TexelCopyTextureInfo { texture: &da_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            extent,
+        );
+    }
+
     // 1. Add force (velocity_a -> velocity_b) then copy back into velocity_a
-    let mut bg = make_bg(va, vb, da, db, pa, pb, div);
+    bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
     run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
     if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
         encoder.copy_texture_to_texture(
@@ -419,7 +530,7 @@ fn run_fluid_sim_compute(
         );
     }
     // 2. Advect velocity -> copy back
-    bg = make_bg(va, vb, da, db, pa, pb, div);
+    bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
     run_pass(pipelines.advect_velocity, &bg, "advect_velocity", &mut encoder, grid);
     if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
         encoder.copy_texture_to_texture(
@@ -429,14 +540,14 @@ fn run_fluid_sim_compute(
         );
     }
     // 3. Compute divergence
-    bg = make_bg(va, vb, da, db, pa, pb, div);
+    bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
     run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
     // 4. Jacobi pressure iterations with internal ping-pong
     let jacobi_iters = settings.map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
     let mut ping_is_a = true; // read A write B first
     for _ in 0..jacobi_iters {
         let (p_in, p_out) = if ping_is_a { (pa, pb) } else { (pb, pa) };
-        let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div);
+    let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div, ball_gpu_ref);
         run_pass(pipelines.jacobi_pressure, &jacobi_bg, "jacobi_pressure", &mut encoder, grid);
         ping_is_a = !ping_is_a;
     }
@@ -450,7 +561,7 @@ fn run_fluid_sim_compute(
         }
     }
     // 5. Project velocity (velocity_a -> velocity_b) copy back
-    bg = make_bg(va, vb, da, db, pa, pb, div);
+    bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
     run_pass(pipelines.project_velocity, &bg, "project_velocity", &mut encoder, grid);
     if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
         encoder.copy_texture_to_texture(
@@ -460,7 +571,7 @@ fn run_fluid_sim_compute(
         );
     }
     // 6. Advect dye (dye_a -> dye_b) copy back
-    bg = make_bg(va, vb, da, db, pa, pb, div);
+    bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
     run_pass(pipelines.advect_dye, &bg, "advect_dye", &mut encoder, grid);
     if let (Some(db_tex), Some(da_tex)) = (gpu_images.get(dye_back), gpu_images.get(dye_front)) {
         encoder.copy_texture_to_texture(
@@ -492,6 +603,8 @@ fn prepare_fluid_pipelines(
             BindGroupLayoutEntry { binding: 5, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 6, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 7, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadWrite, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            // Ball injection storage buffer
+            BindGroupLayoutEntry { binding: 8, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
         ];
         let layout = render_device.create_bind_group_layout(Some("fluid-sim-layout"), &entries);
         pipelines.layout = Some(layout);
@@ -508,7 +621,8 @@ fn prepare_fluid_pipelines(
     if already_ready { return; }
     let shader_handle: Handle<Shader> = asset_server.load("shaders/fluid_sim.wgsl");
     let layout = pipelines.layout.as_ref().unwrap().clone();
-    let entries: [(&'static str, *mut CachedComputePipelineId); 6] = [
+    let entries: [(&'static str, *mut CachedComputePipelineId); 7] = [
+        ("inject_balls", &mut pipelines.inject_balls as *mut _),
         ("add_force", &mut pipelines.add_force as *mut _),
         ("advect_velocity", &mut pipelines.advect_velocity as *mut _),
         ("compute_divergence", &mut pipelines.compute_divergence as *mut _),
@@ -574,4 +688,42 @@ fn input_force_position(
         let gy = (origin.y / h * settings.resolution.y as f32) + settings.resolution.y as f32 * 0.5;
         gpu.sim.force_pos = Vec2::new(gx.clamp(0.0, settings.resolution.x as f32 - 1.0), gy.clamp(0.0, settings.resolution.y as f32 - 1.0));
     }
+}
+
+// Gather current ball data into FluidBallInstances each frame (main world).
+fn gather_ball_instances(
+    mut inst: ResMut<FluidBallInstances>,
+    gpu_uniform: Option<ResMut<FluidSimGpu>>,
+    settings: Res<FluidSimSettings>,
+    q_balls: Query<(&Transform, &crate::components::BallRadius, Option<&bevy_rapier2d::prelude::Velocity>, &crate::materials::BallMaterialIndex), With<crate::components::Ball>>,
+) {
+    inst.items.clear();
+    let grid_w = settings.resolution.x as f32;
+    let grid_h = settings.resolution.y as f32;
+    // World coords range roughly with window size (camera default). Map world units to grid by translating origin and scaling by window to grid ratio.
+    // For now assume 1 world unit ~ 1 pixel; rely on window dimensions matching world extents (-w/2..w/2). We approximate by using transform position scaled into grid.
+    for (tf, radius, vel_opt, mat_idx) in q_balls.iter() {
+        if inst.items.len() >= FLUID_MAX_BALLS { break; }
+        let pos = tf.translation.truncate();
+        // Map world position to grid (similar to cursor logic but inverse). We lack window size here; approximate by assuming world units already in pixel space.
+        // TODO: pass window dimensions if mismatch appears.
+        let gx = (pos.x / 800.0) * grid_w + grid_w * 0.5; // fallback 800 width assumption
+        let gy = (pos.y / 600.0) * grid_h + grid_h * 0.5; // fallback 600 height assumption
+        let vel = vel_opt.map(|v| v.linvel).unwrap_or(Vec2::ZERO);
+        // Velocity mapping: scale similarly
+        let gvx = vel.x / 800.0 * grid_w;
+        let gvy = vel.y / 600.0 * grid_h;
+        // Color from palette
+        let color = crate::palette::color_for_index(mat_idx.0);
+        let srgb = color.to_srgba();
+        inst.items.push(FluidBallInstance {
+            grid_pos: Vec2::new(gx, gy),
+            grid_vel: Vec2::new(gvx, gvy),
+            radius: radius.0, // radius in world units; treat as grid radius for now
+            vel_inject: 1.0,
+            color: Vec4::new(srgb.red, srgb.green, srgb.blue, 1.0),
+        });
+    }
+    inst.count = inst.items.len();
+    if let Some(mut gpu) = gpu_uniform { gpu.sim.ball_count = inst.count as u32; }
 }
