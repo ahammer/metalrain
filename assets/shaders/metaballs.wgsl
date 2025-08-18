@@ -46,7 +46,8 @@ fn vertex(@location(0) position: vec3<f32>) -> VertexOutput {
 // All previous lighting / blending modes removed for clarity & performance.
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    if (metaballs.ball_count == 0u) { return vec4<f32>(0.0); }
+    // If there are no balls at all, we don't want this material to draw anything.
+    if (metaballs.ball_count == 0u) { discard; }
     let p = in.world_pos;
 
     // Sparse per-pixel cluster accumulation (top-K style). K kept small for ALU efficiency.
@@ -102,7 +103,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    if (used == 0u) { return vec4<f32>(0.0); }
+    // No clusters contributed any field at this pixel -> do not draw (avoid writing zero alpha).
+    if (used == 0u) { discard; }
     // Determine dominant cluster (max field at this pixel). We only blend balls WITHIN that cluster.
     var best_i: u32 = 0u;
     var best_field: f32 = k_field[0u];
@@ -128,8 +130,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (field_delta <= -smooth_width * 0.5) { discard; }
     // Map field_delta in [-smooth_width/2, smooth_width/2] to [0,1] for transitional alpha.
     let mask = clamp(0.5 + field_delta / smooth_width, 0.0, 1.0);
-    // If you want a fully hard edge with absolutely no AA: uncomment next line & force mask=1.0.
-    // let mask = select(0.0, 1.0, field_delta >= 0.0);
     if (mask <= 0.0) { discard; }
     return vec4<f32>(base_col, mask);
 }
