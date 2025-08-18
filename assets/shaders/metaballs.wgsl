@@ -1,10 +1,11 @@
 // Per-ball metaballs using a Wyvill-style bounded kernel f = (1 - (d/R)^2)^3 for d<R.
 // Accumulates field & gradient for analytic normal, applies smooth AA around iso threshold.
-// Single full-screen pass (vertex passthrough) using Material2d bind group (index 2 in Bevy 0.14).
+// Single full-screen pass (vertex passthrough) using Material2d bind group (index 2 in Bevy 0.16).
 
 const MAX_BALLS : u32 = 1024u;
 const MAX_CLUSTERS : u32 = 256u;
 
+// Mirrors the Rust `MetaballsUniform` layout exactly. Remove fields cautiously & in lockstep.
 struct MetaballsData {
     ball_count: u32,
     cluster_color_count: u32,
@@ -13,18 +14,11 @@ struct MetaballsData {
     window_size: vec2<f32>,
     iso: f32,
     normal_z_scale: f32,
-    // New shading params (packed to 16B)
-    metallic: f32,          // 0 = dielectric, 1 = full metal (affects F0 and specular coloration)
-    roughness: f32,         // perceptual roughness in [0,1]
-    env_intensity: f32,     // environment reflection intensity
-    spec_intensity: f32,    // direct specular multiplier
-    debug_view: u32,        // 0=Normal shaded,1=Heightfield,2=ColorInfo
-    color_mode: u32,        // 0 = smooth blend, 1 = hard nearest cluster
-    color_blend_exponent: f32, // exponent applied to contribution when blending colors
-    radius_multiplier: f32,    // user visual expansion factor (multiplies each stored radius before radius_scale)
-    _pad_dbg: vec2<f32>,
-    // (header now 64 bytes; arrays follow aligned to 16)
-    balls: array<vec4<f32>, MAX_BALLS>,          // (x, y, radius, cluster_index as float)
+    color_blend_exponent: f32,
+    radius_multiplier: f32, // user visual expansion factor (applied before radius_scale)
+    debug_view: u32,        // 0=Normal,1=Heightfield,2=ColorInfo
+    _pad2: vec2<f32>,       // matches Rust padding
+    balls: array<vec4<f32>, MAX_BALLS>,             // (x, y, radius, cluster_index as float)
     cluster_colors: array<vec4<f32>, MAX_CLUSTERS>, // (r,g,b,_)
 };
 
@@ -46,144 +40,111 @@ fn vertex(@location(0) position: vec3<f32>) -> VertexOutput {
     return out;
 }
 
+// Simplified single-path fragment: per-cluster field accumulation (sparse) and flat color output.
+// We aggregate contributions for up to K_MAX clusters influencing this pixel, pick the cluster with
+// the largest field value, then use that cluster's color and analytic gradient (for AA mask only).
+// All previous lighting / blending modes removed for clarity & performance.
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (metaballs.ball_count == 0u) { return vec4<f32>(0.0); }
     let p = in.world_pos;
-    var field: f32 = 0.0;
-    var grad: vec2<f32> = vec2<f32>(0.0);
-    // Track nearest ball for hard-boundary mode and build accumulators for smooth blending.
-    var nearest_d2: f32 = 1e30;
-    var nearest_cluster: u32 = 0u;
-    var nearest_local_r2: f32 = 1.0; // for spherical normal correction
-    var nearest_center: vec2<f32> = vec2<f32>(0.0);
-    var blend_sum: vec3<f32> = vec3<f32>(0.0);
-    var weight_sum: f32 = 0.0;
-    // Accumulate field & gradient
+
+    // Sparse per-pixel cluster accumulation (top-K style). K kept small for ALU efficiency.
+    const K_MAX : u32 = 12u;
+    var k_indices: array<u32, 12>; // uninitialized entries only valid up to used count
+    var k_field: array<f32, 12>;
+    var k_grad: array<vec2<f32>, 12>;
+    var used: u32 = 0u;
+
     for (var i: u32 = 0u; i < metaballs.ball_count; i = i + 1u) {
         let b = metaballs.balls[i];
         let center = b.xy;
-    let radius = b.z * metaballs.radius_multiplier; // apply user-configured multiplier
+        let radius = b.z * metaballs.radius_multiplier;
         if (radius <= 0.0) { continue; }
         let d = p - center;
         let d2 = dot(d, d);
         let scaled_r = radius * metaballs.radius_scale;
         let r2 = scaled_r * scaled_r;
         if (d2 < r2) {
-            let x = 1.0 - d2 / r2; // in [0,1]
+            let x = 1.0 - d2 / r2; // [0,1]
             let x2 = x * x;
-            let fi = x2 * x; // contribution of THIS ball
-            field = field + fi;
-            grad = grad + (-6.0 / r2) * d * x2;
-            // Track nearest ball for lighting / debug
-            if (d2 < nearest_d2) {
-                nearest_d2 = d2;
-                nearest_cluster = u32(b.w + 0.5);
-                nearest_local_r2 = r2;
-                nearest_center = center;
+            let fi = x2 * x; // field contribution
+            let g = (-6.0 / r2) * d * x2; // gradient contribution (2D)
+            let cluster = u32(b.w + 0.5);
+            if (cluster >= metaballs.cluster_color_count) { continue; }
+            // Find existing slot
+            var found: i32 = -1;
+            for (var k: u32 = 0u; k < used; k = k + 1u) {
+                if (k_indices[k] == cluster) { found = i32(k); break; }
             }
-            // Smooth color blending should use each ball's own cluster/color index, NOT the current nearest.
-            // Previous implementation mistakenly looked up the nearest ball's cluster for every contributing ball,
-            // which collapsed colors to local regions and visually reduced merging cues.
-            if (metaballs.color_mode == 0u) {
-                let this_cluster = u32(b.w + 0.5);
-                let w = pow(fi, metaballs.color_blend_exponent);
-                if (this_cluster < metaballs.cluster_color_count) {
-                    let c = metaballs.cluster_colors[this_cluster].rgb;
-                    blend_sum += c * w;
-                    weight_sum += w;
+            if (found >= 0) {
+                let idx = u32(found);
+                k_field[idx] = k_field[idx] + fi;
+                k_grad[idx] = k_grad[idx] + g;
+            } else if (used < K_MAX) {
+                k_indices[used] = cluster;
+                k_field[used] = fi;
+                k_grad[used] = g;
+                used = used + 1u;
+            } else {
+                // Optional replacement policy: keep if this contribution beats smallest current field.
+                var smallest: f32 = 1e30;
+                var smallest_i: u32 = 0u;
+                for (var k: u32 = 0u; k < K_MAX; k = k + 1u) {
+                    if (k_field[k] < smallest) { smallest = k_field[k]; smallest_i = k; }
+                }
+                if (fi > smallest) {
+                    k_indices[smallest_i] = cluster;
+                    k_field[smallest_i] = fi;
+                    k_grad[smallest_i] = g;
                 }
             }
         }
     }
-    if (field <= 0.0001) { return vec4<f32>(0.0); }
-    // Signed distance approximation (field - iso) / |grad|
-    let grad_len = max(length(grad), 1e-5);
-    let s = (field - metaballs.iso) / grad_len;
-    // Smooth AA mask around iso (kept for edges) but interior gets hard color separation.
+
+    if (used == 0u) { return vec4<f32>(0.0); }
+    // Aggregate total field & gradient (sum of contributions) for iso surface.
+    var total_field: f32 = 0.0;
+    var total_grad: vec2<f32> = vec2<f32>(0.0, 0.0);
+    for (var k: u32 = 0u; k < used; k = k + 1u) {
+        total_field = total_field + k_field[k];
+        total_grad = total_grad + k_grad[k];
+    }
+
+    // Heightfield view: show scalar field (pre-iso) as grayscale.
+    if (metaballs.debug_view == 1u) {
+        let gray = clamp(total_field / metaballs.iso, 0.0, 1.0);
+        return vec4<f32>(vec3<f32>(gray, gray, gray), 1.0);
+    }
+
+    // Determine dominant cluster (for ColorInfo mode) & also compute blended color for Normal.
+    var best_i: u32 = 0u;
+    var best_field: f32 = k_field[0u];
+    for (var k: u32 = 1u; k < used; k = k + 1u) {
+        if (k_field[k] > best_field) { best_field = k_field[k]; best_i = k; }
+    }
+
+    // Blended color based on field^exponent weights.
+    var blend_col: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+    var blend_w_sum: f32 = 0.0;
+    let exp = metaballs.color_blend_exponent;
+    for (var k: u32 = 0u; k < used; k = k + 1u) {
+        let w = pow(k_field[k], exp);
+        if (w > 0.0) {
+            blend_w_sum = blend_w_sum + w;
+            blend_col = blend_col + w * metaballs.cluster_colors[k_indices[k]].rgb;
+        }
+    }
+    if (blend_w_sum > 0.0) { blend_col = blend_col / blend_w_sum; }
+    let color_info_col = metaballs.cluster_colors[k_indices[best_i]].rgb;
+    let base_col = select(blend_col, color_info_col, metaballs.debug_view == 2u);
+
+    // Edge AA mask from total field & total gradient (analytic derivative of summed field).
+    let grad_len = max(length(total_grad), 1e-5);
+    let s = (total_field - metaballs.iso) / grad_len;
     let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
     let aa = 1.5 * px;
     let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
-
-    // Derive material base color.
-    var base_col: vec3<f32> = vec3<f32>(0.8,0.8,0.8);
-    if (metaballs.color_mode == 0u) {
-        if (weight_sum > 0.0) {
-            base_col = blend_sum / weight_sum;
-        } else if (nearest_cluster < metaballs.cluster_color_count) {
-            base_col = metaballs.cluster_colors[nearest_cluster].rgb;
-        }
-    } else { // hard boundary
-        if (nearest_cluster < metaballs.cluster_color_count) {
-            base_col = metaballs.cluster_colors[nearest_cluster].rgb;
-        }
-    }
-
-    // Reconstruct a more spherical-ish normal: combine field gradient with a sphere normal of nearest ball.
-    let to_center = p - nearest_center;
-    let radial = normalize(vec3<f32>(to_center, 0.0));
-    // Sphere Z from radius^2 - d^2 (hemisphere) -> approximate depth and normal.
-    let sphere_z = sqrt(max(nearest_local_r2 - nearest_d2, 0.0));
-    let sphere_normal = normalize(vec3<f32>(to_center, sphere_z * metaballs.normal_z_scale));
-    let field_normal = normalize(vec3<f32>(grad, metaballs.normal_z_scale));
-    let n = normalize(mix(field_normal, sphere_normal, 0.6));
-
-    // Branch early for debug view variants that bypass full shading.
-    if (metaballs.debug_view == 1u) { // Heightfield: visualize raw field value pre-iso with edge mask
-        let grad_len = max(length(grad), 1e-5);
-        let s = (field - metaballs.iso) / grad_len;
-        let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
-        let aa = 1.5 * px;
-        let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
-        let gray = clamp(field, 0.0, 4.0) / 4.0; // normalized approx
-        return vec4<f32>(vec3<f32>(gray), mask);
-    }
-    if (metaballs.debug_view == 2u) { // ColorInfo: show cluster color table directly, no lighting
-        let grad_len = max(length(grad), 1e-5);
-        let s = (field - metaballs.iso) / grad_len;
-        let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
-        let aa = 1.5 * px;
-        let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
-        var base_col: vec3<f32> = vec3<f32>(0.5,0.5,0.5);
-        if (nearest_cluster < metaballs.cluster_color_count) {
-            base_col = metaballs.cluster_colors[nearest_cluster].rgb;
-        }
-        return vec4<f32>(base_col, mask);
-    }
-
-    // Lighting: single directional + environment reflection approximation (Normal mode only).
-    let L = normalize(vec3<f32>(0.6, 0.5, 1.0));
-    let V = normalize(vec3<f32>(0.0, 0.0, 1.0));
-    let H = normalize(L + V);
-    let ndotl = max(dot(n, L), 0.0);
-    let ndotv = max(dot(n, V), 0.0);
-    let ndoth = max(dot(n, H), 0.0);
-    let rough = clamp(metaballs.roughness, 0.04, 1.0);
-    let alpha = rough * rough; // GGX alpha
-    // GGX NDF
-    let a2 = alpha * alpha;
-    let denom = (ndoth * ndoth) * (a2 - 1.0) + 1.0;
-    let D = a2 / (3.14159 * denom * denom);
-    // Smith G (Schlick-GGX)
-    let k = (alpha + 1.0);
-    let k2 = (k * k) / 8.0;
-    let Gv = ndotv / (ndotv * (1.0 - k2) + k2);
-    let Gl = ndotl / (ndotl * (1.0 - k2) + k2);
-    let G = Gv * Gl;
-    // Fresnel Schlick
-    let F0_dielectric = vec3<f32>(0.04, 0.04, 0.04);
-    let F0 = mix(F0_dielectric, base_col, metaballs.metallic);
-    let F = F0 + (1.0 - F0) * pow(1.0 - ndotv, 5.0);
-    let spec = (D * G * F) / max(4.0 * ndotv * ndotl + 1e-5, 1e-5);
-    // Diffuse term suppressed by metallic
-    let diffuse = base_col * (1.0 - metaballs.metallic) * ndotl;
-    // Simple environment reflection: use n.z & a horizon tint.
-    let env_up = vec3<f32>(0.85, 0.90, 1.0);
-    let env_down = vec3<f32>(0.05, 0.06, 0.07);
-    let env = mix(env_down, env_up, 0.5 + 0.5 * n.z) * metaballs.env_intensity;
-    let color = diffuse + spec * metaballs.spec_intensity + env * F;
-    // Tone map (simple Reinhard) and gamma-ish correction.
-    let mapped = color / (color + 1.0);
-    let final_rgb = pow(mapped, vec3<f32>(0.4545));
-    return vec4<f32>(final_rgb, mask);
+    if (mask <= 0.0) { return vec4<f32>(0.0); }
+    return vec4<f32>(base_col, mask);
 }

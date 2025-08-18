@@ -198,14 +198,6 @@ impl Default for GameConfig {
 pub struct MetaballsRenderConfig {
     pub iso: f32,
     pub normal_z_scale: f32,
-    pub metallic: f32,
-    pub roughness: f32,
-    pub env_intensity: f32,
-    pub spec_intensity: f32,
-    /// When true, use hard nearest-ball/cluster color boundaries (bubble look). When false, smoothly blend colors by field contribution.
-    pub hard_cluster_boundaries: bool,
-    /// Exponent applied to per-ball field contribution when color blending (>=1). Higher -> more localized colors, lower (<1) -> more wash/mixing.
-    pub color_blend_exponent: f32,
     /// Multiplier applied to each physical ball radius ONLY for the metaballs distance field (visual expansion / contraction).
     /// Does not change physics or circle debug rendering. Values >1.0 make blobs fuse earlier; <1.0 tighten them.
     pub radius_multiplier: f32,
@@ -215,12 +207,6 @@ impl Default for MetaballsRenderConfig {
         Self {
             iso: 0.6,
             normal_z_scale: 1.0,
-            metallic: 0.3,
-            roughness: 0.5,
-            env_intensity: 0.2,
-            spec_intensity: 0.5,
-            hard_cluster_boundaries: false,
-            color_blend_exponent: 1.0,
             radius_multiplier: 1.0,
         }
     }
@@ -481,12 +467,6 @@ mod tests {
             metaballs: (
                 iso: 0.55,
                 normal_z_scale: 1.1,
-                metallic: 0.2,
-                roughness: 0.6,
-                env_intensity: 0.3,
-                spec_intensity: 0.4,
-                hard_cluster_boundaries: false,
-                color_blend_exponent: 1.0,
                 radius_multiplier: 1.25,
             ),
             draw_cluster_bounds: false,
@@ -502,7 +482,7 @@ mod tests {
         assert_eq!(cfg.balls.count, 10);
         assert_eq!(cfg.bounce.restitution, 0.5);
     assert!((cfg.metaballs.iso - 0.55).abs() < 1e-6);
-    assert_eq!(cfg.metaballs.hard_cluster_boundaries, false);
+    // hard_cluster_boundaries removed in simplified flat-color renderer
         // Should produce no warnings for the nominal sample config
         assert!(
             cfg.validate().is_empty(),
@@ -542,17 +522,7 @@ mod tests {
             rapier_debug: false,
             draw_circles: true,
             metaballs_enabled: true,
-            metaballs: MetaballsRenderConfig {
-                iso: 0.6,
-                normal_z_scale: 1.0,
-                metallic: 0.5,
-                roughness: 0.5,
-                env_intensity: 0.0,
-                spec_intensity: 0.5,
-                hard_cluster_boundaries: false,
-                color_blend_exponent: 1.0,
-                radius_multiplier: 1.0,
-            },
+            metaballs: MetaballsRenderConfig { iso: 0.6, normal_z_scale: 1.0, radius_multiplier: 1.0 },
             draw_cluster_bounds: false,
             interactions: InteractionConfig {
                 explosion: ExplosionConfig {

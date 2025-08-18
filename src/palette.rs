@@ -24,8 +24,9 @@ mod tests {
     #[test]
     fn wrap_behavior() {
         assert_eq!(color_for_index(0), BASE_COLORS[0]);
-        assert_eq!(color_for_index(6), BASE_COLORS[0]); // wrap
-        assert_eq!(color_for_index(7), BASE_COLORS[1]);
+    // Palette length is 4; verify wrapping using indices beyond length
+    assert_eq!(color_for_index(4), BASE_COLORS[0]); // wrap exactly once
+    assert_eq!(color_for_index(5), BASE_COLORS[1]); // wrap + offset 1
     }
 
     #[test]

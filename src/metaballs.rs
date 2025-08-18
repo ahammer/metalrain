@@ -29,19 +29,13 @@ pub(crate) struct MetaballsUniform {
     window_size: Vec2,
     iso: f32,            // isosurface threshold
     normal_z_scale: f32, // for pseudo-3D lighting (2D path)
-    // Shading params
-    metallic: f32,
-    roughness: f32,
-    env_intensity: f32,
-    spec_intensity: f32,
-    // Debug view variant selector: 0=Normal shaded metaballs, 1=Heightfield (grayscale field), 2=ColorInfo (cluster index coloring)
-    debug_view: u32,
-    // 0 = smooth blend, 1 = hard cluster boundary
-    color_mode: u32,
+    // Blending exponent (>=1 tightens color locality). 1.0 = linear weighting by field value.
     color_blend_exponent: f32,
     // User-configured visual expansion multiplier of physical radii (before iso-derived radius_scale)
     radius_multiplier: f32,
-    _pad2: Vec3, // keep alignment (replaces previous Vec2 padding)
+    // Debug view variant selector retained for optional overlays (0=Normal,1=Heightfield,2=ColorInfo)
+    debug_view: u32,
+    _pad2: Vec2,
     // Per-ball packed data: (x, y, radius, cluster_index as float)
     balls: [Vec4; MAX_BALLS],
     // Cluster colors as linear RGB in xyz, w unused (or could store pre-mult factor)
@@ -58,15 +52,10 @@ impl Default for MetaballsUniform {
             window_size: Vec2::ZERO,
             iso: 0.6,
             normal_z_scale: 1.0,
-            metallic: 0.5,
-            roughness: 0.5,
-            env_intensity: 0.0,
-            spec_intensity: 0.5,
-            debug_view: 0,
-            color_mode: 0,
             color_blend_exponent: 1.0,
             radius_multiplier: 1.0,
-            _pad2: Vec3::ZERO,
+            debug_view: 0,
+            _pad2: Vec2::ZERO,
             balls: [Vec4::ZERO; MAX_BALLS],
             cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
         }
@@ -100,12 +89,6 @@ pub struct MetaballsToggle(pub bool);
 pub struct MetaballsParams {
     pub iso: f32,
     pub normal_z_scale: f32,
-    pub metallic: f32,
-    pub roughness: f32,
-    pub env_intensity: f32,
-    pub spec_intensity: f32,
-    pub hard_cluster_boundaries: bool,
-    pub color_blend_exponent: f32,
     pub radius_multiplier: f32,
 }
 #[derive(Component)]
@@ -116,12 +99,6 @@ impl Default for MetaballsParams {
         Self {
             iso: 0.6,
             normal_z_scale: 1.0,
-            metallic: 0.5,
-            roughness: 0.5,
-            env_intensity: 0.0,
-            spec_intensity: 0.5,
-            hard_cluster_boundaries: false,
-            color_blend_exponent: 1.0,
             radius_multiplier: 1.0,
         }
     }
@@ -153,12 +130,6 @@ fn initialize_toggle_from_config(mut toggle: ResMut<MetaballsToggle>, cfg: Res<G
 fn apply_config_to_params(mut params: ResMut<MetaballsParams>, cfg: Res<GameConfig>) {
     params.iso = cfg.metaballs.iso;
     params.normal_z_scale = cfg.metaballs.normal_z_scale;
-    params.metallic = cfg.metaballs.metallic;
-    params.roughness = cfg.metaballs.roughness;
-    params.env_intensity = cfg.metaballs.env_intensity;
-    params.spec_intensity = cfg.metaballs.spec_intensity;
-    params.hard_cluster_boundaries = cfg.metaballs.hard_cluster_boundaries;
-    params.color_blend_exponent = cfg.metaballs.color_blend_exponent.max(0.01);
     params.radius_multiplier = cfg.metaballs.radius_multiplier.max(0.0001);
 }
 
@@ -218,12 +189,8 @@ fn update_metaballs_material(
     // Update params
     mat.data.iso = params.iso;
     mat.data.normal_z_scale = params.normal_z_scale;
-    mat.data.metallic = params.metallic.clamp(0.0, 1.0);
-    mat.data.roughness = params.roughness.clamp(0.04, 1.0);
-    mat.data.env_intensity = params.env_intensity.max(0.0);
-    mat.data.spec_intensity = params.spec_intensity.max(0.0);
-    mat.data.color_mode = if params.hard_cluster_boundaries { 1 } else { 0 };
-    mat.data.color_blend_exponent = params.color_blend_exponent.max(0.01);
+    // Keep a fixed exponent for now (could expose via params/config later)
+    mat.data.color_blend_exponent = 1.0;
     mat.data.radius_multiplier = params.radius_multiplier.max(0.0001);
     // Apply debug view (only when debug feature compiled). Falls back to 0 (Normal).
     #[cfg(feature = "debug")]
@@ -310,43 +277,10 @@ fn tweak_metaballs_params(mut params: ResMut<MetaballsParams>, keys: Res<ButtonI
         params.iso = (params.iso + 0.05).min(1.5);
         dirty = true;
     }
-    if keys.just_pressed(KeyCode::KeyM) {
-        // toggle metallic extremes
-        params.metallic = if params.metallic > 0.5 { 0.0 } else { 0.85 };
-        dirty = true;
-    }
-    if keys.just_pressed(KeyCode::Minus) {
-        // decrease roughness
-        params.roughness = (params.roughness - 0.05).max(0.04);
-        dirty = true;
-    }
-    if keys.just_pressed(KeyCode::Equal) {
-        // increase roughness
-        params.roughness = (params.roughness + 0.05).min(1.0);
-        dirty = true;
-    }
-    if keys.just_pressed(KeyCode::KeyE) {
-        // env intensity toggle
-        params.env_intensity = if params.env_intensity > 0.5 { 0.2 } else { 1.0 };
-        dirty = true;
-    }
-    if keys.just_pressed(KeyCode::KeyP) {
-        // spec intensity toggle
-        params.spec_intensity = if params.spec_intensity > 0.5 {
-            0.0
-        } else {
-            1.0
-        };
-        dirty = true;
-    }
     if dirty {
         info!(
-            "Metaballs params updated: iso={:.2} metal={:.2} rough={:.2} env={:.2} spec={:.2}",
-            params.iso,
-            params.metallic,
-            params.roughness,
-            params.env_intensity,
-            params.spec_intensity
+            "Metaballs params updated: iso={:.2}",
+            params.iso
         );
     }
 }
