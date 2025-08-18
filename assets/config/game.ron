@@ -3,7 +3,7 @@
         width: 1280.0,
         height: 720.0,
         title: "Bevy Bouncing Balls",
-        autoClose: 5.0,
+    autoClose: 6.0, // extended to allow fluid simulation pipelines to compile & first dispatch
     ),
     gravity: (
         y: -600.0,
@@ -44,9 +44,9 @@
         height: 256,
         jacobi_iterations: 20,
         time_step: 0.016666667,
-        dissipation: 0.995,
-        velocity_dissipation: 0.999,
-        force_strength: 120.0,
+        dissipation: 0.999,
+        velocity_dissipation: 0.95,
+        force_strength: 10.0,
         enabled: true,
     ),
 )

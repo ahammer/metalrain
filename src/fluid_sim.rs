@@ -3,6 +3,9 @@ use bevy::input::ButtonInput;
 use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::render_resource::ShaderType;
+use bevy::render::RenderSet;
+use bevy::render::Extract; // for manual resource extraction into render world
+use std::sync::{Arc, atomic::{AtomicU64, AtomicU32, AtomicBool, Ordering}};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d;
 use wgpu::TexelCopyTextureInfo;
@@ -18,13 +21,15 @@ pub struct FluidSimPlugin;
 
 impl Plugin for FluidSimPlugin {
     fn build(&self, app: &mut App) {
+        info!("Building FluidSimPlugin (registering resources & systems)");
         app.init_resource::<FluidSimSettings>()
+            .init_resource::<FluidSimDiagnostics>()
             .add_plugins((Material2dPlugin::<FluidDisplayMaterial>::default(),))
             .add_systems(Startup, sync_fluid_settings_from_config)
             .add_systems(Startup, setup_fluid_sim)
             .add_systems(Startup, setup_fluid_display.after(setup_fluid_sim))
             .add_systems(Update, resize_display_quad)
-            .add_systems(Update, (update_sim_uniforms, input_force_position, realloc_fluid_textures_if_needed));
+            .add_systems(Update, (update_sim_uniforms, input_force_position, realloc_fluid_textures_if_needed, log_fluid_activity));
         // Display quad & compute dispatch systems will be added when GPU pipelines are implemented.
 
         // Add render-world compute dispatch after pipelines compile. We operate in RenderApp so we can
@@ -33,8 +38,27 @@ impl Plugin for FluidSimPlugin {
             let render_app = app.sub_app_mut(bevy::render::RenderApp);
             render_app
                 .init_resource::<FluidPipelines>()
-                .add_systems(bevy::render::ExtractSchedule, (extract_fluid_resources, extract_fluid_gpu, extract_fluid_settings, extract_active_background))
-                .add_systems(bevy::render::Render, (prepare_fluid_pipelines, run_fluid_sim_compute.after(prepare_fluid_pipelines)));
+                .add_systems(
+                    bevy::render::ExtractSchedule,
+                    (
+                        extract_fluid_resources,
+                        extract_fluid_gpu,
+                        extract_fluid_settings,
+                        extract_active_background,
+                        extract_fluid_diagnostics,
+                    ),
+                )
+                // Place both preparation and compute in the Prepare set so extracted resources & images exist
+                // and updates land before the actual Render set draws sample the dye texture.
+                .add_systems(
+                    bevy::render::Render,
+                    (
+                        prepare_fluid_pipelines.in_set(RenderSet::Prepare),
+                        run_fluid_sim_compute
+                            .in_set(RenderSet::Prepare)
+                            .after(prepare_fluid_pipelines),
+                    ),
+                );
         }
     }
 }
@@ -56,19 +80,24 @@ fn sync_fluid_settings_from_config(
 }
 
 // Extraction systems move main-world resources into render world each frame (simple clone / copy of handles)
-fn extract_fluid_resources(mut commands: Commands, src: Option<Res<FluidSimResources>>) {
-    if let Some(r) = src { commands.insert_resource(r.as_ref().clone()); }
+fn extract_fluid_resources(mut commands: Commands, src: Extract<Res<FluidSimResources>>) {
+    commands.insert_resource(src.clone());
 }
-fn extract_fluid_gpu(mut commands: Commands, src: Option<Res<FluidSimGpu>>) {
-    if let Some(g) = src { commands.insert_resource(FluidSimGpu { uniform_buffer: g.uniform_buffer.clone(), sim: g.sim }); }
-}
-
-fn extract_fluid_settings(mut commands: Commands, src: Option<Res<FluidSimSettings>>) {
-    if let Some(s) = src { commands.insert_resource(s.as_ref().clone()); }
+fn extract_fluid_gpu(mut commands: Commands, src: Extract<Res<FluidSimGpu>>) {
+    commands.insert_resource(FluidSimGpu { uniform_buffer: src.uniform_buffer.clone(), sim: src.sim });
 }
 
-fn extract_active_background(mut commands: Commands, src: Option<Res<ActiveBackground>>) {
-    if let Some(state) = src { commands.insert_resource(*state); }
+fn extract_fluid_settings(mut commands: Commands, src: Extract<Res<FluidSimSettings>>) {
+    commands.insert_resource(src.clone());
+}
+
+fn extract_active_background(mut commands: Commands, src: Extract<Res<ActiveBackground>>) {
+    commands.insert_resource(**src); // double-deref to get enum value
+}
+
+fn extract_fluid_diagnostics(mut commands: Commands, src: Extract<Res<FluidSimDiagnostics>>) {
+    // Cloning shares underlying Arc so counters are unified across worlds.
+    commands.insert_resource(src.clone());
 }
 
 #[derive(Resource, Clone)]
@@ -135,6 +164,45 @@ impl Default for FluidPipelines {
 pub struct FluidSimGpu {
     pub uniform_buffer: Buffer,
     pub sim: SimUniform,
+}
+
+// Diagnostics resource (main world copy extracted to render world not required). Tracks total dispatches & last frame id.
+#[derive(Debug)]
+struct FluidSimDiagnosticsInner {
+    frames_with_dispatch: AtomicU64,
+    total_workgroups: AtomicU64,
+    last_grid_x: AtomicU32,
+    last_grid_y: AtomicU32,
+    first_dispatch_logged: AtomicBool,
+}
+
+impl Default for FluidSimDiagnosticsInner {
+    fn default() -> Self {
+        Self { frames_with_dispatch: AtomicU64::new(0), total_workgroups: AtomicU64::new(0), last_grid_x: AtomicU32::new(0), last_grid_y: AtomicU32::new(0), first_dispatch_logged: AtomicBool::new(false) }
+    }
+}
+
+#[derive(Resource, Clone, Default, Debug)]
+pub struct FluidSimDiagnostics {
+    inner: Arc<FluidSimDiagnosticsInner>,
+}
+
+impl FluidSimDiagnostics {
+    fn record_dispatch(&self, grid: UVec2, added_workgroups: u64, jacobi_iters: u64) {
+        self.inner.frames_with_dispatch.fetch_add(1, Ordering::Relaxed);
+        self.inner.total_workgroups.fetch_add(added_workgroups, Ordering::Relaxed);
+        self.inner.last_grid_x.store(grid.x, Ordering::Relaxed);
+        self.inner.last_grid_y.store(grid.y, Ordering::Relaxed);
+        // Log first dispatch once globally (across worlds)
+        if self.inner.first_dispatch_logged.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            let wg_x = (grid.x as u64 + 7) / 8; let wg_y = (grid.y as u64 + 7) / 8;
+            info!(?grid, wg_x, wg_y, jacobi_iters, "Fluid sim first frame dispatched");
+        }
+    }
+    fn frames(&self) -> u64 { self.inner.frames_with_dispatch.load(Ordering::Relaxed) }
+    fn total_wg(&self) -> u64 { self.inner.total_workgroups.load(Ordering::Relaxed) }
+    fn last_grid(&self) -> UVec2 { UVec2::new(self.inner.last_grid_x.load(Ordering::Relaxed), self.inner.last_grid_y.load(Ordering::Relaxed)) }
+    fn first_logged(&self) -> bool { self.inner.first_dispatch_logged.load(Ordering::Relaxed) }
 }
 
 // Display handled via a fullscreen material (to be implemented); no sprite/quad yet.
@@ -361,14 +429,23 @@ fn run_fluid_sim_compute(
     active_bg: Option<Res<ActiveBackground>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    diag: Option<Res<FluidSimDiagnostics>>,
 ) {
-    let (Some(sim_res), Some(sim_gpu)) = (sim_res, sim_gpu) else { return };
+    trace!("ENTER run_fluid_sim_compute");
+    if sim_res.is_none() || sim_gpu.is_none() {
+        info!(have_sim_res = sim_res.is_some(), have_sim_gpu = sim_gpu.is_some(), "Fluid sim compute early-exit: resources not yet extracted");
+        return;
+    }
+    let (sim_res, sim_gpu) = (sim_res.unwrap(), sim_gpu.unwrap());
     // Gate on enabled flag and active background selection
-    if !fluid_sim_should_run(settings.as_deref(), active_bg.as_deref()) { return; }
+    if !fluid_sim_should_run(settings.as_deref(), active_bg.as_deref()) {
+        info!("Fluid sim compute gated off (disabled or background not active)");
+        return;
+    }
     // Log once when first active dispatch occurs
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| { info!("Fluid sim compute dispatch now active (background visible)"); });
-    let Some(layout) = pipelines.layout.as_ref() else { return };
+    let Some(layout) = pipelines.layout.as_ref() else { info!("Fluid sim compute waiting: no bind group layout yet"); return };
     let required = [
         pipelines.add_force,
         pipelines.advect_velocity,
@@ -377,7 +454,11 @@ fn run_fluid_sim_compute(
         pipelines.project_velocity,
         pipelines.advect_dye,
     ];
-    if required.iter().any(|id| pipeline_cache.get_compute_pipeline(*id).is_none()) { return; }
+    if required.iter().any(|id| pipeline_cache.get_compute_pipeline(*id).is_none()) {
+        let ready = required.iter().filter(|id| pipeline_cache.get_compute_pipeline(**id).is_some()).count();
+        info!(ready, total = required.len(), "Fluid sim compute waiting: pipelines not all ready yet");
+        return;
+    }
 
     // We keep the "A" textures stable for sampling by the material in the main world.
     // Each compute pass writes into the corresponding * _b texture, then we copy back into *_a.
@@ -445,9 +526,9 @@ fn run_fluid_sim_compute(
     bg = make_bg(vel_read, vel_write, da, db, pa, pb, div); // velocity_out unused in divergence shader
     run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
     // 4. Jacobi pressure iterations with internal ping-pong
-    let jacobi_iters = settings.map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
+    let jacobi_iters_val = settings.as_ref().map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
     let mut ping_is_a = true; // read A write B first
-    for _ in 0..jacobi_iters {
+    for _ in 0..jacobi_iters_val {
         let (p_in, p_out) = if ping_is_a { (pa, pb) } else { (pb, pa) };
         let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div);
         run_pass(pipelines.jacobi_pressure, &jacobi_bg, "jacobi_pressure", &mut encoder, grid);
@@ -489,6 +570,12 @@ fn run_fluid_sim_compute(
 
     // Submit all compute + copy work
     render_queue.submit(std::iter::once(encoder.finish()));
+    if let Some(d) = diag {
+        let wg_x = (grid.x as u64 + 7) / 8; let wg_y = (grid.y as u64 + 7) / 8;
+        let jacobi_iters_u64 = jacobi_iters_val as u64;
+        let approx_passes = 4 + jacobi_iters_u64 + 2; // same heuristic as before
+        d.record_dispatch(grid, wg_x * wg_y * approx_passes, jacobi_iters_u64);
+    }
 }
 
 // Render-world only: create compute pipelines once when layout available and ids still invalid
@@ -498,6 +585,7 @@ fn prepare_fluid_pipelines(
     asset_server: Res<AssetServer>,
     render_device: Res<RenderDevice>,
 ) {
+    trace!("ENTER prepare_fluid_pipelines");
     // Create layout if missing
     if pipelines.layout.is_none() {
         let entries = [
@@ -512,8 +600,9 @@ fn prepare_fluid_pipelines(
             BindGroupLayoutEntry { binding: 6, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 7, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadWrite, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
         ];
-        let layout = render_device.create_bind_group_layout(Some("fluid-sim-layout"), &entries);
-        pipelines.layout = Some(layout);
+    let layout = render_device.create_bind_group_layout(Some("fluid-sim-layout"), &entries);
+    debug!("Created fluid sim bind group layout");
+    pipelines.layout = Some(layout);
     }
     if pipelines.layout.is_none() { return; }
     let already_ready = [
@@ -548,6 +637,7 @@ fn prepare_fluid_pipelines(
                 entry_point: name.into(),
                 zero_initialize_workgroup_memory: false,
             });
+            info!(?name, "Queued fluid sim compute pipeline");
         }
     }
 }
@@ -576,6 +666,19 @@ fn update_sim_uniforms(
     unsafe {
         let bytes = std::slice::from_raw_parts((&gpu.sim as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>());
         render_queue.write_buffer(&gpu.uniform_buffer, 0, bytes);
+    }
+}
+
+// Main-world logging of diagnostic counters every few frames (early during 5s auto-close window)
+fn log_fluid_activity(diag: Option<Res<FluidSimDiagnostics>>, time: Res<Time>) {
+    let Some(diag) = diag else { return; };
+    if diag.frames() == 0 {
+        if time.elapsed_secs() > 0.5 { warn!("No fluid sim dispatches in first 0.5s"); }
+        return;
+    }
+    let t = time.elapsed_secs_f64();
+    if (t < 0.6 && t > 0.5) || (t < 2.1 && t > 2.0) {
+        info!(frames = diag.frames(), total_workgroups = diag.total_wg(), grid = ?diag.last_grid(), first_logged = diag.first_logged(), "Fluid sim activity snapshot");
     }
 }
 
