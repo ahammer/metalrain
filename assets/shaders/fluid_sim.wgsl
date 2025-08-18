@@ -186,7 +186,7 @@ fn inject_balls(@builtin(global_invocation_id) gid_in: vec3<u32>) {
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
     let pos = vec2<f32>(f32(gid.x), f32(gid.y));
     var vel = read_velocity(gid);
-    var dye = textureLoad(scalar_a, gid);
+    var dye = textureLoad(scalar_a, gid); // pass-through (ball dye injection disabled)
     // Accumulate influences
     for (var i: u32 = 0u; i < sim.ball_count; i = i + 1u) {
         let b = balls[i];
@@ -199,17 +199,10 @@ fn inject_balls(@builtin(global_invocation_id) gid_in: vec3<u32>) {
         let falloff = 1.0 - dist2 / r2; // simple linear falloff inside radius
         // Velocity contribution: impulse toward ball velocity direction (swirl not applied here)
         vel += b.grid_vel * b.vel_inject * falloff * sim.dt;
-        // Dye blending: lerp existing toward ball color, weighted by falloff
-    let ball_color = b.color;
-    dye = mix(dye, ball_color, falloff * 0.25); // 0.25 controls how quickly field saturates
+        // Dye injection disabled: intentionally skip modifying dye
     }
     write_velocity(gid, vel);
-    textureStore(scalar_b, gid, dye);
-    // DEBUG MARKER: animate a moving horizontal bar based on frame counter to confirm writes
-    let bar_y: i32 = i32(sim.frame % sim.grid_size.y);
-    if (gid.y == bar_y && (gid.x % 8) < 4) {
-        textureStore(scalar_b, gid, vec4<f32>(1.0,0.2,0.05,1.0));
-    }
+    textureStore(scalar_b, gid, dye); // unchanged dye
 }
 
 // Display shader (sample dye texture) - material bind group (group=2 in Bevy 2D materials)
