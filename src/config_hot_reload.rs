@@ -10,6 +10,7 @@ use std::{collections::HashMap, path::PathBuf, time::SystemTime};
 
 use crate::config::GameConfig;
 use crate::metaballs::{MetaballsParams, MetaballsToggle};
+use crate::fluid_sim::FluidSimSettings;
 
 #[derive(Resource, Debug, Clone)]
 pub struct ConfigReloadSettings {
@@ -68,6 +69,7 @@ fn poll_and_reload_config(
     mut windows: Query<&mut Window>,
     mut metaballs_toggle: Option<ResMut<MetaballsToggle>>,
     mut metaballs_params: Option<ResMut<MetaballsParams>>,
+    mut fluid_settings: Option<ResMut<FluidSimSettings>>,
 ) {
     // Allow changing interval at runtime by adjusting timer duration.
     if (state.timer.duration().as_secs_f32() - settings.interval_secs).abs() > f32::EPSILON {
@@ -126,6 +128,19 @@ fn poll_and_reload_config(
             p.iso = new_cfg.metaballs.iso;
             p.normal_z_scale = new_cfg.metaballs.normal_z_scale;
             p.radius_multiplier = new_cfg.metaballs.radius_multiplier.max(0.0001);
+        }
+        // 3. Fluid sim settings (no reallocation of textures here; if resolution changed log a warning user should restart for now)
+        if let Some(fs) = fluid_settings.as_deref_mut() {
+            let old_res = fs.resolution;
+            let new_res = UVec2::new(new_cfg.fluid_sim.width.max(1), new_cfg.fluid_sim.height.max(1));
+            if new_res != old_res {
+                info!(?old_res, ?new_res, "fluid_sim resolution change requested; restart required to realloc textures (ignored at runtime)");
+            }
+            fs.jacobi_iterations = new_cfg.fluid_sim.jacobi_iterations.max(1);
+            fs.time_step = new_cfg.fluid_sim.time_step;
+            fs.dissipation = new_cfg.fluid_sim.dissipation.clamp(0.0, 1.0);
+            fs.velocity_dissipation = new_cfg.fluid_sim.velocity_dissipation.clamp(0.0, 1.0);
+            fs.force_strength = new_cfg.fluid_sim.force_strength.max(0.0);
         }
     }
 }
