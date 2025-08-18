@@ -123,6 +123,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
     let aa = 1.5 * px;
     let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
-    if (mask <= 0.0) { return vec4<f32>(0.0); }
+    if (mask <= 0.0) { discard; }
     return vec4<f32>(base_col, mask);
 }

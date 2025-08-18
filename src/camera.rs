@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+// ClearColorConfig is re-exported in prelude in Bevy 0.16.
 
 pub struct CameraPlugin;
 
@@ -9,7 +10,6 @@ impl Plugin for CameraPlugin {
 }
 
 fn setup_camera(mut commands: Commands) {
-    // Bevy 0.16+: spawn Camera2d component directly; Required Components supply defaults.
-    // Primary 2D camera
-    commands.spawn(Camera2d);
+    // Spawn primary 2D camera with no automatic clear; background plugin draws first.
+    commands.spawn((Camera2d, Camera { clear_color: ClearColorConfig::None, ..default() }));
 }

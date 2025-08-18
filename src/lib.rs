@@ -1,6 +1,7 @@
 pub mod debug;
 pub mod game;
 pub mod camera;
+pub mod background;
 pub mod cluster;
 pub mod components;
 pub mod config;

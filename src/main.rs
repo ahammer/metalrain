@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::RapierDebugRenderPlugin;
 
 mod camera;
+mod background;
 mod cluster; // clustering of touching same-color balls
 mod components;
 mod config;

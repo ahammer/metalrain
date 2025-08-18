@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 
 use crate::camera::CameraPlugin;
+use crate::background::BackgroundPlugin;
 use crate::cluster::ClusterPlugin;
 use crate::input_interaction::InputInteractionPlugin;
 use crate::materials::MaterialsPlugin;
@@ -21,15 +22,14 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app
-            // Explicit background clear so switching off metaballs (which rendered a full-screen quad) produces a fresh frame
-            .insert_resource(ClearColor(Color::BLACK))
+    app
             // Register custom system sets (order constraints added later as needed)
             .configure_sets(
                 Update,
                 (PrePhysicsSet, PostPhysicsAdjustSet.after(PrePhysicsSet)),
             )
             .add_plugins((
+        BackgroundPlugin, // draws implicit background (no clear)
                 CameraPlugin,
                 MaterialsPlugin,
                 PhysicsSetupPlugin,
