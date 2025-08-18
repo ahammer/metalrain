@@ -8,6 +8,9 @@ pub struct WindowConfig {
     pub width: f32,
     pub height: f32,
     pub title: String,
+    /// Automatically close the app after this many seconds. 0.0 (or omitted) = run indefinitely.
+    #[serde(rename = "autoClose")]
+    pub auto_close: f32,
 }
 impl Default for WindowConfig {
     fn default() -> Self {
@@ -15,6 +18,7 @@ impl Default for WindowConfig {
             width: 1280.0,
             height: 720.0,
             title: "Bevy Bouncing Balls".into(),
+            auto_close: 0.0,
         }
     }
 }
@@ -350,6 +354,11 @@ impl GameConfig {
                 self.window.width, self.window.height
             ));
         }
+        if self.window.auto_close < 0.0 {
+            w.push(format!("window.autoClose {} negative -> treated as disabled (should be >= 0)", self.window.auto_close));
+        } else if self.window.auto_close > 0.0 && self.window.auto_close < 0.01 {
+            w.push(format!("window.autoClose {} very small; closes almost immediately", self.window.auto_close));
+        }
         if self.gravity.y.abs() < 1e-4 {
             w.push("gravity.y magnitude near zero; balls may float".into());
         }
@@ -564,6 +573,7 @@ mod tests {
                 width: -100.0,
                 height: 0.0,
                 title: "Bad".into(),
+                auto_close: 0.0,
             },
             gravity: GravityConfig { y: 0.0 },
             bounce: BounceConfig { restitution: -0.2 },
@@ -669,5 +679,21 @@ mod tests {
         assert!(err.is_none());
         assert_eq!(cfg.window.width, 640.0);
         assert_eq!(cfg.gravity.y, -500.0);
+    }
+
+    #[test]
+    fn parse_autoclose_and_validate() {
+        // explicit positive value
+        let sample = r"(window: (autoClose: 3.25), gravity: (y: -600.0))";
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(sample.as_bytes()).unwrap();
+        let cfg = GameConfig::load_from_file(file.path()).expect("parse config");
+        assert!((cfg.window.auto_close - 3.25).abs() < 1e-6);
+        // negative -> warning
+        let neg_sample = r"(window: (autoClose: -5.0))";
+        let mut file2 = tempfile::NamedTempFile::new().unwrap();
+        file2.write_all(neg_sample.as_bytes()).unwrap();
+        let cfg2 = GameConfig::load_from_file(file2.path()).expect("parse config");
+        assert!(cfg2.validate().iter().any(|w| w.contains("window.autoClose")), "expected warning for negative autoClose");
     }
 }

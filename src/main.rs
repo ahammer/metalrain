@@ -24,6 +24,7 @@ mod system_order; // centralized color palette
 mod debug; // debug feature plugin (gated internally)
 mod config_hot_reload; // runtime config hot reload (native only)
 mod fluid_sim; // GPU fluid simulation module
+mod auto_close; // timed auto-exit functionality
 
 use config::GameConfig;
 

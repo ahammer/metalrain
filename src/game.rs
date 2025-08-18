@@ -18,6 +18,7 @@ use crate::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
 use crate::debug::DebugPlugin;
 use crate::config_hot_reload::ConfigHotReloadPlugin;
 use crate::fluid_sim::FluidSimPlugin;
+use crate::auto_close::AutoClosePlugin;
 
 pub struct GamePlugin;
 
@@ -43,6 +44,7 @@ impl Plugin for GamePlugin {
                 InputInteractionPlugin,
                 DebugPlugin,
                 ConfigHotReloadPlugin,
+                AutoClosePlugin,
             ));
     }
 }

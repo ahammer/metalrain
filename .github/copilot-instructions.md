@@ -3,9 +3,9 @@
 Purpose: 2D Bevy (0.16) sandbox demonstrating modular plugin structure + RON-driven config that spawns and simulates many bouncing balls.
 
 ## Architecture / Key Modules
-- `main.rs`: Loads `GameConfig` from `assets/config/game.ron`, configures the primary window (size/title dynamic from config), then adds `GamePlugin`.
-- `game.rs` (`GamePlugin`): Aggregates sub-plugins in one place. Extend by adding new plugins here (keep ordering explicit).
-- `config.rs`: Strongly typed `GameConfig` (serde + RON). All tunables (window, gravity, bounce, spawn ranges). Loading returns `Result<String>` errors; mimic pattern for new config sections.
+- `main.rs`: Loads `GameConfig` from `assets/config/game.ron`, configures the primary window (size/title dynamic from config), then adds `GamePlugin`. Supports optional timed auto-exit via `window.autoClose` (seconds; 0 = disabled).
+- `game.rs` (`GamePlugin`): Aggregates sub-plugins in one place. Extend by adding new plugins here (keep ordering explicit). Includes `AutoClosePlugin` which requests app exit once the configured timer elapses.
+- `config.rs`: Strongly typed `GameConfig` (serde + RON). All tunables (window, gravity, bounce, spawn ranges). Loading returns `Result<String>` errors; mimic pattern for new config sections. New field: `window.autoClose` (f32) auto-closes after N seconds (default/<=0 disables).
 	* `interactions` sub-struct: `explosion` (enabled, impulse, radius, falloff_exp) & `drag` (enabled, grab_radius, pull_strength, max_speed) configure pointer gestures.
 - `components.rs`: Minimal ECS data: `Ball` tag + `Velocity(Vec2)` newtype (uses `Deref`/`DerefMut` for ergonomic `.x/.y`). Add new per-ball data here or create new component files if domain grows.
 - `spawn.rs` (`BallSpawnPlugin`): Startup-only system `spawn_balls` that creates: shared circle mesh (radius 0.5, scaled per-entity to diameter via `Transform::scale`), randomized Transform, Velocity, Material. Reuses one mesh handle; add new geometry by following same pattern (one mesh, multiple entities).
