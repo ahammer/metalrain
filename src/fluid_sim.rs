@@ -211,6 +211,34 @@ fn setup_fluid_sim(
     let dye_b = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
 
     info!("Fluid sim textures allocated ({}x{})", size.width, size.height);
+    // Seed initial swirling velocity so simulation has motion before user input.
+    // Pattern: angular swirl around center with radial falloff.
+    {
+        use half::f16;
+        let w = size.width as i32; let h = size.height as i32;
+        let mut swirl = vec![0u8; (w as usize * h as usize) * 8];
+        let cx = (w as f32) * 0.5; let cy = (h as f32) * 0.5;
+        let max_r = cx.min(cy);
+        let scale = 5.0f32; // base tangential speed
+        for y in 0..h { for x in 0..w {
+            let dx = x as f32 - cx; let dy = y as f32 - cy;
+            let r = (dx*dx + dy*dy).sqrt();
+            if r < 1.0 { continue; }
+            let falloff = (1.0 - (r / max_r)).clamp(0.0, 1.0);
+            let inv_r = 1.0 / r;
+            let tx = -dy * inv_r; let ty = dx * inv_r; // tangential
+            let vx = tx * scale * falloff;
+            let vy = ty * scale * falloff;
+            let r16 = f16::from_f32(vx).to_le_bytes();
+            let g16 = f16::from_f32(vy).to_le_bytes();
+            let idx = ((y as usize) * size.width as usize + x as usize) * 8;
+            swirl[idx] = r16[0]; swirl[idx+1] = r16[1];
+            swirl[idx+2] = g16[0]; swirl[idx+3] = g16[1];
+            // B,A remain 0
+        }}
+        if let Some(img) = images.get_mut(&velocity_a) { if let Some(data) = &mut img.data { data.copy_from_slice(&swirl); } }
+        if let Some(img) = images.get_mut(&velocity_b) { if let Some(data) = &mut img.data { data.copy_from_slice(&swirl); } }
+    }
     // Seed dye_a with random color blotches so motion is visible
     if let Some(img) = images.get_mut(&dye_a) {
         if let Some(data) = &mut img.data {

@@ -13,6 +13,7 @@ ron = "0.8"
 bevy_rapier2d = { version = "0.31", features = ["simd-stable", "debug-render-2d"] }
 bytemuck = { version = "1.15", features = ["derive"] }
 wgpu = "24.0.5"
+half = "2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
