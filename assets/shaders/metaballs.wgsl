@@ -116,13 +116,20 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     // Base color comes from dominant cluster (ColorInfo identical in this mode now).
     let base_col = metaballs.cluster_colors[k_indices[best_i]].rgb;
-    // Edge AA mask from dominant cluster field/gradient only: prevents cross-cluster blending.
+    // Hard alpha variant: remove fog / semi-transparent halo.
+    // We still keep a micro AA band (one pixel) to avoid harsh stair-steps at the iso contour.
     let grad = k_grad[best_i];
     let grad_len = max(length(grad), 1e-5);
-    let s = (best_field - metaballs.iso) / grad_len;
-    let px = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
-    let aa = 1.5 * px;
-    let mask = clamp(0.5 + 0.5 * s / aa, 0.0, 1.0);
+    let field_delta = best_field - metaballs.iso;
+    // Pixel size in world units (approx) for adaptive AA width.
+    let px_world = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
+    // Width of smoothing band in field units -> tune multiplier for softer/harder edge.
+    let smooth_width = grad_len * px_world * 1.0; // 1.0 ~ 1 pixel band
+    if (field_delta <= -smooth_width * 0.5) { discard; }
+    // Map field_delta in [-smooth_width/2, smooth_width/2] to [0,1] for transitional alpha.
+    let mask = clamp(0.5 + field_delta / smooth_width, 0.0, 1.0);
+    // If you want a fully hard edge with absolutely no AA: uncomment next line & force mask=1.0.
+    // let mask = select(0.0, 1.0, field_delta >= 0.0);
     if (mask <= 0.0) { discard; }
     return vec4<f32>(base_col, mask);
 }
