@@ -25,7 +25,7 @@ impl Plugin for FluidSimPlugin {
             .add_systems(Startup, setup_fluid_display.after(setup_fluid_sim))
             .add_systems(Update, debug_fluid_once)
             .add_systems(Update, resize_display_quad)
-            .add_systems(Update, (update_sim_uniforms, input_force_position));
+            .add_systems(Update, (update_sim_uniforms, input_force_position, realloc_fluid_textures_if_needed));
         // Display quad & compute dispatch systems will be added when GPU pipelines are implemented.
 
         // Add render-world compute dispatch after pipelines compile. We operate in RenderApp so we can
@@ -372,8 +372,7 @@ fn run_fluid_sim_compute(
 ) {
     let (Some(sim_res), Some(sim_gpu)) = (sim_res, sim_gpu) else { return };
     // Gate on enabled flag and active background selection
-    if let Some(s) = settings.as_ref() { if !s.enabled { return; } }
-    if let Some(bg) = active_bg.as_ref() { if **bg != ActiveBackground::FluidSim { return; } }
+    if !fluid_sim_should_run(settings.as_deref(), active_bg.as_deref()) { return; }
     // Log once when first active dispatch occurs
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| { info!("Fluid sim compute dispatch now active (background visible)"); });
@@ -440,28 +439,18 @@ fn run_fluid_sim_compute(
     let grid = sim_gpu.sim.grid_size;
     let extent = Extent3d { width: grid.x, height: grid.y, depth_or_array_layers: 1 };
 
-    // 1. Add force (velocity_a -> velocity_b) then copy back into velocity_a
-    let mut bg = make_bg(va, vb, da, db, pa, pb, div);
+    // True ping-pong for velocity: alternate read/write without copying back each time.
+    let mut vel_read = va; let mut vel_write = vb; let mut velocity_front_is_a = true; // track where latest velocity resides
+    // 1. Add force (vel_read -> vel_write)
+    let mut bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
     run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
-    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
-        encoder.copy_texture_to_texture(
-            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            extent,
-        );
-    }
-    // 2. Advect velocity -> copy back
-    bg = make_bg(va, vb, da, db, pa, pb, div);
+    std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
+    // 2. Advect velocity (vel_read -> vel_write)
+    bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
     run_pass(pipelines.advect_velocity, &bg, "advect_velocity", &mut encoder, grid);
-    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
-        encoder.copy_texture_to_texture(
-            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            extent,
-        );
-    }
-    // 3. Compute divergence
-    bg = make_bg(va, vb, da, db, pa, pb, div);
+    std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
+    // 3. Compute divergence (read current velocity front)
+    bg = make_bg(vel_read, vel_write, da, db, pa, pb, div); // velocity_out unused in divergence shader
     run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
     // 4. Jacobi pressure iterations with internal ping-pong
     let jacobi_iters = settings.map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
@@ -481,15 +470,19 @@ fn run_fluid_sim_compute(
             );
         }
     }
-    // 5. Project velocity (velocity_a -> velocity_b) copy back
-    bg = make_bg(va, vb, da, db, pa, pb, div);
+    // 5. Project velocity (vel_read -> vel_write)
+    bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
     run_pass(pipelines.project_velocity, &bg, "project_velocity", &mut encoder, grid);
-    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
-        encoder.copy_texture_to_texture(
-            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            extent,
-        );
+    std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
+    // Ensure velocity_a holds latest for next frame starting state if needed
+    if !velocity_front_is_a { // latest in vb -> copy once back to va
+        if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
+            encoder.copy_texture_to_texture(
+                TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                extent,
+            );
+        }
     }
     // 6. Advect dye (dye_a -> dye_b) copy back
     bg = make_bg(va, vb, da, db, pa, pb, div);
@@ -567,6 +560,13 @@ fn prepare_fluid_pipelines(
     }
 }
 
+// Helper used for gating logic (unit-testable)
+fn fluid_sim_should_run(settings: Option<&FluidSimSettings>, bg: Option<&ActiveBackground>) -> bool {
+    if let Some(s) = settings { if !s.enabled { return false; } }
+    if let Some(b) = bg { if *b != ActiveBackground::FluidSim { return false; } }
+    true
+}
+
 // ---------------- Update stage systems (main world) -----------------
 fn update_sim_uniforms(
     gpu: Option<ResMut<FluidSimGpu>>,
@@ -609,5 +609,59 @@ fn input_force_position(
         let gx = (origin.x / w * settings.resolution.x as f32) + settings.resolution.x as f32 * 0.5;
         let gy = (origin.y / h * settings.resolution.y as f32) + settings.resolution.y as f32 * 0.5;
         gpu.sim.force_pos = Vec2::new(gx.clamp(0.0, settings.resolution.x as f32 - 1.0), gy.clamp(0.0, settings.resolution.y as f32 - 1.0));
+    }
+}
+
+// Reallocate textures automatically if resolution changed at runtime (hot reload)
+fn realloc_fluid_textures_if_needed(
+    mut sim_res: Option<ResMut<FluidSimResources>>,
+    settings: Res<FluidSimSettings>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<FluidDisplayMaterial>>,
+    q_display: Query<&MeshMaterial2d<FluidDisplayMaterial>, With<FluidDisplayQuad>>,
+) {
+    let Some(ref mut sim_res) = sim_res else { return; };
+    // Inspect one image (velocity_a) to check current size
+    let need_realloc = if let Some(img) = images.get(&sim_res.velocity_a) {
+        img.texture_descriptor.size.width != settings.resolution.x || img.texture_descriptor.size.height != settings.resolution.y
+    } else { true };
+    if !need_realloc { return; }
+    // Allocate new textures similar to setup_fluid_sim (simplified: zero-filled; skip swirl & dye seeding for now)
+    let size = Extent3d { width: settings.resolution.x, height: settings.resolution.y, depth_or_array_layers: 1 };
+    let mut make_tex = |format: TextureFormat, usage: TextureUsages| -> Handle<Image> {
+        let pixel_size = match format { TextureFormat::R16Float => 2, TextureFormat::Rgba16Float => 8, TextureFormat::Rgba8Unorm => 4, _ => 4 };
+        let data_size = (size.width * size.height) as usize * pixel_size;
+        let mut img = Image::default();
+        img.data = Some(vec![0u8; data_size]);
+        img.texture_descriptor = TextureDescriptor {
+            label: Some("fluid-sim-realloc"), size, dimension: TextureDimension::D2, format,
+            mip_level_count: 1, sample_count: 1, usage: usage | TextureUsages::COPY_SRC | TextureUsages::COPY_DST, view_formats: &[] };
+        images.add(img)
+    };
+    let velocity_a = make_tex(TextureFormat::Rgba16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let velocity_b = make_tex(TextureFormat::Rgba16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let pressure_a = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let pressure_b = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let divergence  = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let dye_a = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let dye_b = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    // Replace inner resource data
+    **sim_res = FluidSimResources::new(velocity_a.clone(), velocity_b, pressure_a, pressure_b, divergence, dye_a.clone(), dye_b);
+    // Update display material
+    if let Ok(handle) = q_display.single() { if let Some(mat) = materials.get_mut(&handle.0) { mat.dye = dye_a; } }
+    info!(?size, "Fluid sim textures reallocated for new resolution");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn gating_logic_variants() {
+        let settings_enabled = FluidSimSettings { enabled: true, ..Default::default() };
+        let settings_disabled = FluidSimSettings { enabled: false, ..Default::default() };
+        assert!(fluid_sim_should_run(Some(&settings_enabled), Some(&ActiveBackground::FluidSim)));
+        assert!(!fluid_sim_should_run(Some(&settings_disabled), Some(&ActiveBackground::FluidSim)));
+        assert!(!fluid_sim_should_run(Some(&settings_enabled), Some(&ActiveBackground::Grid)));
+        assert!(fluid_sim_should_run(Some(&settings_enabled), None)); // if no background info, allow (defensive)
     }
 }
