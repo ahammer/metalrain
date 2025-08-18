@@ -28,15 +28,17 @@ struct SimUniform {
 
 // Utility sampling (nearest) for velocity (packed in RG, BA unused)
 fn read_velocity(coord: vec2<i32>) -> vec2<f32> {
-    let v = textureLoad(velocity_in, coord, 0);
+    let maxc = vec2<i32>(vec2<i32>(sim.grid_size) - vec2<i32>(1));
+    let c = clamp(coord, vec2<i32>(0), maxc);
+    let v = textureLoad(velocity_in, c);
     return v.xy;
 }
 fn write_velocity(coord: vec2<i32>, v: vec2<f32>) { textureStore(velocity_out, coord, vec4<f32>(v,0.0,0.0)); }
 
 // Semi-Lagrangian advection (velocity field self-advection)
 @compute @workgroup_size(8,8,1)
-fn advect_velocity() {
-    let gid = vec2<i32>(i32(global_invocation_id.x), i32(global_invocation_id.y));
+fn advect_velocity(@builtin(global_invocation_id) gid_in: vec3<u32>) {
+    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
     let g = vec2<f32>(f32(gid.x), f32(gid.y));
     let uv = read_velocity(gid);
@@ -50,8 +52,8 @@ fn advect_velocity() {
 
 // Compute divergence of velocity field -> store in divergence_tex
 @compute @workgroup_size(8,8,1)
-fn compute_divergence() {
-    let gid = vec2<i32>(i32(global_invocation_id.x), i32(global_invocation_id.y));
+fn compute_divergence(@builtin(global_invocation_id) gid_in: vec3<u32>) {
+    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
     let left = read_velocity(gid + vec2<i32>(-1,0));
     let right = read_velocity(gid + vec2<i32>(1,0));
@@ -63,28 +65,34 @@ fn compute_divergence() {
 }
 
 // Jacobi pressure iteration: pressure_out = (divergence + (pL+pR+pU+pD)*alpha) * beta
+fn load_pressure(c: vec2<i32>) -> f32 {
+    let maxc = vec2<i32>(vec2<i32>(sim.grid_size) - vec2<i32>(1));
+    let cc = clamp(c, vec2<i32>(0), maxc);
+    return textureLoad(pressure_in, cc).x;
+}
+
 @compute @workgroup_size(8,8,1)
-fn jacobi_pressure() {
-    let gid = vec2<i32>(i32(global_invocation_id.x), i32(global_invocation_id.y));
+fn jacobi_pressure(@builtin(global_invocation_id) gid_in: vec3<u32>) {
+    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let pL = textureLoad(pressure_in, gid + vec2<i32>(-1,0), 0).x;
-    let pR = textureLoad(pressure_in, gid + vec2<i32>(1,0), 0).x;
-    let pD = textureLoad(pressure_in, gid + vec2<i32>(0,-1), 0).x;
-    let pU = textureLoad(pressure_in, gid + vec2<i32>(0,1), 0).x;
-    let div = textureLoad(divergence_tex, gid, 0).x;
+    let pL = load_pressure(gid + vec2<i32>(-1,0));
+    let pR = load_pressure(gid + vec2<i32>(1,0));
+    let pD = load_pressure(gid + vec2<i32>(0,-1));
+    let pU = load_pressure(gid + vec2<i32>(0,1));
+    let div = textureLoad(divergence_tex, gid).x;
     let p_new = (pL + pR + pD + pU + div * sim.jacobi_alpha) * sim.jacobi_beta;
     textureStore(pressure_out, gid, vec4<f32>(p_new,0.0,0.0,0.0));
 }
 
 // Projection: subtract gradient of pressure from velocity
 @compute @workgroup_size(8,8,1)
-fn project_velocity() {
-    let gid = vec2<i32>(i32(global_invocation_id.x), i32(global_invocation_id.y));
+fn project_velocity(@builtin(global_invocation_id) gid_in: vec3<u32>) {
+    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let pL = textureLoad(pressure_in, gid + vec2<i32>(-1,0), 0).x;
-    let pR = textureLoad(pressure_in, gid + vec2<i32>(1,0), 0).x;
-    let pD = textureLoad(pressure_in, gid + vec2<i32>(0,-1), 0).x;
-    let pU = textureLoad(pressure_in, gid + vec2<i32>(0,1), 0).x;
+    let pL = load_pressure(gid + vec2<i32>(-1,0));
+    let pR = load_pressure(gid + vec2<i32>(1,0));
+    let pD = load_pressure(gid + vec2<i32>(0,-1));
+    let pU = load_pressure(gid + vec2<i32>(0,1));
     let vel = read_velocity(gid);
     let grad = vec2<f32>(pR - pL, pU - pD) * 0.5;
     write_velocity(gid, vel - grad);
@@ -92,22 +100,22 @@ fn project_velocity() {
 
 // Advect dye using velocity (scalar_a -> scalar_b)
 @compute @workgroup_size(8,8,1)
-fn advect_dye() {
-    let gid = vec2<i32>(i32(global_invocation_id.x), i32(global_invocation_id.y));
+fn advect_dye(@builtin(global_invocation_id) gid_in: vec3<u32>) {
+    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
     let vel = read_velocity(gid);
     let g = vec2<f32>(f32(gid.x), f32(gid.y));
     let back = g - vel * sim.dt;
     let back_i = vec2<i32>(clamp(back, vec2<f32>(0.0), vec2<f32>(sim.grid_size) - vec2<f32>(1.0)));
-    let dye = textureLoad(scalar_a, back_i, 0);
+    let dye = textureLoad(scalar_a, back_i);
     // Apply global dissipation
     textureStore(scalar_b, gid, dye * sim.dissipation);
 }
 
 // Simple force injection (adds radial impulse & dye at force_pos)
 @compute @workgroup_size(8,8,1)
-fn add_force() {
-    let gid = vec2<i32>(i32(global_invocation_id.x), i32(global_invocation_id.y));
+fn add_force(@builtin(global_invocation_id) gid_in: vec3<u32>) {
+    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
     let pos = vec2<f32>(f32(gid.x), f32(gid.y));
     let d = pos - sim.force_pos;
@@ -122,20 +130,20 @@ fn add_force() {
     }
 }
 
-// Display shader (sample dye texture)
-@group(1) @binding(0) var dye_tex: texture_2d<f32>;
-@group(1) @binding(1) var dye_sampler: sampler;
+// Display shader (sample dye texture) - material bind group (group=2 in Bevy 2D materials)
+@group(2) @binding(0) var dye_tex: texture_2d<f32>;
+@group(2) @binding(1) var dye_sampler: sampler;
 
 struct VOutDisplay { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
 @vertex
-fn display_vertex(@location(0) position: vec3<f32>) -> VOutDisplay {
+fn vertex(@location(0) position: vec3<f32>) -> VOutDisplay {
     var o: VOutDisplay;
     o.pos = vec4<f32>(position.xy, 0.0, 1.0);
     o.uv = position.xy * 0.5 + vec2<f32>(0.5,0.5);
     return o;
 }
 @fragment
-fn display_fragment(in: VOutDisplay) -> @location(0) vec4<f32> {
+fn fragment(in: VOutDisplay) -> @location(0) vec4<f32> {
     let c = textureSample(dye_tex, dye_sampler, in.uv);
     return vec4<f32>(c.rgb, 1.0);
 }

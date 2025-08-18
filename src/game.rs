@@ -17,6 +17,7 @@ use crate::spawn::BallSpawnPlugin;
 use crate::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
 use crate::debug::DebugPlugin;
 use crate::config_hot_reload::ConfigHotReloadPlugin;
+use crate::fluid_sim::FluidSimPlugin;
 
 pub struct GamePlugin;
 
@@ -29,7 +30,8 @@ impl Plugin for GamePlugin {
                 (PrePhysicsSet, PostPhysicsAdjustSet.after(PrePhysicsSet)),
             )
             .add_plugins((
-        BackgroundPlugin, // draws implicit background (no clear)
+    BackgroundPlugin, // draws implicit background (no clear)
+        FluidSimPlugin, // GPU fluid simulation background
                 CameraPlugin,
                 MaterialsPlugin,
                 PhysicsSetupPlugin,

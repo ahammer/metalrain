@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::fluid_sim; // access FluidDisplayQuad component for toggling FluidSim background
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d;
@@ -32,7 +33,7 @@ struct FluidBackgroundQuad;
 
 // Active background selector
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActiveBackground { Grid, #[default] Fluid }
+pub enum ActiveBackground { Grid, Fluid, #[default] FluidSim }
 
 #[derive(Clone, Copy, ShaderType, Debug)]
 struct FluidData { window_size: Vec2, time: f32, scale: f32, intensity: f32, _pad: f32 }
@@ -53,7 +54,7 @@ pub struct BackgroundPlugin;
 
 impl Plugin for BackgroundPlugin {
     fn build(&self, app: &mut App) {
-    app.insert_resource(ActiveBackground::Fluid)
+    app.insert_resource(ActiveBackground::FluidSim)
             .add_plugins((Material2dPlugin::<BgMaterial>::default(), Material2dPlugin::<FluidMaterial>::default()))
             .add_systems(Startup, setup_backgrounds)
             .add_systems(Update, (resize_bg_uniform, resize_fluid_uniform, update_fluid_time, toggle_background));
@@ -128,12 +129,14 @@ fn toggle_background(
     mut state: ResMut<ActiveBackground>,
     mut q_grid: Query<&mut Visibility, (With<BackgroundQuad>, Without<FluidBackgroundQuad>)>,
     mut q_fluid: Query<&mut Visibility, (With<FluidBackgroundQuad>, Without<BackgroundQuad>)>,
+    mut q_sim: Query<&mut Visibility, (With<fluid_sim::FluidDisplayQuad>, Without<BackgroundQuad>, Without<FluidBackgroundQuad>)>,
 ) {
     // Toggle with letter B key; adjust variant name if Bevy changes (currently KeyCode::KeyB in newer versions)
     if !keys.just_pressed(KeyCode::KeyB) { return; }
-    let new_state = match *state { ActiveBackground::Grid => ActiveBackground::Fluid, ActiveBackground::Fluid => ActiveBackground::Grid };
+    let new_state = match *state { ActiveBackground::Grid => ActiveBackground::Fluid, ActiveBackground::Fluid => ActiveBackground::FluidSim, ActiveBackground::FluidSim => ActiveBackground::Grid };
     *state = new_state;
     if let Ok(mut vis_grid) = q_grid.single_mut() { *vis_grid = if *state == ActiveBackground::Grid { Visibility::Visible } else { Visibility::Hidden }; }
     if let Ok(mut vis_fluid) = q_fluid.single_mut() { *vis_fluid = if *state == ActiveBackground::Fluid { Visibility::Visible } else { Visibility::Hidden }; }
+    if let Ok(mut vis_sim) = q_sim.single_mut() { *vis_sim = if *state == ActiveBackground::FluidSim { Visibility::Visible } else { Visibility::Hidden }; }
     info!("Background toggled to {:?}", *state);
 }

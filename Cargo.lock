@@ -302,6 +302,7 @@ dependencies = [
  "tempfile",
  "uuid",
  "wasm-bindgen",
+ "wgpu",
 ]
 
 [[package]]

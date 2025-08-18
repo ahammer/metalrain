@@ -1,9 +1,11 @@
 use bevy::prelude::*;
+use bevy::input::ButtonInput;
 use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::render_resource::ShaderType;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d;
+use wgpu::TexelCopyTextureInfo;
 
 // High-level design: GPU Stable Fluids (semi-Lagrangian + Jacobi pressure projection) on a fixed grid.
 // This first iteration aims for clarity over maximal performance.
@@ -15,14 +17,36 @@ pub struct FluidSimPlugin;
 impl Plugin for FluidSimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FluidSimSettings>()
-            .init_resource::<FluidPipelines>()
             .add_plugins((Material2dPlugin::<FluidDisplayMaterial>::default(),))
             .add_systems(Startup, setup_fluid_sim)
             .add_systems(Startup, setup_fluid_display.after(setup_fluid_sim))
             .add_systems(Update, debug_fluid_once)
-            .add_systems(Update, resize_display_quad);
+            .add_systems(Update, resize_display_quad)
+            .add_systems(Update, (update_sim_uniforms, input_force_position));
         // Display quad & compute dispatch systems will be added when GPU pipelines are implemented.
+
+        // Add render-world compute dispatch after pipelines compile. We operate in RenderApp so we can
+        // access GPU Image views and submit command buffers prior to draw sampling of dye texture.
+        {
+            let render_app = app.sub_app_mut(bevy::render::RenderApp);
+            render_app
+                .init_resource::<FluidPipelines>()
+                .add_systems(bevy::render::ExtractSchedule, (extract_fluid_resources, extract_fluid_gpu, extract_fluid_settings))
+                .add_systems(bevy::render::Render, (prepare_fluid_pipelines, run_fluid_sim_compute.after(prepare_fluid_pipelines)));
+        }
     }
+}
+
+// Extraction systems move main-world resources into render world each frame (simple clone / copy of handles)
+fn extract_fluid_resources(mut commands: Commands, src: Option<Res<FluidSimResources>>) {
+    if let Some(r) = src { commands.insert_resource(r.as_ref().clone()); }
+}
+fn extract_fluid_gpu(mut commands: Commands, src: Option<Res<FluidSimGpu>>) {
+    if let Some(g) = src { commands.insert_resource(FluidSimGpu { uniform_buffer: g.uniform_buffer.clone(), sim: g.sim }); }
+}
+
+fn extract_fluid_settings(mut commands: Commands, src: Option<Res<FluidSimSettings>>) {
+    if let Some(s) = src { commands.insert_resource(s.as_ref().clone()); }
 }
 
 #[derive(Resource, Clone)]
@@ -42,7 +66,7 @@ impl Default for FluidSimSettings {
 }
 
 // GPU resources for the simulation images and pipelines (to be populated later)
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub struct FluidSimResources {
     pub initialized: bool,
     pub velocity_a: Handle<Image>,
@@ -110,7 +134,7 @@ impl Material2d for FluidDisplayMaterial {
 }
 
 #[derive(Component)]
-struct FluidDisplayQuad;
+pub struct FluidDisplayQuad;
 
 // Matches WGSL SimUniform layout
 #[repr(C)]
@@ -149,9 +173,7 @@ fn setup_fluid_sim(
     mut commands: Commands,
     settings: Res<FluidSimSettings>,
     mut images: ResMut<Assets<Image>>,
-    asset_server: Res<AssetServer>,
     render_device: Res<RenderDevice>,
-    pipeline_cache: ResMut<PipelineCache>,
     render_queue: Res<RenderQueue>,
 ) {
     let size = Extent3d { width: settings.resolution.x, height: settings.resolution.y, depth_or_array_layers: 1 };
@@ -189,127 +211,32 @@ fn setup_fluid_sim(
     let dye_b = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
 
     info!("Fluid sim textures allocated ({}x{})", size.width, size.height);
+    // Seed dye_a with random color blotches so motion is visible
+    if let Some(img) = images.get_mut(&dye_a) {
+        if let Some(data) = &mut img.data {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let w = size.width as usize; let h = size.height as usize;
+            for _ in 0..(w*h/300) { // number of blotches
+                let cx = rng.gen_range(0..w);
+                let cy = rng.gen_range(0..h);
+                let radius = rng.gen_range(6..24) as i32;
+                let color = [rng.gen_range(80..255) as u8, rng.gen_range(50..200) as u8, rng.gen_range(50..220) as u8];
+                for dy in -radius..=radius { for dx in -radius..=radius {
+                    let nx = cx as i32 + dx; let ny = cy as i32 + dy;
+                    if nx<0 || ny<0 || nx>=w as i32 || ny>=h as i32 { continue; }
+                    let d2 = dx*dx + dy*dy; if d2 > radius*radius { continue; }
+                    let idx = (ny as usize * w + nx as usize) * 4;
+                    data[idx] = color[0]; data[idx+1] = color[1]; data[idx+2] = color[2]; data[idx+3] = 255;
+                }}
+            }
+        }
+    }
 
     let sim_res = FluidSimResources::new(velocity_a, velocity_b, pressure_a, pressure_b, divergence, dye_a, dye_b);
     commands.insert_resource(sim_res);
 
-    // Create bind group layout for group(0) matching shader bindings
-    let entries = [
-        // binding 0: uniform buffer
-        BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: Some(SimUniform::min_size()),
-            },
-            count: None,
-        },
-        // velocity_in (read)
-        BindGroupLayoutEntry {
-            binding: 1,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::ReadOnly,
-                format: TextureFormat::Rgba16Float,
-                view_dimension: TextureViewDimension::D2,
-            },
-            count: None,
-        },
-        // velocity_out (write)
-        BindGroupLayoutEntry {
-            binding: 2,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::WriteOnly,
-                format: TextureFormat::Rgba16Float,
-                view_dimension: TextureViewDimension::D2,
-            },
-            count: None,
-        },
-        // scalar_a (read dye)
-        BindGroupLayoutEntry {
-            binding: 3,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::ReadOnly,
-                format: TextureFormat::Rgba8Unorm,
-                view_dimension: TextureViewDimension::D2,
-            },
-            count: None,
-        },
-        // scalar_b (write dye)
-        BindGroupLayoutEntry {
-            binding: 4,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::WriteOnly,
-                format: TextureFormat::Rgba8Unorm,
-                view_dimension: TextureViewDimension::D2,
-            },
-            count: None,
-        },
-        // pressure_in (read)
-        BindGroupLayoutEntry {
-            binding: 5,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::ReadOnly,
-                format: TextureFormat::R16Float,
-                view_dimension: TextureViewDimension::D2,
-            },
-            count: None,
-        },
-        // pressure_out (write)
-        BindGroupLayoutEntry {
-            binding: 6,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::WriteOnly,
-                format: TextureFormat::R16Float,
-                view_dimension: TextureViewDimension::D2,
-            },
-            count: None,
-        },
-        // divergence (read_write)
-        BindGroupLayoutEntry {
-            binding: 7,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::ReadWrite,
-                format: TextureFormat::R16Float,
-                view_dimension: TextureViewDimension::D2,
-            },
-            count: None,
-        },
-    ];
-    let layout = render_device.create_bind_group_layout(Some("fluid-sim-layout"), &entries);
-
-    let shader_handle: Handle<Shader> = asset_server.load("shaders/fluid_sim.wgsl");
-    // Queue pipelines for each entry point
-    let mut fp = FluidPipelines::default();
-    fp.layout = Some(layout.clone());
-    let entries = [
-        ("add_force", &mut fp.add_force),
-        ("advect_velocity", &mut fp.advect_velocity),
-        ("compute_divergence", &mut fp.compute_divergence),
-        ("jacobi_pressure", &mut fp.jacobi_pressure),
-        ("project_velocity", &mut fp.project_velocity),
-        ("advect_dye", &mut fp.advect_dye),
-    ];
-    for (entry, slot) in entries.into_iter() {
-        *slot = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some(format!("fluid_{}", entry).into()),
-            layout: vec![layout.clone()],
-            push_constant_ranges: vec![],
-            shader: shader_handle.clone(),
-            shader_defs: vec![],
-            entry_point: entry.into(),
-            zero_initialize_workgroup_memory: false,
-        });
-    }
-    commands.insert_resource(fp);
+    // Layout & pipelines now created in render world; nothing to do here for layout.
 
     // Initialize uniform data
     let mut sim_u = SimUniform::default();
@@ -338,7 +265,10 @@ fn setup_fluid_sim(
 // TODO: Build real compute pipelines & dispatch logic.
 // Placeholder system to prove plugin wiring (logs once after startup when resource present)
 fn debug_fluid_once(res: Option<Res<FluidSimResources>>) {
-    if let Some(r) = res { if r.initialized { info!("FluidSimResources initialized (debug stub)"); } }
+    static mut LOGGED: bool = false;
+    if let Some(r) = res { if r.initialized {
+        unsafe { if !LOGGED { info!("FluidSimResources initialized (debug stub)"); LOGGED = true; } }
+    }}
 }
 
 // (Removed temporary sprite-based display; will add Material2d quad later)
@@ -367,4 +297,253 @@ fn resize_display_quad(
     // Fullscreen quad uses NDC sized (-1..1) mesh so no resize required; left for future if scaling changes
     if windows.is_empty() { return; }
     if let Ok(mut tf) = q.single_mut() { tf.translation.z = -90.0; }
+}
+
+// ---------------- Render-world compute dispatch -----------------
+// Strategy: Avoid complicated cross-world ping-pong state by always writing into the *_b textures
+// then copying results back into the *_a textures (which are the ones sampled for display). This is
+// a little less efficient (extra copy passes) but keeps main-world handles static for now.
+// Later optimization: true ping-pong with a custom display node referencing the latest destination.
+
+#[allow(clippy::too_many_arguments)]
+fn run_fluid_sim_compute(
+    pipelines: Res<FluidPipelines>,
+    pipeline_cache: Res<PipelineCache>,
+    gpu_images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    sim_res: Option<ResMut<FluidSimResources>>,
+    sim_gpu: Option<Res<FluidSimGpu>>,
+    settings: Option<Res<FluidSimSettings>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    let (Some(sim_res), Some(sim_gpu)) = (sim_res, sim_gpu) else { return };
+    let Some(layout) = pipelines.layout.as_ref() else { return };
+    let required = [
+        pipelines.add_force,
+        pipelines.advect_velocity,
+        pipelines.compute_divergence,
+        pipelines.jacobi_pressure,
+        pipelines.project_velocity,
+        pipelines.advect_dye,
+    ];
+    if required.iter().any(|id| pipeline_cache.get_compute_pipeline(*id).is_none()) { return; }
+
+    // We keep the "A" textures stable for sampling by the material in the main world.
+    // Each compute pass writes into the corresponding * _b texture, then we copy back into *_a.
+    // This avoids needing to mutate material handles or store frame state across worlds.
+    let vel_front = &sim_res.velocity_a; let vel_back = &sim_res.velocity_b;
+    let pres_front = &sim_res.pressure_a; let pres_back = &sim_res.pressure_b;
+    let dye_front = &sim_res.dye_a; let dye_back = &sim_res.dye_b;
+
+    let get_view = |h: &Handle<Image>| -> Option<&TextureView> { gpu_images.get(h).map(|g| &g.texture_view) };
+    let va = match get_view(vel_front) { Some(v) => v, None => return };
+    let vb = match get_view(vel_back) { Some(v) => v, None => return };
+    let pa = match get_view(pres_front) { Some(v) => v, None => return };
+    let pb = match get_view(pres_back) { Some(v) => v, None => return };
+    let div = match get_view(&sim_res.divergence) { Some(v) => v, None => return };
+    let da = match get_view(dye_front) { Some(v) => v, None => return };
+    let db = match get_view(dye_back) { Some(v) => v, None => return };
+
+    let make_bg = |vel_in: &TextureView, vel_out: &TextureView,
+                   dye_in: &TextureView, dye_out: &TextureView,
+                   p_in: &TextureView, p_out: &TextureView,
+                   divergence: &TextureView| {
+        render_device.create_bind_group(
+            Some("fluid-sim-bind-group"),
+            layout,
+            &[
+                BindGroupEntry { binding: 0, resource: sim_gpu.uniform_buffer.as_entire_binding() },
+                BindGroupEntry { binding: 1, resource: BindingResource::TextureView(vel_in) },
+                BindGroupEntry { binding: 2, resource: BindingResource::TextureView(vel_out) },
+                BindGroupEntry { binding: 3, resource: BindingResource::TextureView(dye_in) },
+                BindGroupEntry { binding: 4, resource: BindingResource::TextureView(dye_out) },
+                BindGroupEntry { binding: 5, resource: BindingResource::TextureView(p_in) },
+                BindGroupEntry { binding: 6, resource: BindingResource::TextureView(p_out) },
+                BindGroupEntry { binding: 7, resource: BindingResource::TextureView(divergence) },
+            ],
+        )
+    };
+
+    let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor { label: Some("fluid-sim-encoder") });
+
+    let run_pass = |pipeline_id: CachedComputePipelineId, bg: &BindGroup, label: &str, encoder: &mut CommandEncoder, grid: UVec2| {
+        let pipeline = pipeline_cache.get_compute_pipeline(pipeline_id).unwrap();
+        let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor { label: Some(label), timestamp_writes: None });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, bg, &[]);
+        let wg_x = (grid.x + 7) / 8;
+        let wg_y = (grid.y + 7) / 8;
+        pass.dispatch_workgroups(wg_x, wg_y, 1);
+    };
+
+    // Helper for copying back (only when the pass wrote to back buffer)
+    let grid = sim_gpu.sim.grid_size;
+    let extent = Extent3d { width: grid.x, height: grid.y, depth_or_array_layers: 1 };
+
+    // 1. Add force (velocity_a -> velocity_b) then copy back into velocity_a
+    let mut bg = make_bg(va, vb, da, db, pa, pb, div);
+    run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
+    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            extent,
+        );
+    }
+    // 2. Advect velocity -> copy back
+    bg = make_bg(va, vb, da, db, pa, pb, div);
+    run_pass(pipelines.advect_velocity, &bg, "advect_velocity", &mut encoder, grid);
+    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            extent,
+        );
+    }
+    // 3. Compute divergence
+    bg = make_bg(va, vb, da, db, pa, pb, div);
+    run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
+    // 4. Jacobi pressure iterations with internal ping-pong
+    let jacobi_iters = settings.map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
+    let mut ping_is_a = true; // read A write B first
+    for _ in 0..jacobi_iters {
+        let (p_in, p_out) = if ping_is_a { (pa, pb) } else { (pb, pa) };
+        let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div);
+        run_pass(pipelines.jacobi_pressure, &jacobi_bg, "jacobi_pressure", &mut encoder, grid);
+        ping_is_a = !ping_is_a;
+    }
+    if !ping_is_a { // final result resides in pressure_b -> copy once
+        if let (Some(pb_tex), Some(pa_tex)) = (gpu_images.get(pres_back), gpu_images.get(pres_front)) {
+            encoder.copy_texture_to_texture(
+                TexelCopyTextureInfo { texture: &pb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                TexelCopyTextureInfo { texture: &pa_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                extent,
+            );
+        }
+    }
+    // 5. Project velocity (velocity_a -> velocity_b) copy back
+    bg = make_bg(va, vb, da, db, pa, pb, div);
+    run_pass(pipelines.project_velocity, &bg, "project_velocity", &mut encoder, grid);
+    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            extent,
+        );
+    }
+    // 6. Advect dye (dye_a -> dye_b) copy back
+    bg = make_bg(va, vb, da, db, pa, pb, div);
+    run_pass(pipelines.advect_dye, &bg, "advect_dye", &mut encoder, grid);
+    if let (Some(db_tex), Some(da_tex)) = (gpu_images.get(dye_back), gpu_images.get(dye_front)) {
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo { texture: &db_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            TexelCopyTextureInfo { texture: &da_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+            extent,
+        );
+    }
+
+    // Submit all compute + copy work
+    render_queue.submit(std::iter::once(encoder.finish()));
+}
+
+// Render-world only: create compute pipelines once when layout available and ids still invalid
+fn prepare_fluid_pipelines(
+    mut pipelines: ResMut<FluidPipelines>,
+    pipeline_cache: ResMut<PipelineCache>,
+    asset_server: Res<AssetServer>,
+    render_device: Res<RenderDevice>,
+) {
+    // Create layout if missing
+    if pipelines.layout.is_none() {
+        let entries = [
+            BindGroupLayoutEntry { binding: 0, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: Some(SimUniform::min_size()) }, count: None },
+            BindGroupLayoutEntry { binding: 1, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::Rgba16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 2, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 3, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 4, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 5, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 6, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 7, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadWrite, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+        ];
+        let layout = render_device.create_bind_group_layout(Some("fluid-sim-layout"), &entries);
+        pipelines.layout = Some(layout);
+    }
+    if pipelines.layout.is_none() { return; }
+    let already_ready = [
+        pipelines.add_force,
+        pipelines.advect_velocity,
+        pipelines.compute_divergence,
+        pipelines.jacobi_pressure,
+        pipelines.project_velocity,
+        pipelines.advect_dye,
+    ].iter().all(|id| *id != CachedComputePipelineId::INVALID);
+    if already_ready { return; }
+    let shader_handle: Handle<Shader> = asset_server.load("shaders/fluid_sim.wgsl");
+    let layout = pipelines.layout.as_ref().unwrap().clone();
+    let entries: [(&'static str, *mut CachedComputePipelineId); 6] = [
+        ("add_force", &mut pipelines.add_force as *mut _),
+        ("advect_velocity", &mut pipelines.advect_velocity as *mut _),
+        ("compute_divergence", &mut pipelines.compute_divergence as *mut _),
+        ("jacobi_pressure", &mut pipelines.jacobi_pressure as *mut _),
+        ("project_velocity", &mut pipelines.project_velocity as *mut _),
+        ("advect_dye", &mut pipelines.advect_dye as *mut _),
+    ];
+    for (name, slot_ptr) in entries {
+        // SAFETY: slot_ptr points to fields of mutable pipelines struct; unique in list
+        let slot = unsafe { &mut *slot_ptr };
+        if *slot == CachedComputePipelineId::INVALID {
+            *slot = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                label: Some(format!("fluid_{}", name).into()),
+                layout: vec![layout.clone()],
+                push_constant_ranges: vec![],
+                shader: shader_handle.clone(),
+                shader_defs: vec![],
+                entry_point: name.into(),
+                zero_initialize_workgroup_memory: false,
+            });
+        }
+    }
+}
+
+// ---------------- Update stage systems (main world) -----------------
+fn update_sim_uniforms(
+    gpu: Option<ResMut<FluidSimGpu>>,
+    settings: Res<FluidSimSettings>,
+    render_queue: Res<RenderQueue>,
+) {
+    let Some(mut gpu) = gpu else { return };
+    // Sync simulation parameters from settings each frame
+    gpu.sim.dt = settings.time_step.min(0.033);
+    gpu.sim.dissipation = settings.dissipation;
+    gpu.sim.vel_dissipation = settings.velocity_dissipation;
+    gpu.sim.force_strength = settings.force_strength;
+    // Write entire uniform (small struct) to GPU
+    unsafe {
+        let bytes = std::slice::from_raw_parts((&gpu.sim as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>());
+        render_queue.write_buffer(&gpu.uniform_buffer, 0, bytes);
+    }
+}
+
+fn input_force_position(
+    windows: Query<&Window>,
+    cam_q: Query<(&Camera, &GlobalTransform)>,
+    gpu: Option<ResMut<FluidSimGpu>>,
+    settings: Res<FluidSimSettings>,
+    buttons: Res<ButtonInput<MouseButton>>,
+) {
+    let Some(mut gpu) = gpu else { return };
+    let Ok(window) = windows.single() else { return };
+    let Some(cursor) = window.cursor_position() else { return };
+    let (camera, cam_tf) = match cam_q.iter().next() { Some(v) => v, None => return };
+    if !buttons.pressed(MouseButton::Left) { return; }
+    // Convert screen to world then to grid coordinate. World coordinates center at (0,0) with height ~ window.height()
+    if let Ok(ray) = camera.viewport_to_world(cam_tf, cursor) {
+        let origin = ray.origin.truncate();
+        // Map world space (-w/2..w/2, -h/2..h/2) to grid (0..width, 0..height)
+        let w = window.width();
+        let h = window.height();
+        let gx = (origin.x / w * settings.resolution.x as f32) + settings.resolution.x as f32 * 0.5;
+        let gy = (origin.y / h * settings.resolution.y as f32) + settings.resolution.y as f32 * 0.5;
+        gpu.sim.force_pos = Vec2::new(gx.clamp(0.0, settings.resolution.x as f32 - 1.0), gy.clamp(0.0, settings.resolution.y as f32 - 1.0));
+    }
 }
