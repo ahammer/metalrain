@@ -134,6 +134,7 @@ pub struct FluidSimSettings {
     pub time_step: f32,
     pub dissipation: f32,
     pub velocity_dissipation: f32,
+    pub dye_dissipation: f32,
     pub force_strength: f32,
 }
 
@@ -173,7 +174,7 @@ pub struct FluidBallInstances {
 
 impl Default for FluidSimSettings {
     fn default() -> Self {
-        Self { resolution: UVec2::new(256, 256), jacobi_iterations: 20, time_step: 1.0/60.0, dissipation: 0.995, velocity_dissipation: 0.999, force_strength: 120.0 }
+    Self { resolution: UVec2::new(256, 256), jacobi_iterations: 20, time_step: 1.0/60.0, dissipation: 0.995, velocity_dissipation: 0.999, dye_dissipation: 0.9995, force_strength: 120.0 }
     }
 }
 
@@ -257,6 +258,7 @@ pub struct SimUniform {
     pub inv_grid_size: Vec2,
     pub dt: f32,
     pub dissipation: f32,
+    pub dye_dissipation: f32,
     pub vel_dissipation: f32,
     pub jacobi_alpha: f32,
     pub jacobi_beta: f32,
@@ -276,6 +278,7 @@ impl Default for SimUniform {
             inv_grid_size: Vec2::ZERO,
             dt: 1.0/60.0,
             dissipation: 0.995,
+            dye_dissipation: 0.9995,
             vel_dissipation: 0.999,
             jacobi_alpha: 0.0,
             jacobi_beta: 1.0,
@@ -732,9 +735,10 @@ fn update_sim_uniforms(
     gpu.sim.dt = settings.time_step.min(0.033);
     gpu.sim.dissipation = settings.dissipation;
     gpu.sim.vel_dissipation = settings.velocity_dissipation;
+    gpu.sim.dye_dissipation = settings.dye_dissipation;
     gpu.sim.force_strength = settings.force_strength;
     gpu.sim.frame = gpu.sim.frame.wrapping_add(1);
-    info!("fluid: uniforms updated dt={:.4} diss={:.3} v_diss={:.3} force_strength={:.1} frame={}", gpu.sim.dt, gpu.sim.dissipation, gpu.sim.vel_dissipation, gpu.sim.force_strength, gpu.sim.frame);
+    info!("fluid: uniforms updated dt={:.4} diss={:.3} dye_diss={:.4} v_diss={:.3} force_strength={:.1} frame={}", gpu.sim.dt, gpu.sim.dissipation, gpu.sim.dye_dissipation, gpu.sim.vel_dissipation, gpu.sim.force_strength, gpu.sim.frame);
     // Write entire uniform (small struct) to GPU
     unsafe {
         let struct_bytes = std::slice::from_raw_parts((&gpu.sim as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>());

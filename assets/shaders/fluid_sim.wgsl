@@ -8,6 +8,7 @@ struct SimUniform {
     inv_grid_size: vec2<f32>,
     dt: f32,
     dissipation: f32,
+    dye_dissipation: f32,
     vel_dissipation: f32,
     jacobi_alpha: f32,
     jacobi_beta: f32,
@@ -156,7 +157,7 @@ fn advect_dye(@builtin(global_invocation_id) gid_in: vec3<u32>) {
     let g = vec2<f32>(f32(gid.x), f32(gid.y));
     let back = g - vel * sim.dt;
     let dye_sample = sample_dye(back);
-    textureStore(scalar_b, gid, dye_sample * sim.dissipation);
+    textureStore(scalar_b, gid, dye_sample * sim.dye_dissipation);
 }
 
 // Simple force injection (adds radial impulse & dye at force_pos)
