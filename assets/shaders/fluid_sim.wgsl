@@ -15,6 +15,7 @@ struct SimUniform {
     force_radius: f32,
     force_strength: f32,
     ball_count: u32,
+    frame: u32,
 }
 @group(0) @binding(0) var<uniform> sim: SimUniform;
 
@@ -47,6 +48,44 @@ fn read_velocity(coord: vec2<i32>) -> vec2<f32> {
 }
 fn write_velocity(coord: vec2<i32>, v: vec2<f32>) { textureStore(velocity_out, coord, vec4<f32>(v,0.0,0.0)); }
 
+// Bilinear sample velocity at fractional grid position (grid space, not normalized)
+fn sample_velocity(pos: vec2<f32>) -> vec2<f32> {
+    let maxc_f = vec2<f32>(vec2<f32>(sim.grid_size) - vec2<f32>(1.0));
+    let p = clamp(pos, vec2<f32>(0.0), maxc_f);
+    let p0 = floor(p);
+    let frac = p - p0;
+    let i00 = vec2<i32>(p0);
+    let i10 = i00 + vec2<i32>(1,0);
+    let i01 = i00 + vec2<i32>(0,1);
+    let i11 = i00 + vec2<i32>(1,1);
+    let v00 = read_velocity(i00);
+    let v10 = read_velocity(i10);
+    let v01 = read_velocity(i01);
+    let v11 = read_velocity(i11);
+    let vx0 = mix(v00, v10, vec2<f32>(frac.x, frac.x));
+    let vx1 = mix(v01, v11, vec2<f32>(frac.x, frac.x));
+    return mix(vx0, vx1, vec2<f32>(frac.y, frac.y));
+}
+
+// Bilinear sample dye (scalar_a) at fractional grid position
+fn sample_dye(pos: vec2<f32>) -> vec4<f32> {
+    let maxc_f = vec2<f32>(vec2<f32>(sim.grid_size) - vec2<f32>(1.0));
+    let p = clamp(pos, vec2<f32>(0.0), maxc_f);
+    let p0 = floor(p);
+    let frac = p - p0;
+    let i00 = vec2<i32>(p0);
+    let i10 = i00 + vec2<i32>(1,0);
+    let i01 = i00 + vec2<i32>(0,1);
+    let i11 = i00 + vec2<i32>(1,1);
+    let c00 = textureLoad(scalar_a, i00);
+    let c10 = textureLoad(scalar_a, i10);
+    let c01 = textureLoad(scalar_a, i01);
+    let c11 = textureLoad(scalar_a, i11);
+    let cx0 = mix(c00, c10, vec4<f32>(frac.x));
+    let cx1 = mix(c01, c11, vec4<f32>(frac.x));
+    return mix(cx0, cx1, vec4<f32>(frac.y));
+}
+
 // Semi-Lagrangian advection (velocity field self-advection)
 @compute @workgroup_size(8,8,1)
 fn advect_velocity(@builtin(global_invocation_id) gid_in: vec3<u32>) {
@@ -54,11 +93,9 @@ fn advect_velocity(@builtin(global_invocation_id) gid_in: vec3<u32>) {
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
     let g = vec2<f32>(f32(gid.x), f32(gid.y));
     let uv = read_velocity(gid);
-    let back = g - uv * sim.dt; // backtrace in grid space (not normalized to [0,1])
-    let back_i = vec2<i32>(clamp(back, vec2<f32>(0.0), vec2<f32>(sim.grid_size) - vec2<f32>(1.0)));
-    let samp = read_velocity(back_i);
-    // Simple dissipation
-    let v_new = samp * sim.vel_dissipation;
+    let back = g - uv * sim.dt; // fractional backtrace
+    let samp = sample_velocity(back);
+    let v_new = samp * sim.vel_dissipation; // dissipation
     write_velocity(gid, v_new);
 }
 
@@ -118,10 +155,8 @@ fn advect_dye(@builtin(global_invocation_id) gid_in: vec3<u32>) {
     let vel = read_velocity(gid);
     let g = vec2<f32>(f32(gid.x), f32(gid.y));
     let back = g - vel * sim.dt;
-    let back_i = vec2<i32>(clamp(back, vec2<f32>(0.0), vec2<f32>(sim.grid_size) - vec2<f32>(1.0)));
-    let dye = textureLoad(scalar_a, back_i);
-    // Apply global dissipation
-    textureStore(scalar_b, gid, dye * sim.dissipation);
+    let dye_sample = sample_dye(back);
+    textureStore(scalar_b, gid, dye_sample * sim.dissipation);
 }
 
 // Simple force injection (adds radial impulse & dye at force_pos)
@@ -170,6 +205,11 @@ fn inject_balls(@builtin(global_invocation_id) gid_in: vec3<u32>) {
     }
     write_velocity(gid, vel);
     textureStore(scalar_b, gid, dye);
+    // DEBUG MARKER: animate a moving horizontal bar based on frame counter to confirm writes
+    let bar_y: i32 = i32(sim.frame % sim.grid_size.y);
+    if (gid.y == bar_y && (gid.x % 8) < 4) {
+        textureStore(scalar_b, gid, vec4<f32>(1.0,0.2,0.05,1.0));
+    }
 }
 
 // Display shader (sample dye texture) - material bind group (group=2 in Bevy 2D materials)

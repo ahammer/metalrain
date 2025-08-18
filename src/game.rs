@@ -43,24 +43,7 @@ impl Plugin for GamePlugin {
                 InputInteractionPlugin,
                 DebugPlugin,
                 ConfigHotReloadPlugin,
-            ))
-            .add_systems(Update, debug_entity_counts);
+            ));
     }
 }
-
-fn debug_entity_counts(
-    time: Res<Time>,
-    mut timer: Local<f32>,
-    q_balls: Query<&crate::components::Ball>,
-    q_cam: Query<&Camera>,
-) {
-    *timer += time.delta_secs();
-    if *timer > 1.0 {
-        *timer = 0.0;
-        info!(
-            "balls={} cameras={}",
-            q_balls.iter().count(),
-            q_cam.iter().count()
-        );
-    }
-}
+// Removed verbose debug_entity_counts logging system (was spamming every second).

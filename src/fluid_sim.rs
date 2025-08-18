@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::input::ButtonInput;
 use bevy::render::render_resource::*;
+use bevy::render::Extract; // for Extract<Res<T>> in extraction systems
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::render_resource::ShaderType;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
@@ -30,29 +31,57 @@ impl Plugin for FluidSimPlugin {
         // access GPU Image views and submit command buffers prior to draw sampling of dye texture.
         {
             let render_app = app.sub_app_mut(bevy::render::RenderApp);
+            use bevy::render::RenderSet;
             render_app
                 .init_resource::<FluidPipelines>()
-                .add_systems(bevy::render::ExtractSchedule, (extract_fluid_resources, extract_fluid_gpu, extract_fluid_settings, extract_fluid_ball_instances))
-                .add_systems(bevy::render::Render, (prepare_fluid_pipelines, prepare_ball_gpu_buffer.after(prepare_fluid_pipelines), run_fluid_sim_compute.after(prepare_ball_gpu_buffer)));
+                .add_systems(bevy::render::ExtractSchedule, (
+                    extract_fluid_resources,
+                    extract_fluid_gpu,
+                ))
+                .add_systems(bevy::render::ExtractSchedule, (
+                    extract_fluid_settings,
+                    extract_fluid_ball_instances,
+                ))
+        // Prepare pipelines & buffers; we also run compute in Prepare so the updated
+        // dye texture is ready before render sampling.
+                .add_systems(
+                    bevy::render::Render,
+                    (
+                        prepare_fluid_pipelines.in_set(RenderSet::Prepare),
+                        prepare_ball_gpu_buffer
+                            .in_set(RenderSet::Prepare)
+                            .after(prepare_fluid_pipelines),
+            run_fluid_sim_compute
+                .in_set(RenderSet::Prepare)
+                .after(prepare_ball_gpu_buffer),
+            ),
+                );
         }
     }
 }
 
 // Extraction systems move main-world resources into render world each frame (simple clone / copy of handles)
-fn extract_fluid_resources(mut commands: Commands, src: Option<Res<FluidSimResources>>) {
-    if let Some(r) = src { commands.insert_resource(r.as_ref().clone()); }
+// IMPORTANT: Use Extract<Res<T>> to access main-world resources during the ExtractSchedule. Using Option<Res<T>> here
+// results in always missing resources because the system runs inside the render world and does not automatically pull from main world.
+fn extract_fluid_resources(mut commands: Commands, src: Extract<Res<FluidSimResources>>) {
+    info!("fluid: extract resources present initialized={}", src.initialized);
+    commands.insert_resource(src.as_ref().clone());
 }
-fn extract_fluid_gpu(mut commands: Commands, src: Option<Res<FluidSimGpu>>) {
-    if let Some(g) = src { commands.insert_resource(FluidSimGpu { uniform_buffer: g.uniform_buffer.clone(), sim: g.sim }); }
+fn extract_fluid_gpu(mut commands: Commands, src: Extract<Res<FluidSimGpu>>) {
+    info!("fluid: extract gpu uniform frame={}", src.sim.frame);
+    // Clone buffer handle & copy POD uniform struct
+    commands.insert_resource(FluidSimGpu { uniform_buffer: src.uniform_buffer.clone(), sim: src.sim });
 }
 
-fn extract_fluid_settings(mut commands: Commands, src: Option<Res<FluidSimSettings>>) {
-    if let Some(s) = src { commands.insert_resource(s.as_ref().clone()); }
+fn extract_fluid_settings(mut commands: Commands, src: Extract<Res<FluidSimSettings>>) {
+    info!("fluid: extract settings resolution=({}x{})", src.resolution.x, src.resolution.y);
+    commands.insert_resource(src.as_ref().clone());
 }
 
 // Extraction: copy ball injection buffer metadata & (later) staging buffer handle into render world.
-fn extract_fluid_ball_instances(mut commands: Commands, src: Option<Res<FluidBallInstances>>) {
-    if let Some(b) = src { commands.insert_resource(b.as_ref().clone()); }
+fn extract_fluid_ball_instances(mut commands: Commands, src: Extract<Res<FluidBallInstances>>) {
+    info!("fluid: extract ball instances count={}", src.count);
+    commands.insert_resource(src.as_ref().clone());
 }
 
 /// Render-world GPU buffer for ball instances (storage buffer consumed by inject pass).
@@ -235,6 +264,9 @@ pub struct SimUniform {
     pub force_radius: f32,
     pub force_strength: f32,
     pub ball_count: u32, // number of active FluidBallInstance entries (<= FLUID_MAX_BALLS)
+    pub frame: u32,
+    // Padding to 16-byte multiple (WGSL uniform structs require size multiple of 16). Original size was 60 bytes; add 4.
+    pub _pad: u32,
 }
 
 impl Default for SimUniform {
@@ -251,6 +283,8 @@ impl Default for SimUniform {
             force_radius: 32.0,
             force_strength: 150.0,
             ball_count: 0,
+            frame: 0,
+            _pad: 0,
         }
     }
 }
@@ -305,7 +339,7 @@ fn setup_fluid_sim(
         let mut swirl = vec![0u8; (w as usize * h as usize) * 8];
         let cx = (w as f32) * 0.5; let cy = (h as f32) * 0.5;
         let max_r = cx.min(cy);
-        let scale = 5.0f32; // base tangential speed
+    let scale = 18.0f32; // amplified tangential speed for visible motion
         for y in 0..h { for x in 0..w {
             let dx = x as f32 - cx; let dy = y as f32 - cy;
             let r = (dx*dx + dy*dy).sqrt();
@@ -361,8 +395,8 @@ fn setup_fluid_sim(
     sim_u.jacobi_beta = 0.25;
     sim_u.ball_count = 0;
 
-    use std::mem::size_of;
-    let raw_size = size_of::<SimUniform>() as u64;
+    // Allocate buffer sized to SimUniform::min_size (includes required padding beyond Rust struct size)
+    let raw_size = SimUniform::min_size().get();
     let buffer = render_device.create_buffer(&BufferDescriptor {
         label: Some("fluid-sim-uniform"),
         size: raw_size,
@@ -370,10 +404,13 @@ fn setup_fluid_sim(
         mapped_at_creation: false,
     });
     // SAFETY: SimUniform is plain-old-data for this prototype (only numeric types)
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts((&sim_u as *const SimUniform) as *const u8, size_of::<SimUniform>())
+    let struct_bytes: &[u8] = unsafe {
+        std::slice::from_raw_parts((&sim_u as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>())
     };
-    render_queue.write_buffer(&buffer, 0, bytes);
+    // Copy into padded vec sized to min_size
+    let mut padded = vec![0u8; raw_size as usize];
+    padded[..struct_bytes.len()].copy_from_slice(struct_bytes);
+    render_queue.write_buffer(&buffer, 0, &padded);
     commands.insert_resource(FluidSimGpu { uniform_buffer: buffer, sim: sim_u });
 }
 
@@ -432,18 +469,46 @@ fn run_fluid_sim_compute(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    let (Some(sim_res), Some(sim_gpu)) = (sim_res, sim_gpu) else { return };
-    let Some(layout) = pipelines.layout.as_ref() else { return };
+    info!("fluid: compute system enter");
+    if sim_res.is_none() || sim_gpu.is_none() {
+        info!("fluid: early return - sim_res or sim_gpu missing (sim_res_present={} sim_gpu_present={})", sim_res.is_some(), sim_gpu.is_some());
+        return;
+    }
+    let (mut sim_res, sim_gpu) = (sim_res.unwrap(), sim_gpu.unwrap());
+    if pipelines.layout.is_none() {
+        info!("fluid: early return - layout not created yet");
+        return;
+    }
+    let layout = pipelines.layout.as_ref().unwrap();
     let required = [
-    pipelines.inject_balls,
-        pipelines.add_force,
-        pipelines.advect_velocity,
-        pipelines.compute_divergence,
-        pipelines.jacobi_pressure,
-        pipelines.project_velocity,
-        pipelines.advect_dye,
+        ("inject_balls", pipelines.inject_balls),
+        ("add_force", pipelines.add_force),
+        ("advect_velocity", pipelines.advect_velocity),
+        ("compute_divergence", pipelines.compute_divergence),
+        ("jacobi_pressure", pipelines.jacobi_pressure),
+        ("project_velocity", pipelines.project_velocity),
+        ("advect_dye", pipelines.advect_dye),
     ];
-    if required.iter().any(|id| pipeline_cache.get_compute_pipeline(*id).is_none()) { return; }
+    let mut any_missing = false;
+    for (name, id) in required.iter() {
+        let ready = pipeline_cache.get_compute_pipeline(*id).is_some();
+        if !ready { any_missing = true; }
+        info!("fluid: pipeline status {} -> {}", name, if ready {"READY"} else {"LOADING"});
+    }
+    if any_missing {
+        info!("fluid: compute skipped; pipelines not ready yet");
+        return;
+    }
+
+    info!(
+        "fluid: dispatch begin grid=({}x{}) balls={} dt={:.4} vel_diss={:.3} diss={:.3}",
+        sim_gpu.sim.grid_size.x,
+        sim_gpu.sim.grid_size.y,
+        sim_gpu.sim.ball_count,
+        sim_gpu.sim.dt,
+        sim_gpu.sim.vel_dissipation,
+        sim_gpu.sim.dissipation
+    );
 
     // We keep the "A" textures stable for sampling by the material in the main world.
     // Each compute pass writes into the corresponding * _b texture, then we copy back into *_a.
@@ -453,13 +518,13 @@ fn run_fluid_sim_compute(
     let dye_front = &sim_res.dye_a; let dye_back = &sim_res.dye_b;
 
     let get_view = |h: &Handle<Image>| -> Option<&TextureView> { gpu_images.get(h).map(|g| &g.texture_view) };
-    let va = match get_view(vel_front) { Some(v) => v, None => return };
-    let vb = match get_view(vel_back) { Some(v) => v, None => return };
-    let pa = match get_view(pres_front) { Some(v) => v, None => return };
-    let pb = match get_view(pres_back) { Some(v) => v, None => return };
-    let div = match get_view(&sim_res.divergence) { Some(v) => v, None => return };
-    let da = match get_view(dye_front) { Some(v) => v, None => return };
-    let db = match get_view(dye_back) { Some(v) => v, None => return };
+    let va = match get_view(vel_front) { Some(v) => v, None => { info!("fluid: missing velocity_a view"); return; } };
+    let vb = match get_view(vel_back) { Some(v) => v, None => { info!("fluid: missing velocity_b view"); return; } };
+    let pa = match get_view(pres_front) { Some(v) => v, None => { info!("fluid: missing pressure_a view"); return; } };
+    let pb = match get_view(pres_back) { Some(v) => v, None => { info!("fluid: missing pressure_b view"); return; } };
+    let div = match get_view(&sim_res.divergence) { Some(v) => v, None => { info!("fluid: missing divergence view"); return; } };
+    let da = match get_view(dye_front) { Some(v) => v, None => { info!("fluid: missing dye_a view"); return; } };
+    let db = match get_view(dye_back) { Some(v) => v, None => { info!("fluid: missing dye_b view"); return; } };
 
     let make_bg = |vel_in: &TextureView, vel_out: &TextureView,
                    dye_in: &TextureView, dye_out: &TextureView,
@@ -503,6 +568,7 @@ fn run_fluid_sim_compute(
     // 0. Inject balls (velocity_a -> velocity_b & dye_a -> dye_b) then copy both back
     let ball_gpu_ref: Option<&FluidBallGpu> = ball_gpu.as_ref().map(|r| r.as_ref());
     let mut bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
+    info!("fluid: pass inject_balls");
     run_pass(pipelines.inject_balls, &bg, "inject_balls", &mut encoder, grid);
     if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
         encoder.copy_texture_to_texture(
@@ -521,6 +587,7 @@ fn run_fluid_sim_compute(
 
     // 1. Add force (velocity_a -> velocity_b) then copy back into velocity_a
     bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
+    info!("fluid: pass add_force");
     run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
     if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
         encoder.copy_texture_to_texture(
@@ -531,6 +598,7 @@ fn run_fluid_sim_compute(
     }
     // 2. Advect velocity -> copy back
     bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
+    info!("fluid: pass advect_velocity");
     run_pass(pipelines.advect_velocity, &bg, "advect_velocity", &mut encoder, grid);
     if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
         encoder.copy_texture_to_texture(
@@ -541,13 +609,15 @@ fn run_fluid_sim_compute(
     }
     // 3. Compute divergence
     bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
+    info!("fluid: pass compute_divergence");
     run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
     // 4. Jacobi pressure iterations with internal ping-pong
     let jacobi_iters = settings.map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
     let mut ping_is_a = true; // read A write B first
-    for _ in 0..jacobi_iters {
+    for iter in 0..jacobi_iters {
         let (p_in, p_out) = if ping_is_a { (pa, pb) } else { (pb, pa) };
-    let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div, ball_gpu_ref);
+        let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div, ball_gpu_ref);
+    info!("fluid: pass jacobi_pressure iter={iter}");
         run_pass(pipelines.jacobi_pressure, &jacobi_bg, "jacobi_pressure", &mut encoder, grid);
         ping_is_a = !ping_is_a;
     }
@@ -562,6 +632,7 @@ fn run_fluid_sim_compute(
     }
     // 5. Project velocity (velocity_a -> velocity_b) copy back
     bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
+    info!("fluid: pass project_velocity");
     run_pass(pipelines.project_velocity, &bg, "project_velocity", &mut encoder, grid);
     if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
         encoder.copy_texture_to_texture(
@@ -572,6 +643,7 @@ fn run_fluid_sim_compute(
     }
     // 6. Advect dye (dye_a -> dye_b) copy back
     bg = make_bg(va, vb, da, db, pa, pb, div, ball_gpu_ref);
+    info!("fluid: pass advect_dye");
     run_pass(pipelines.advect_dye, &bg, "advect_dye", &mut encoder, grid);
     if let (Some(db_tex), Some(da_tex)) = (gpu_images.get(dye_back), gpu_images.get(dye_front)) {
         encoder.copy_texture_to_texture(
@@ -583,6 +655,7 @@ fn run_fluid_sim_compute(
 
     // Submit all compute + copy work
     render_queue.submit(std::iter::once(encoder.finish()));
+    info!("fluid: dispatch end");
 }
 
 // Render-world only: create compute pipelines once when layout available and ids still invalid
@@ -643,6 +716,7 @@ fn prepare_fluid_pipelines(
                 entry_point: name.into(),
                 zero_initialize_workgroup_memory: false,
             });
+            info!("fluid: queued pipeline {}", name);
         }
     }
 }
@@ -659,10 +733,15 @@ fn update_sim_uniforms(
     gpu.sim.dissipation = settings.dissipation;
     gpu.sim.vel_dissipation = settings.velocity_dissipation;
     gpu.sim.force_strength = settings.force_strength;
+    gpu.sim.frame = gpu.sim.frame.wrapping_add(1);
+    info!("fluid: uniforms updated dt={:.4} diss={:.3} v_diss={:.3} force_strength={:.1} frame={}", gpu.sim.dt, gpu.sim.dissipation, gpu.sim.vel_dissipation, gpu.sim.force_strength, gpu.sim.frame);
     // Write entire uniform (small struct) to GPU
     unsafe {
-        let bytes = std::slice::from_raw_parts((&gpu.sim as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>());
-        render_queue.write_buffer(&gpu.uniform_buffer, 0, bytes);
+        let struct_bytes = std::slice::from_raw_parts((&gpu.sim as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>());
+        let min_size = SimUniform::min_size().get() as usize;
+        let mut padded = vec![0u8; min_size];
+        padded[..struct_bytes.len()].copy_from_slice(struct_bytes);
+        render_queue.write_buffer(&gpu.uniform_buffer, 0, &padded);
     }
 }
 
