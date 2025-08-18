@@ -141,6 +141,7 @@ fn poll_and_reload_config(
             fs.dissipation = new_cfg.fluid_sim.dissipation.clamp(0.0, 1.0);
             fs.velocity_dissipation = new_cfg.fluid_sim.velocity_dissipation.clamp(0.0, 1.0);
             fs.force_strength = new_cfg.fluid_sim.force_strength.max(0.0);
+            fs.enabled = new_cfg.fluid_sim.enabled; // Update enabled flag
         }
     }
 }

@@ -7,6 +7,7 @@ use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d;
 use wgpu::TexelCopyTextureInfo;
 use crate::config::GameConfig;
+use crate::background::ActiveBackground;
 
 // High-level design: GPU Stable Fluids (semi-Lagrangian + Jacobi pressure projection) on a fixed grid.
 // This first iteration aims for clarity over maximal performance.
@@ -33,7 +34,7 @@ impl Plugin for FluidSimPlugin {
             let render_app = app.sub_app_mut(bevy::render::RenderApp);
             render_app
                 .init_resource::<FluidPipelines>()
-                .add_systems(bevy::render::ExtractSchedule, (extract_fluid_resources, extract_fluid_gpu, extract_fluid_settings))
+                .add_systems(bevy::render::ExtractSchedule, (extract_fluid_resources, extract_fluid_gpu, extract_fluid_settings, extract_active_background))
                 .add_systems(bevy::render::Render, (prepare_fluid_pipelines, run_fluid_sim_compute.after(prepare_fluid_pipelines)));
         }
     }
@@ -52,6 +53,7 @@ fn sync_fluid_settings_from_config(
     settings.dissipation = fc.dissipation.clamp(0.0, 1.0);
     settings.velocity_dissipation = fc.velocity_dissipation.clamp(0.0, 1.0);
     settings.force_strength = fc.force_strength.max(0.0);
+    settings.enabled = fc.enabled;
 }
 
 // Extraction systems move main-world resources into render world each frame (simple clone / copy of handles)
@@ -66,6 +68,10 @@ fn extract_fluid_settings(mut commands: Commands, src: Option<Res<FluidSimSettin
     if let Some(s) = src { commands.insert_resource(s.as_ref().clone()); }
 }
 
+fn extract_active_background(mut commands: Commands, src: Option<Res<ActiveBackground>>) {
+    if let Some(state) = src { commands.insert_resource(*state); }
+}
+
 #[derive(Resource, Clone)]
 pub struct FluidSimSettings {
     pub resolution: UVec2,
@@ -74,11 +80,12 @@ pub struct FluidSimSettings {
     pub dissipation: f32,
     pub velocity_dissipation: f32,
     pub force_strength: f32,
+    pub enabled: bool,
 }
 
 impl Default for FluidSimSettings {
     fn default() -> Self {
-        Self { resolution: UVec2::new(256, 256), jacobi_iterations: 20, time_step: 1.0/60.0, dissipation: 0.995, velocity_dissipation: 0.999, force_strength: 120.0 }
+        Self { resolution: UVec2::new(256, 256), jacobi_iterations: 20, time_step: 1.0/60.0, dissipation: 0.995, velocity_dissipation: 0.999, force_strength: 120.0, enabled: true }
     }
 }
 
@@ -359,10 +366,17 @@ fn run_fluid_sim_compute(
     sim_res: Option<ResMut<FluidSimResources>>,
     sim_gpu: Option<Res<FluidSimGpu>>,
     settings: Option<Res<FluidSimSettings>>,
+    active_bg: Option<Res<ActiveBackground>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
     let (Some(sim_res), Some(sim_gpu)) = (sim_res, sim_gpu) else { return };
+    // Gate on enabled flag and active background selection
+    if let Some(s) = settings.as_ref() { if !s.enabled { return; } }
+    if let Some(bg) = active_bg.as_ref() { if **bg != ActiveBackground::FluidSim { return; } }
+    // Log once when first active dispatch occurs
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| { info!("Fluid sim compute dispatch now active (background visible)"); });
     let Some(layout) = pipelines.layout.as_ref() else { return };
     let required = [
         pipelines.add_force,
@@ -560,6 +574,7 @@ fn update_sim_uniforms(
     render_queue: Res<RenderQueue>,
 ) {
     let Some(mut gpu) = gpu else { return };
+    if !settings.enabled { return; }
     // Sync simulation parameters from settings each frame
     gpu.sim.dt = settings.time_step.min(0.033);
     gpu.sim.dissipation = settings.dissipation;
@@ -580,6 +595,7 @@ fn input_force_position(
     buttons: Res<ButtonInput<MouseButton>>,
 ) {
     let Some(mut gpu) = gpu else { return };
+    if !settings.enabled { return; }
     let Ok(window) = windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let (camera, cam_tf) = match cam_q.iter().next() { Some(v) => v, None => return };
