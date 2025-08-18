@@ -23,7 +23,6 @@ impl Plugin for FluidSimPlugin {
             .add_systems(Startup, sync_fluid_settings_from_config)
             .add_systems(Startup, setup_fluid_sim)
             .add_systems(Startup, setup_fluid_display.after(setup_fluid_sim))
-            .add_systems(Update, debug_fluid_once)
             .add_systems(Update, resize_display_quad)
             .add_systems(Update, (update_sim_uniforms, input_force_position, realloc_fluid_textures_if_needed));
         // Display quad & compute dispatch systems will be added when GPU pipelines are implemented.
@@ -315,14 +314,7 @@ fn setup_fluid_sim(
     commands.insert_resource(FluidSimGpu { uniform_buffer: buffer, sim: sim_u });
 }
 
-// TODO: Build real compute pipelines & dispatch logic.
-// Placeholder system to prove plugin wiring (logs once after startup when resource present)
-fn debug_fluid_once(res: Option<Res<FluidSimResources>>) {
-    static mut LOGGED: bool = false;
-    if let Some(r) = res { if r.initialized {
-        unsafe { if !LOGGED { info!("FluidSimResources initialized (debug stub)"); LOGGED = true; } }
-    }}
-}
+// Removed placeholder debug system now that real compute passes are active.
 
 // (Removed temporary sprite-based display; will add Material2d quad later)
 
@@ -663,5 +655,11 @@ mod tests {
         assert!(!fluid_sim_should_run(Some(&settings_disabled), Some(&ActiveBackground::FluidSim)));
         assert!(!fluid_sim_should_run(Some(&settings_enabled), Some(&ActiveBackground::Grid)));
         assert!(fluid_sim_should_run(Some(&settings_enabled), None)); // if no background info, allow (defensive)
+    }
+
+    #[test]
+    fn sim_uniform_size_is_64() {
+        use std::mem::size_of;
+        assert_eq!(size_of::<SimUniform>(), 64, "SimUniform must remain 64 bytes to match WGSL layout");
     }
 }
