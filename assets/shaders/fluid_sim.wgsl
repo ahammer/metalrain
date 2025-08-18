@@ -1,178 +1,251 @@
-// fluid_sim.wgsl - 2D Stable Fluids style simulation + fullscreen display.
-// Pass order each frame (Rust orchestrated):
-//   1. add_force          : injects user-driven swirl impulse into velocity (in->out)
-//   2. advect_velocity    : semi-lagrangian self-advection with dissipation (in->out)
-//   3. compute_divergence : divergence of current velocity written to divergence_tex
-//   4. jacobi_pressure    : N Jacobi iterations (ping-pong pressure_in/out) solving Poisson eq.
-//   5. project_velocity   : subtract pressure gradient from velocity (enforces near incompressibility)
-//   6. advect_dye         : move dye using final velocity, apply dissipation (scalar_a->scalar_b)
-// After certain passes Rust copies back *b -> *a to keep stable handles for display.
-// Simplifications:
-//   * Velocity stored in RG of RGBA16F; BA unused.
-//   * Pressure, divergence use R16F.
-//   * No boundary conditions beyond simple clamping (acts like solid walls); can be extended.
-//   * No vorticity confinement or MacCormack; semi-Lagrangian is diffusive but stable.
-//   * Force is a tangential swirl for visually pleasing motion.
-// Workgroup size is (8,8,1); Rust dispatch rounds up to cover the grid.
+// fluid_sim_fixed.wgsl
+// Complete WGSL version with solid-wall boundary handling,
+// bilinear back-traced advection, and an extra enforce_boundaries pass.
+// Work-group size: (8,8,1).  Pass order per frame:
+//
+// 1. add_force
+// 2. advect_velocity
+// 3. compute_divergence
+// 4. jacobi_pressure   (iterate N times, ping-pong pressure_in / pressure_out)
+// 5. project_velocity
+// 6. enforce_boundaries        // ← new
+// 7. advect_dye
+//
+// Velocity    : RG of rgba16float
+// Divergence  : r16float (read-write)
+// Pressure    : r16float
+// Dye         : rgba8unorm
 
-// Simulation parameters (std140-style padded to 64B on Rust side).
+// ─────────────────────────────────────────────────────────────
+// 0. Uniforms
+// ─────────────────────────────────────────────────────────────
 struct SimUniform {
-    grid_size: vec2<u32>,
-    inv_grid_size: vec2<f32>,
-    dt: f32,
-    dissipation: f32,
-    vel_dissipation: f32,
-    jacobi_alpha: f32,
-    jacobi_beta: f32,
-    force_pos: vec2<f32>,
-    force_radius: f32,
-    force_strength: f32,
-}
-@group(0) @binding(0) var<uniform> sim: SimUniform;
+    grid_size       : vec2<u32>,
+    inv_grid_size   : vec2<f32>,
+    dt              : f32,
+    dye_dissipation : f32,
+    vel_dissipation : f32,
+    jacobi_alpha    : f32,
+    jacobi_beta     : f32,
+    force_pos       : vec2<f32>,
+    force_radius    : f32,
+    force_strength  : f32,
+};
+@group(0) @binding(0) var<uniform> sim : SimUniform;
 
-// Storage textures (declared as needed per entry point with matching bind groups set up in Rust)
-// We will re-use the same binding indices across pipelines for simplicity.
-@group(0) @binding(1) var velocity_in: texture_storage_2d<rgba16float, read>;
-@group(0) @binding(2) var velocity_out: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(3) var scalar_a: texture_storage_2d<rgba8unorm, read>;
-@group(0) @binding(4) var scalar_b: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(5) var pressure_in: texture_storage_2d<r16float, read>;
-@group(0) @binding(6) var pressure_out: texture_storage_2d<r16float, write>;
-// Needs read + write because we write in compute_divergence then read in jacobi_pressure
-@group(0) @binding(7) var divergence_tex: texture_storage_2d<r16float, read_write>;
+// ─────────────────────────────────────────────────────────────
+// 1. Storage / sampled textures
+// ─────────────────────────────────────────────────────────────
+@group(0) @binding(1) var velocity_in  : texture_storage_2d<rgba16float, read>;
+@group(0) @binding(2) var velocity_out : texture_storage_2d<rgba16float, write>;
 
-// Utility sampling (nearest) for velocity (packed in RG, BA unused)
-// Nearest neighbor velocity fetch with clamped addressing.
-fn read_velocity(coord: vec2<i32>) -> vec2<f32> {
+@group(0) @binding(3) var scalar_a : texture_storage_2d<rgba8unorm, read>;
+@group(0) @binding(4) var scalar_b : texture_storage_2d<rgba8unorm, write>;
+
+@group(0) @binding(5) var pressure_in  : texture_storage_2d<r16float, read>;
+@group(0) @binding(6) var pressure_out : texture_storage_2d<r16float, write>;
+
+@group(0) @binding(7) var divergence_tex : texture_storage_2d<r16float, read_write>;
+
+// ─────────────────────────────────────────────────────────────
+// 2. Velocity helpers
+//    read_velocity : nearest sample with clamped addressing
+//    read_velocity_lin : bilinear reconstruction for back-tracing
+// ─────────────────────────────────────────────────────────────
+fn read_velocity(coord : vec2<i32>) -> vec2<f32> {
     let maxc = vec2<i32>(vec2<i32>(sim.grid_size) - vec2<i32>(1));
-    let c = clamp(coord, vec2<i32>(0), maxc);
-    let v = textureLoad(velocity_in, c);
-    return v.xy;
+    let c    = clamp(coord, vec2<i32>(0), maxc);
+    return textureLoad(velocity_in, c).xy;
 }
-fn write_velocity(coord: vec2<i32>, v: vec2<f32>) { textureStore(velocity_out, coord, vec4<f32>(v,0.0,0.0)); }
 
-// Semi-Lagrangian advection (velocity field self-advection)
-// Velocity self-advection: backtrace along velocity and sample prior field.
+fn read_velocity_lin(p : vec2<f32>) -> vec2<f32> {
+    // manual bilinear sample in grid space
+    let ip  = vec2<i32>(floor(p));
+    let f   = p - vec2<f32>(ip);
+    let v00 = read_velocity(ip);
+    let v10 = read_velocity(ip + vec2<i32>(1,0));
+    let v01 = read_velocity(ip + vec2<i32>(0,1));
+    let v11 = read_velocity(ip + vec2<i32>(1,1));
+    let vx0 = mix(v00, v10, f.x);
+    let vx1 = mix(v01, v11, f.x);
+    return mix(vx0, vx1, f.y);
+}
+
+fn write_velocity(coord : vec2<i32>, v : vec2<f32>) {
+    textureStore(velocity_out, coord, vec4<f32>(v, 0.0, 0.0));
+}
+
+// ─────────────────────────────────────────────────────────────
+// 3. add_force – swirl impulse around sim.force_pos
+// ─────────────────────────────────────────────────────────────
 @compute @workgroup_size(8,8,1)
-fn advect_velocity(@builtin(global_invocation_id) gid_in: vec3<u32>) {
-    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
+fn add_force(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+    let gid = vec2<i32>(gid_in.xy);
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let g = vec2<f32>(f32(gid.x), f32(gid.y));
-    let uv = read_velocity(gid);
-    let back = g - uv * sim.dt; // backtrace in grid space (not normalized to [0,1])
-    let back_i = vec2<i32>(clamp(back, vec2<f32>(0.0), vec2<f32>(sim.grid_size) - vec2<f32>(1.0)));
-    let samp = read_velocity(back_i);
-    // Simple dissipation
-    let v_new = samp * sim.vel_dissipation;
-    write_velocity(gid, v_new);
+
+    let pos    = vec2<f32>(vec2<i32>(gid));
+    let d      = pos - sim.force_pos;
+    let r2     = sim.force_radius * sim.force_radius;
+    let dist2  = dot(d, d);
+
+    var v = read_velocity(gid);                // pass-through by default
+    if (dist2 < r2 && sim.force_strength > 0.0) {
+        let falloff = 1.0 - dist2 / r2;
+        let dir     = normalize(vec2<f32>(-d.y, d.x)); // tangential swirl
+        v += dir * sim.force_strength * falloff * sim.dt;
+    }
+    write_velocity(gid, v);
 }
 
-// Compute divergence of velocity field -> store in divergence_tex
-// Divergence = dUx/dx + dVy/dy (central differences). Stored for pressure solve.
+// ─────────────────────────────────────────────────────────────
+// 4. advect_velocity – semi-Lagrangian self-advection (bilinear sample)
+// ─────────────────────────────────────────────────────────────
 @compute @workgroup_size(8,8,1)
-fn compute_divergence(@builtin(global_invocation_id) gid_in: vec3<u32>) {
-    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
+fn advect_velocity(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+    let gid = vec2<i32>(gid_in.xy);
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let left = read_velocity(gid + vec2<i32>(-1,0));
-    let right = read_velocity(gid + vec2<i32>(1,0));
-    let down = read_velocity(gid + vec2<i32>(0,-1));
-    let up = read_velocity(gid + vec2<i32>(0,1));
-    let hx = 0.5; // grid spacing assumed 1
-    let div = ((right.x - left.x) + (up.y - down.y)) * 0.5; // approximate divergence
-    textureStore(divergence_tex, gid, vec4<f32>(div,0.0,0.0,0.0));
+
+    let p   = vec2<f32>(vec2<i32>(gid));
+    let vel = read_velocity(gid);
+    let backp = p - vel * sim.dt;               // back-trace in grid coords
+    let samp  = read_velocity_lin(backp);
+    write_velocity(gid, samp * sim.vel_dissipation);
 }
 
-// Jacobi pressure iteration: pressure_out = (divergence + (pL+pR+pU+pD)*alpha) * beta
-fn load_pressure(c: vec2<i32>) -> f32 {
+// ─────────────────────────────────────────────────────────────
+// 5. compute_divergence – central-difference divergence
+// ─────────────────────────────────────────────────────────────
+@compute @workgroup_size(8,8,1)
+fn compute_divergence(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+    let gid = vec2<i32>(gid_in.xy);
+    if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
+
+    let left  = read_velocity(gid + vec2<i32>(-1, 0));
+    let right = read_velocity(gid + vec2<i32>( 1, 0));
+    let down  = read_velocity(gid + vec2<i32>( 0,-1));
+    let up    = read_velocity(gid + vec2<i32>( 0, 1));
+
+    let div = ((right.x - left.x) + (up.y - down.y)) * 0.5;
+    textureStore(divergence_tex, gid, vec4<f32>(div, 0.0, 0.0, 0.0));
+}
+
+// ─────────────────────────────────────────────────────────────
+// 6. jacobi_pressure – one Jacobi relaxation iteration
+// ─────────────────────────────────────────────────────────────
+fn load_pressure(c : vec2<i32>) -> f32 {
     let maxc = vec2<i32>(vec2<i32>(sim.grid_size) - vec2<i32>(1));
-    let cc = clamp(c, vec2<i32>(0), maxc);
+    let cc   = clamp(c, vec2<i32>(0), maxc);
     return textureLoad(pressure_in, cc).x;
 }
 
-// One Jacobi relaxation step toward solving ∇^2 p = divergence.
 @compute @workgroup_size(8,8,1)
-fn jacobi_pressure(@builtin(global_invocation_id) gid_in: vec3<u32>) {
-    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
+fn jacobi_pressure(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+    let gid = vec2<i32>(gid_in.xy);
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let pL = load_pressure(gid + vec2<i32>(-1,0));
-    let pR = load_pressure(gid + vec2<i32>(1,0));
-    let pD = load_pressure(gid + vec2<i32>(0,-1));
-    let pU = load_pressure(gid + vec2<i32>(0,1));
+
+    let pL  = load_pressure(gid + vec2<i32>(-1, 0));
+    let pR  = load_pressure(gid + vec2<i32>( 1, 0));
+    let pD  = load_pressure(gid + vec2<i32>( 0,-1));
+    let pU  = load_pressure(gid + vec2<i32>( 0, 1));
     let div = textureLoad(divergence_tex, gid).x;
+
     let p_new = (pL + pR + pD + pU + div * sim.jacobi_alpha) * sim.jacobi_beta;
-    textureStore(pressure_out, gid, vec4<f32>(p_new,0.0,0.0,0.0));
+    textureStore(pressure_out, gid, vec4<f32>(p_new, 0.0, 0.0, 0.0));
 }
 
-// Projection: subtract gradient of pressure from velocity
-// Projection: vel' = vel - grad(p).
+// ─────────────────────────────────────────────────────────────
+// 7. project_velocity – subtract ∇p to enforce incompressibility
+// ─────────────────────────────────────────────────────────────
 @compute @workgroup_size(8,8,1)
-fn project_velocity(@builtin(global_invocation_id) gid_in: vec3<u32>) {
-    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
+fn project_velocity(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+    let gid = vec2<i32>(gid_in.xy);
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let pL = load_pressure(gid + vec2<i32>(-1,0));
-    let pR = load_pressure(gid + vec2<i32>(1,0));
-    let pD = load_pressure(gid + vec2<i32>(0,-1));
-    let pU = load_pressure(gid + vec2<i32>(0,1));
-    let vel = read_velocity(gid);
+
+    let pL  = load_pressure(gid + vec2<i32>(-1, 0));
+    let pR  = load_pressure(gid + vec2<i32>( 1, 0));
+    let pD  = load_pressure(gid + vec2<i32>( 0,-1));
+    let pU  = load_pressure(gid + vec2<i32>( 0, 1));
+
+    let vel  = read_velocity(gid);
     let grad = vec2<f32>(pR - pL, pU - pD) * 0.5;
     write_velocity(gid, vel - grad);
 }
 
-// Advect dye using velocity (scalar_a -> scalar_b)
-// Dye advection identical pattern to velocity but samples dye scalar (rgba8) with dissipation.
+// ─────────────────────────────────────────────────────────────
+// 8. enforce_boundaries – zero-normal velocity at domain edges
+// ─────────────────────────────────────────────────────────────
 @compute @workgroup_size(8,8,1)
-fn advect_dye(@builtin(global_invocation_id) gid_in: vec3<u32>) {
-    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
+fn enforce_boundaries(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+    let gid = vec2<i32>(gid_in.xy);
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let vel = read_velocity(gid);
-    let g = vec2<f32>(f32(gid.x), f32(gid.y));
-    let back = g - vel * sim.dt;
-    let back_i = vec2<i32>(clamp(back, vec2<f32>(0.0), vec2<f32>(sim.grid_size) - vec2<f32>(1.0)));
-    let dye = textureLoad(scalar_a, back_i);
-    // Apply global dissipation
-    textureStore(scalar_b, gid, dye * sim.dissipation);
-}
 
-// Simple force injection (adds radial impulse & dye at force_pos)
-// Force injection: swirl impulse inside a radius around sim.force_pos.
-@compute @workgroup_size(8,8,1)
-fn add_force(@builtin(global_invocation_id) gid_in: vec3<u32>) {
-    let gid = vec2<i32>(i32(gid_in.x), i32(gid_in.y));
-    if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    let pos = vec2<f32>(f32(gid.x), f32(gid.y));
-    let d = pos - sim.force_pos;
-    let r2 = sim.force_radius * sim.force_radius;
-    let dist2 = dot(d,d);
-    // Always write to velocity_out to preserve previous field outside force radius.
-    // (Bugfix) Previously, texels outside the force radius were never written, leaving the
-    // destination (velocity_out) undefined. Because the simulation ping-pongs velocity
-    // textures each pass, this effectively erased most of the seeded velocity after the
-    // first frame, causing the dye to collapse / wipe to black. We now pass-through the
-    // existing velocity and only add impulse inside the radius.
-    var new_vel = read_velocity(gid);
-    if (dist2 < r2 && sim.force_strength > 0.0) {
-        let falloff = 1.0 - dist2 / r2;
-        let dir = normalize(vec2<f32>(-d.y, d.x)); // swirl
-        new_vel = new_vel + dir * sim.force_strength * falloff * sim.dt;
+    var v = read_velocity(gid);
+
+    // West / East walls
+    if (gid.x == 0 || gid.x == i32(sim.grid_size.x) - 1) {
+        v.x = 0.0;              // no-slip; flip sign for slip wall
     }
-    write_velocity(gid, new_vel);
-    // (Optional future) Inject dye color here if desired for interactive painting.
+    // South / North walls
+    if (gid.y == 0 || gid.y == i32(sim.grid_size.y) - 1) {
+        v.y = 0.0;
+    }
+    write_velocity(gid, v);
 }
 
-// Display shader (sample dye texture) - material bind group (group=2 in Bevy 2D materials)
-@group(2) @binding(0) var dye_tex: texture_2d<f32>;
-@group(2) @binding(1) var dye_sampler: sampler;
+// ─────────────────────────────────────────────────────────────
+// 9. advect_dye – move dye with final velocity (bilinear sample)
+// ─────────────────────────────────────────────────────────────
+fn read_dye(coord : vec2<i32>) -> vec4<f32> {
+    let maxc = vec2<i32>(vec2<i32>(sim.grid_size) - vec2<i32>(1));
+    let c    = clamp(coord, vec2<i32>(0), maxc);
+    return textureLoad(scalar_a, c);
+}
 
-struct VOutDisplay { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+fn read_dye_lin(p : vec2<f32>) -> vec4<f32> {
+    let ip  = vec2<i32>(floor(p));
+    let f   = p - vec2<f32>(ip);
+    let d00 = read_dye(ip);
+    let d10 = read_dye(ip + vec2<i32>(1,0));
+    let d01 = read_dye(ip + vec2<i32>(0,1));
+    let d11 = read_dye(ip + vec2<i32>(1,1));
+    let dx0 = mix(d00, d10, f.x);
+    let dx1 = mix(d01, d11, f.x);
+    return mix(dx0, dx1, f.y);
+}
+
+@compute @workgroup_size(8,8,1)
+fn advect_dye(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+    let gid = vec2<i32>(gid_in.xy);
+    if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
+
+    let p   = vec2<f32>(vec2<i32>(gid));
+    let vel = read_velocity(gid);
+    let backp = p - vel * sim.dt;
+    let dye   = read_dye_lin(backp);
+    textureStore(scalar_b, gid, dye * sim.dye_dissipation);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 10. Full-screen quad display program (unchanged)
+// ─────────────────────────────────────────────────────────────
+@group(2) @binding(0) var dye_tex   : texture_2d<f32>;
+@group(2) @binding(1) var dye_sampler : sampler;
+
+struct VOutDisplay {
+    @builtin(position) pos : vec4<f32>,
+    @location(0)       uv  : vec2<f32>,
+};
+
 @vertex
-fn vertex(@location(0) position: vec3<f32>) -> VOutDisplay {
-    var o: VOutDisplay;
+fn vertex(@location(0) position : vec3<f32>) -> VOutDisplay {
+    var o : VOutDisplay;
     o.pos = vec4<f32>(position.xy, 0.0, 1.0);
-    o.uv = position.xy * 0.5 + vec2<f32>(0.5,0.5);
+    o.uv  = position.xy * 0.5 + vec2<f32>(0.5, 0.5);
     return o;
 }
+
 @fragment
-fn fragment(in: VOutDisplay) -> @location(0) vec4<f32> {
+fn fragment(in : VOutDisplay) -> @location(0) vec4<f32> {
     let c = textureSample(dye_tex, dye_sampler, in.uv);
     return vec4<f32>(c.rgb, 1.0);
 }
