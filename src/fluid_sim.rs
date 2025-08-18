@@ -516,6 +516,11 @@ fn run_fluid_sim_compute(
     let mut vel_read = va; let mut vel_write = vb; let mut velocity_front_is_a = true; // track where latest velocity resides
     // 1. Add force (vel_read -> vel_write)
     let mut bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
+    // BUGFIX (2025-08-18): The WGSL add_force pass originally only wrote inside the force radius.
+    // Outside that radius, velocity_out remained uninitialized (effectively zero). Because we
+    // immediately swapped read/write after the pass, the majority of seeded swirl velocity was
+    // lost on frame 1, producing a rapid wipe-to-black of dye. The shader now always writes a
+    // pass-through value outside the radius so velocity is preserved.
     run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
     std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
     // 2. Advect velocity (vel_read -> vel_write)

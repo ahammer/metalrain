@@ -143,13 +143,20 @@ fn add_force(@builtin(global_invocation_id) gid_in: vec3<u32>) {
     let d = pos - sim.force_pos;
     let r2 = sim.force_radius * sim.force_radius;
     let dist2 = dot(d,d);
-    if (dist2 < r2) {
+    // Always write to velocity_out to preserve previous field outside force radius.
+    // (Bugfix) Previously, texels outside the force radius were never written, leaving the
+    // destination (velocity_out) undefined. Because the simulation ping-pongs velocity
+    // textures each pass, this effectively erased most of the seeded velocity after the
+    // first frame, causing the dye to collapse / wipe to black. We now pass-through the
+    // existing velocity and only add impulse inside the radius.
+    var new_vel = read_velocity(gid);
+    if (dist2 < r2 && sim.force_strength > 0.0) {
         let falloff = 1.0 - dist2 / r2;
         let dir = normalize(vec2<f32>(-d.y, d.x)); // swirl
-        let vel = read_velocity(gid) + dir * sim.force_strength * falloff * sim.dt;
-        write_velocity(gid, vel);
-        // inject color (scalar_b reused if bound suitably) - optional handled in dye pass for simplicity
+        new_vel = new_vel + dir * sim.force_strength * falloff * sim.dt;
     }
+    write_velocity(gid, new_vel);
+    // (Optional future) Inject dye color here if desired for interactive painting.
 }
 
 // Display shader (sample dye texture) - material bind group (group=2 in Bevy 2D materials)
