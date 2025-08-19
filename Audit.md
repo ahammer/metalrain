@@ -181,7 +181,7 @@ Acceptance: All new tests pass in CI; documentation updated; developer can enque
 
 ---
 ## 11. Actionable Checklist (Condensed)
-- [ ] Phase 1: Clean logging & status resource
+- [x] Phase 1: Clean logging & status resource (implemented: `FluidSimStatus`, gated logging via `fluid_debug_passes` feature)
 - [ ] Phase 2: Implement `FluidImpulseQueue` + extraction
 - [ ] Phase 3: Pass graph + ping-pong (remove copy-backs)
 - [ ] Phase 4: Bind group cache + velocity format shrink
