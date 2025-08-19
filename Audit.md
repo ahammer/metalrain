@@ -205,13 +205,13 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- [x] Extract queue to render world (no GPU usage yet)
 	- Acceptance: Queue length visible in debug (future overlay) / logs
 
-### Phase 3: Pass Graph & Ping-Pong (PARTIAL)
+### Phase 3: Pass Graph & Ping-Pong (DONE)
 	- [x] Introduce `FluidPass` enum & iteration driver
 	- [x] Add `FluidPingState` (velocity/pressure indices) & remove their copy-backs
-	- [ ] Swap dye front by updating material handle each frame (remove dye copy)
-	- [ ] Consolidate front/back handling into single helper (reduce duplication)
-	- [ ] Adjust diagnostics to report copy savings (optional lightweight counter)
-	- Acceptance: Zero functional differences; GPU copies reduced; architecture ready for multi-impulse
+	- [x] Swap dye front by updating material handle each frame (remove dye copy)
+	- [x] Consolidate front/back handling into single helper (reduce duplication)
+	- [x] Adjust diagnostics to report copy savings (optional lightweight counter)
+	- Acceptance: Zero functional differences; GPU copies reduced (all copy-backs removed); architecture ready for multi-impulse
 
 ### Phase 4: Multi-Impulse GPU Application + Dye Deposition (VISIBLE FEATURE)
 	- [ ] Define `GpuImpulse` struct & max count constant

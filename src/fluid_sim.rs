@@ -8,7 +8,7 @@ use bevy::render::Extract; // for manual resource extraction into render world
 use std::sync::{Arc, atomic::{AtomicU64, AtomicU32, AtomicBool, Ordering}};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d;
-use wgpu::TexelCopyTextureInfo;
+// (Phase 3 completion) Removed need for TexelCopyTextureInfo after converting dye to true ping-pong.
 use crate::config::GameConfig;
 use crate::background::ActiveBackground;
 
@@ -79,7 +79,7 @@ impl Plugin for FluidSimPlugin {
             .add_systems(Startup, setup_fluid_sim)
             .add_systems(Startup, setup_fluid_display.after(setup_fluid_sim))
             .add_systems(Update, resize_display_quad)
-            .add_systems(Update, (update_sim_uniforms, input_force_position, realloc_fluid_textures_if_needed, log_fluid_activity));
+            .add_systems(Update, (update_sim_uniforms, input_force_position, realloc_fluid_textures_if_needed, update_display_dye_handle, log_fluid_activity));
         // Display quad & compute dispatch systems will be added when GPU pipelines are implemented.
 
         // Add render-world compute dispatch after pipelines compile. We operate in RenderApp so we can
@@ -116,16 +116,16 @@ impl Plugin for FluidSimPlugin {
 }
 
 // Tracks which texture (A=0 / B=1) currently holds the front (read) data for each field.
-// Dye still uses copy-back until display material swapping is implemented, so we only ping
-// velocity & pressure initially.
+// Phase 3 completion: dye now participates in ping-pong; copy-back removed.
 #[derive(Resource, Debug, Clone, Copy)]
 struct FluidPingState {
     velocity_front_is_a: bool,
     pressure_front_is_a: bool,
+    dye_front_is_a: bool,
 }
 
 impl Default for FluidPingState {
-    fn default() -> Self { Self { velocity_front_is_a: true, pressure_front_is_a: true } }
+    fn default() -> Self { Self { velocity_front_is_a: true, pressure_front_is_a: true, dye_front_is_a: true } }
 }
 
 fn sync_fluid_settings_from_config(
@@ -239,11 +239,21 @@ struct FluidSimDiagnosticsInner {
     last_grid_x: AtomicU32,
     last_grid_y: AtomicU32,
     first_dispatch_logged: AtomicBool,
+    dye_front_is_a: AtomicBool,
+    removed_dye_copies: AtomicU64,
 }
 
 impl Default for FluidSimDiagnosticsInner {
     fn default() -> Self {
-        Self { frames_with_dispatch: AtomicU64::new(0), total_workgroups: AtomicU64::new(0), last_grid_x: AtomicU32::new(0), last_grid_y: AtomicU32::new(0), first_dispatch_logged: AtomicBool::new(false) }
+        Self {
+            frames_with_dispatch: AtomicU64::new(0),
+            total_workgroups: AtomicU64::new(0),
+            last_grid_x: AtomicU32::new(0),
+            last_grid_y: AtomicU32::new(0),
+            first_dispatch_logged: AtomicBool::new(false),
+            dye_front_is_a: AtomicBool::new(true),
+            removed_dye_copies: AtomicU64::new(0),
+        }
     }
 }
 
@@ -268,6 +278,11 @@ impl FluidSimDiagnostics {
     fn total_wg(&self) -> u64 { self.inner.total_workgroups.load(Ordering::Relaxed) }
     fn last_grid(&self) -> UVec2 { UVec2::new(self.inner.last_grid_x.load(Ordering::Relaxed), self.inner.last_grid_y.load(Ordering::Relaxed)) }
     fn first_logged(&self) -> bool { self.inner.first_dispatch_logged.load(Ordering::Relaxed) }
+    fn dye_front_is_a(&self) -> bool { self.inner.dye_front_is_a.load(Ordering::Relaxed) }
+    fn set_dye_front(&self, is_a: bool) { self.inner.dye_front_is_a.store(is_a, Ordering::Relaxed); }
+    fn inc_removed_dye_copy(&self) { self.inner.removed_dye_copies.fetch_add(1, Ordering::Relaxed); }
+    #[allow(dead_code)]
+    fn removed_dye_copies(&self) -> u64 { self.inner.removed_dye_copies.load(Ordering::Relaxed) }
 }
 
 // Display handled via a fullscreen material (to be implemented); no sprite/quad yet.
@@ -535,13 +550,10 @@ fn run_fluid_sim_compute(
     }
     *status = FluidSimStatus::Running;
 
-    // We keep the "A" textures stable for sampling by the material in the main world.
-    // Each compute pass writes into the corresponding * _b texture, then we copy back into *_a.
-    // This avoids needing to mutate material handles or store frame state across worlds.
-    // Determine current front/back for velocity & pressure based on ping state.
-    let (vel_front, vel_back) = if ping.velocity_front_is_a { (&sim_res.velocity_a, &sim_res.velocity_b) } else { (&sim_res.velocity_b, &sim_res.velocity_a) };
-    let (pres_front, pres_back) = if ping.pressure_front_is_a { (&sim_res.pressure_a, &sim_res.pressure_b) } else { (&sim_res.pressure_b, &sim_res.pressure_a) };
-    let dye_front = &sim_res.dye_a; let dye_back = &sim_res.dye_b;
+    // Phase 3 completion: true ping-pong for velocity, pressure, and dye (no copy-back for dye).
+    let (vel_front, vel_back) = front_back(ping.velocity_front_is_a, &sim_res.velocity_a, &sim_res.velocity_b);
+    let (pres_front, pres_back) = front_back(ping.pressure_front_is_a, &sim_res.pressure_a, &sim_res.pressure_b);
+    let (dye_front_handle, dye_back_handle) = front_back(ping.dye_front_is_a, &sim_res.dye_a, &sim_res.dye_b);
 
     let get_view = |h: &Handle<Image>| -> Option<&TextureView> { gpu_images.get(h).map(|g| &g.texture_view) };
     let va = match get_view(vel_front) { Some(v) => v, None => return };
@@ -549,8 +561,8 @@ fn run_fluid_sim_compute(
     let pa = match get_view(pres_front) { Some(v) => v, None => return };
     let pb = match get_view(pres_back) { Some(v) => v, None => return };
     let div = match get_view(&sim_res.divergence) { Some(v) => v, None => return };
-    let da = match get_view(dye_front) { Some(v) => v, None => return };
-    let db = match get_view(dye_back) { Some(v) => v, None => return };
+    let da = match get_view(dye_front_handle) { Some(v) => v, None => return };
+    let db = match get_view(dye_back_handle) { Some(v) => v, None => return };
 
     let make_bg = |vel_in: &TextureView, vel_out: &TextureView,
                    dye_in: &TextureView, dye_out: &TextureView,
@@ -586,7 +598,7 @@ fn run_fluid_sim_compute(
 
     // Helper for copying back (only when the pass wrote to back buffer)
     let grid = sim_gpu.sim.grid_size;
-    let extent = Extent3d { width: grid.x, height: grid.y, depth_or_array_layers: 1 };
+    // (extent removed; no dye copy pass)
 
     // True ping-pong for velocity: alternate read/write without copying back each time (same as previous logic)
     // vel_read/vel_write reflect the logical front/back; velocity_front_is_a mirrors ping state for local swaps
@@ -632,13 +644,8 @@ fn run_fluid_sim_compute(
             FluidPass::AdvectDye => {
                 let bg = make_bg(va, vb, da, db, pa, pb, div);
                 run_pass(pipelines.advect_dye, &bg, "advect_dye", &mut encoder, grid);
-                if let (Some(db_tex), Some(da_tex)) = (gpu_images.get(dye_back), gpu_images.get(dye_front)) {
-                    encoder.copy_texture_to_texture(
-                        TexelCopyTextureInfo { texture: &db_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                        TexelCopyTextureInfo { texture: &da_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                        extent,
-                    );
-                }
+                ping.dye_front_is_a = !ping.dye_front_is_a; // flip dye front
+                if let Some(d) = &diag { d.set_dye_front(ping.dye_front_is_a); d.inc_removed_dye_copy(); }
             }
         }
     }
@@ -649,7 +656,7 @@ fn run_fluid_sim_compute(
         let wg_x = (grid.x as u64 + 7) / 8; let wg_y = (grid.y as u64 + 7) / 8;
     let jacobi_iters_u64 = jacobi_iters_val as u64;
     // Passes counted: add_force, advect_velocity, compute_divergence, jacobi*N, project_velocity, advect_dye
-    // Copy passes for velocity/pressure removed; dye still copied (not counted as compute dispatch)
+    // All copy passes eliminated; approx_passes metric unchanged for now (kept simple)
     let approx_passes = 4 + jacobi_iters_u64 + 2;
         d.record_dispatch(grid, wg_x * wg_y * approx_passes, jacobi_iters_u64);
     }
@@ -757,6 +764,25 @@ fn log_fluid_activity(diag: Option<Res<FluidSimDiagnostics>>, time: Res<Time>) {
     if (t < 0.6 && t > 0.5) || (t < 2.1 && t > 2.0) {
         info!(frames = diag.frames(), total_workgroups = diag.total_wg(), grid = ?diag.last_grid(), first_logged = diag.first_logged(), "Fluid sim activity snapshot");
     }
+}
+
+// Update display material dye handle to current front (set by render-world ping state)
+fn update_display_dye_handle(
+    diag: Option<Res<FluidSimDiagnostics>>,
+    sim_res: Option<Res<FluidSimResources>>,
+    mut materials: ResMut<Assets<FluidDisplayMaterial>>,
+    q_display: Query<&MeshMaterial2d<FluidDisplayMaterial>, With<FluidDisplayQuad>>,
+) {
+    let (diag, sim_res) = match (diag, sim_res) { (Some(d), Some(r)) => (d, r), _ => return };
+    let Ok(handle) = q_display.get_single() else { return; };
+    let Some(mat) = materials.get_mut(&handle.0) else { return; };
+    let is_a = diag.dye_front_is_a();
+    let desired = if is_a { &sim_res.dye_a } else { &sim_res.dye_b };
+    if mat.dye != *desired { mat.dye = desired.clone(); }
+}
+
+fn front_back<'a>(front_is_a: bool, a: &'a Handle<Image>, b: &'a Handle<Image>) -> (&'a Handle<Image>, &'a Handle<Image>) {
+    if front_is_a { (a, b) } else { (b, a) }
 }
 
 fn input_force_position(
