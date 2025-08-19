@@ -189,16 +189,75 @@ Acceptance: Overlay displays timings & residual; residual shrinks below threshol
 Acceptance: All new tests pass in CI; documentation updated; developer can enqueue impulses with ≤5 lines of code.
 
 ---
-## 11. Actionable Checklist (Condensed)
-- [x] Phase 1: Clean logging & status resource (implemented: `FluidSimStatus`, gated logging via `fluid_debug_passes` feature)
-- [x] Phase 2: Implement `FluidImpulseQueue` + extraction (implemented: `FluidImpulsesPlugin`, queue collection & extraction)
-- [ ] Phase 3: Pass graph + ping-pong (finish dye front swap, no copies)
-- [ ] Phase 4: Multi-impulse GPU application + dye deposition (visible wakes)
-- [ ] Phase 5: Bind group cache + velocity format shrink
-- [ ] Phase 6: (Optional) Obstacle mask integration
-- [ ] Phase 7: Fluid → ball drag sampling
-- [ ] Phase 8: Diagnostics (timings + divergence residual)
-- [ ] Phase 9: Robust tests + docs update
+## 11. Actionable Checklist (Expanded)
+
+Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
+
+### Phase 1: Clean Logging & Status (DONE)
+	- [x] Add `FluidSimStatus` enum & resource
+	- [x] Gate verbose logs behind `fluid_debug_passes` feature
+	- [x] Replace noisy per-pass info logs with feature/trace macro
+	- Acceptance: No visual change; status transitions observable
+
+### Phase 2: Impulse Queue (CPU) (DONE)
+	- [x] Define `FluidImpulse`, `FluidImpulseQueue`
+	- [x] Collect placeholder per-ball (or simulated) impulses
+	- [x] Extract queue to render world (no GPU usage yet)
+	- Acceptance: Queue length visible in debug (future overlay) / logs
+
+### Phase 3: Pass Graph & Ping-Pong (PARTIAL)
+	- [x] Introduce `FluidPass` enum & iteration driver
+	- [x] Add `FluidPingState` (velocity/pressure indices) & remove their copy-backs
+	- [ ] Swap dye front by updating material handle each frame (remove dye copy)
+	- [ ] Consolidate front/back handling into single helper (reduce duplication)
+	- [ ] Adjust diagnostics to report copy savings (optional lightweight counter)
+	- Acceptance: Zero functional differences; GPU copies reduced; architecture ready for multi-impulse
+
+### Phase 4: Multi-Impulse GPU Application + Dye Deposition (VISIBLE FEATURE)
+	- [ ] Define `GpuImpulse` struct & max count constant
+	- [ ] Add storage buffer + count uniform (or pack count in existing uniform padding)
+	- [ ] Extend extraction: pack impulses -> mapped buffer write each frame
+	- [ ] Update bind group layout with impulse storage binding
+	- [ ] WGSL: Replace `add_force` with `apply_impulses` looping impulses
+	- [ ] Implement radial velocity injection (falloff: (1 - r/R)^n)
+	- [ ] Inject dye (constant color or simple per-impulse hue)
+	- [ ] Clamp & track overflow (warn if overflowed)
+	- [ ] Add unit test: `GpuImpulse` size/alignment stable
+	- Acceptance: Balls create visible wakes/trails; disabling impulses removes effect; no crashes with 0 impulses
+
+### Phase 5: Bind Group Cache & Velocity Format Shrink
+	- [ ] Convert velocity textures to `Rg16Float`
+	- [ ] Update WGSL texture declarations & sampling
+	- [ ] Implement small bind group cache (HashMap or fixed array keyed by pass + front bits)
+	- [ ] Remove per-pass bind group recreation path
+	- [ ] Add test ensuring SimUniform unaffected & pipeline count same
+	- Acceptance: Reduced VRAM & CPU allocations (informal log / perf snapshot)
+
+### Phase 6: Obstacle Mask (opt)
+	- [ ] Allocate R8 obstacle texture
+	- [ ] Rasterize balls each frame (CPU upload or compute)
+	- [ ] Modify divergence & projection to treat obstacles as solid (zero normal velocity)
+	- Acceptance: Flow diverts around ball regions (visual inspection)
+
+### Phase 7: Fluid → Ball Drag
+	- [ ] Downsample velocity field (compute) or create sampling pass
+	- [ ] Sample per-ball velocities → buffer → extract to main world
+	- [ ] Apply drag system (configurable coefficient)
+	- Acceptance: Balls slow when moving against flow; toggle off reverts behavior
+
+### Phase 8: Diagnostics & Residuals
+	- [ ] Optional GPU timestamp queries (feature gated)
+	- [ ] Compute divergence residual after projection (L1 or L2 metric)
+	- [ ] Overlay: display workgroups, residual, impulse count, overflow
+	- Acceptance: Residual decreases frame-over-frame; metrics visible when enabled
+
+### Phase 9: Tests & Docs Finalization
+	- [ ] Divergence reduction test (tiny grid)
+	- [ ] Dye mass conservation (low dissipation scenario)
+	- [ ] Impulse application locality test
+	- [ ] Pass graph order test (config variant)
+	- [ ] README / instructions update for new API (impulse enqueue snippet)
+	- Acceptance: All tests green; documented usage path < 5 lines for adding an impulse
 
 Each phase should leave the system buildable, visually stable (except intended new effects), and documented.
 
