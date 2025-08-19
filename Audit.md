@@ -146,8 +146,9 @@ Acceptance: Build passes; debug overlay (if feature) shows status transitions; n
 Acceptance: Queue visible in debug overlay with count.
 
 ### Phase 3: Pass Graph Refactor & Ping-Pong
-- (IN PROGRESS) Introduced `FluidPass` enum + `build_pass_graph` and refactored compute driver to iterate passes (completed).
-- NEXT: Implement front/back index management for all writable fields (velocity currently mirrors earlier behavior) and remove copy-backs for velocity/pressure/dye by swapping display handle instead of copying.
+- (PARTIAL) Introduced `FluidPass` enum + `build_pass_graph` and refactored compute driver to iterate passes.
+- (PARTIAL) Added `FluidPingState` and removed copy-backs for velocity & pressure (true ping-pong via state flip, no texture copies).
+- NEXT: Eliminate dye copy by swapping display material handle each frame to the current dye front and unify front/back management.
 Acceptance: Visual output matches pre-refactor (within minor floating error); copies reduced (profile log). CI tests still pass.
 
 ### Phase 4: Bind Group Cache & Format Optimization

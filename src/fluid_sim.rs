@@ -89,6 +89,7 @@ impl Plugin for FluidSimPlugin {
             render_app
                 .init_resource::<FluidPipelines>()
                 .init_resource::<FluidSimStatus>()
+                .init_resource::<FluidPingState>()
                 .add_systems(
                     bevy::render::ExtractSchedule,
                     (
@@ -112,6 +113,19 @@ impl Plugin for FluidSimPlugin {
                 );
         }
     }
+}
+
+// Tracks which texture (A=0 / B=1) currently holds the front (read) data for each field.
+// Dye still uses copy-back until display material swapping is implemented, so we only ping
+// velocity & pressure initially.
+#[derive(Resource, Debug, Clone, Copy)]
+struct FluidPingState {
+    velocity_front_is_a: bool,
+    pressure_front_is_a: bool,
+}
+
+impl Default for FluidPingState {
+    fn default() -> Self { Self { velocity_front_is_a: true, pressure_front_is_a: true } }
 }
 
 fn sync_fluid_settings_from_config(
@@ -482,6 +496,7 @@ fn run_fluid_sim_compute(
     render_queue: Res<RenderQueue>,
     diag: Option<Res<FluidSimDiagnostics>>,
     mut status: ResMut<FluidSimStatus>,
+    mut ping: ResMut<FluidPingState>,
 ) {
     trace!("ENTER run_fluid_sim_compute");
     if sim_res.is_none() || sim_gpu.is_none() {
@@ -523,8 +538,9 @@ fn run_fluid_sim_compute(
     // We keep the "A" textures stable for sampling by the material in the main world.
     // Each compute pass writes into the corresponding * _b texture, then we copy back into *_a.
     // This avoids needing to mutate material handles or store frame state across worlds.
-    let vel_front = &sim_res.velocity_a; let vel_back = &sim_res.velocity_b;
-    let pres_front = &sim_res.pressure_a; let pres_back = &sim_res.pressure_b;
+    // Determine current front/back for velocity & pressure based on ping state.
+    let (vel_front, vel_back) = if ping.velocity_front_is_a { (&sim_res.velocity_a, &sim_res.velocity_b) } else { (&sim_res.velocity_b, &sim_res.velocity_a) };
+    let (pres_front, pres_back) = if ping.pressure_front_is_a { (&sim_res.pressure_a, &sim_res.pressure_b) } else { (&sim_res.pressure_b, &sim_res.pressure_a) };
     let dye_front = &sim_res.dye_a; let dye_back = &sim_res.dye_b;
 
     let get_view = |h: &Handle<Image>| -> Option<&TextureView> { gpu_images.get(h).map(|g| &g.texture_view) };
@@ -573,7 +589,10 @@ fn run_fluid_sim_compute(
     let extent = Extent3d { width: grid.x, height: grid.y, depth_or_array_layers: 1 };
 
     // True ping-pong for velocity: alternate read/write without copying back each time (same as previous logic)
-    let mut vel_read = va; let mut vel_write = vb; let mut velocity_front_is_a = true;
+    // vel_read/vel_write reflect the logical front/back; velocity_front_is_a mirrors ping state for local swaps
+    let mut vel_read = if ping.velocity_front_is_a { va } else { vb };
+    let mut vel_write = if ping.velocity_front_is_a { vb } else { va };
+    let mut velocity_front_is_a = ping.velocity_front_is_a;
     let jacobi_iters_val = settings.as_ref().map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
     let pass_list = build_pass_graph(jacobi_iters_val);
     let mut ping_is_a = true; // for pressure jacobi internal ping-pong
@@ -595,34 +614,20 @@ fn run_fluid_sim_compute(
                 run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
             }
             FluidPass::Jacobi(_i) => {
-                let (p_in, p_out) = if ping_is_a { (pa, pb) } else { (pb, pa) };
+                let (p_in, p_out) = if ping_is_a == ping.pressure_front_is_a { (pa, pb) } else { (pb, pa) };
                 let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div);
                 run_pass(pipelines.jacobi_pressure, &jacobi_bg, "jacobi_pressure", &mut encoder, grid);
                 ping_is_a = !ping_is_a;
             }
             FluidPass::ProjectVelocity => {
-                // After Jacobi loop, ensure pressure_a is front (copy if needed)
-                if !ping_is_a { // result in pressure_b
-                    if let (Some(pb_tex), Some(pa_tex)) = (gpu_images.get(pres_back), gpu_images.get(pres_front)) {
-                        encoder.copy_texture_to_texture(
-                            TexelCopyTextureInfo { texture: &pb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                            TexelCopyTextureInfo { texture: &pa_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                            extent,
-                        );
-                    }
+                // After Jacobi loop, flip pressure front if jacobi concluded on alternate buffer (no copy needed)
+                if ping_is_a == ping.pressure_front_is_a { // last iteration swapped ping_is_a, so final front differs
+                    ping.pressure_front_is_a = !ping.pressure_front_is_a;
                 }
                 let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
                 run_pass(pipelines.project_velocity, &bg, "project_velocity", &mut encoder, grid);
                 std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
-                if !velocity_front_is_a { // latest velocity in back -> copy once
-                    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
-                        encoder.copy_texture_to_texture(
-                            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                            extent,
-                        );
-                    }
-                }
+                ping.velocity_front_is_a = velocity_front_is_a;
             }
             FluidPass::AdvectDye => {
                 let bg = make_bg(va, vb, da, db, pa, pb, div);
@@ -643,7 +648,9 @@ fn run_fluid_sim_compute(
     if let Some(d) = diag {
         let wg_x = (grid.x as u64 + 7) / 8; let wg_y = (grid.y as u64 + 7) / 8;
     let jacobi_iters_u64 = jacobi_iters_val as u64;
-    let approx_passes = 4 + jacobi_iters_u64 + 2; // unchanged heuristic (force, advect vel, divergence, jacobi*N, project, advect dye)
+    // Passes counted: add_force, advect_velocity, compute_divergence, jacobi*N, project_velocity, advect_dye
+    // Copy passes for velocity/pressure removed; dye still copied (not counted as compute dispatch)
+    let approx_passes = 4 + jacobi_iters_u64 + 2;
         d.record_dispatch(grid, wg_x * wg_y * approx_passes, jacobi_iters_u64);
     }
 }
