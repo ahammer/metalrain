@@ -146,20 +146,28 @@ Acceptance: Build passes; debug overlay (if feature) shows status transitions; n
 Acceptance: Queue visible in debug overlay with count.
 
 ### Phase 3: Pass Graph Refactor & Ping-Pong
-- (PARTIAL) Introduced `FluidPass` enum + `build_pass_graph` and refactored compute driver to iterate passes.
-- (PARTIAL) Added `FluidPingState` and removed copy-backs for velocity & pressure (true ping-pong via state flip, no texture copies).
-- NEXT: Eliminate dye copy by swapping display material handle each frame to the current dye front and unify front/back management.
-Acceptance: Visual output matches pre-refactor (within minor floating error); copies reduced (profile log). CI tests still pass.
+- Status: (PARTIAL) `FluidPass` enum + pass iteration in place; velocity & pressure ping-pong via `FluidPingState` (copies removed). Dye still copy-backed.
+- NEXT: Eliminate dye copy by swapping display material's dye handle to current front each frame; unify front/back handling.
+Acceptance (Why it matters):
+	* Structural clarity (future passes insert with minimal churn).
+	* Reduced GPU bandwidth (copy removal) without altering visuals.
+	* Provides stable abstraction layer required before multi-impulse logic.
 
-### Phase 4: Bind Group Cache & Format Optimization
-- Switch velocity texture to `Rg16Float`.
-- Add small cache for bind groups keyed by (read_index, write_index, pass_kind).
-Acceptance: GPU memory usage decreases; no functional regression; profiling shows fewer allocations.
+### Phase 4: Multi-Impulse & Dye Deposition (Pulled Forward)
+- Implement GPU impulse storage buffer & count; replace single-force pass with loop (`apply_impulses`).
+- Inject dye (constant or per-impulse color) so ball motion becomes visibly traceable.
+- Clamp impulses to capacity; track overflow.
+Acceptance (Visible Goal):
+	* First tangible physics→fluid coupling (wakes/trails visible).
+	* Demonstrates correctness of pass graph & ping-pong abstractions.
+	* Establishes data path later reused for directional forces & drag.
 
-### Phase 5: Shader Impulses
-- Add storage buffer + impulse count to uniform; implement `ApplyImpulses` pass.
-- Populate GPU buffer from extracted queue; clamp to max N; set overflow counter.
-Acceptance: Visual velocity perturbations caused by injected impulses; tests confirm center cell velocity change.
+### Phase 5: Bind Group Cache & Velocity Format Optimization (Moved Later)
+- Switch velocity texture to `Rg16Float` (halve velocity bandwidth).
+- Introduce bind group cache keyed by (vel_front_is_a, pres_front_is_a, pass_kind) to avoid per-pass creation.
+Acceptance (Performance Focus):
+	* Lower GPU memory & bandwidth for sustained scalability.
+	* Reduced CPU overhead (bind group reuse) confirmed via lowered allocation counts in traces.
 
 ### Phase 6: Obstacles (Optional Path)
 - Create obstacle mask texture; rasterize balls (compute or CPU -> upload) each frame.
@@ -184,9 +192,9 @@ Acceptance: All new tests pass in CI; documentation updated; developer can enque
 ## 11. Actionable Checklist (Condensed)
 - [x] Phase 1: Clean logging & status resource (implemented: `FluidSimStatus`, gated logging via `fluid_debug_passes` feature)
 - [x] Phase 2: Implement `FluidImpulseQueue` + extraction (implemented: `FluidImpulsesPlugin`, queue collection & extraction)
-- [ ] Phase 3: Pass graph + ping-pong (remove copy-backs)
-- [ ] Phase 4: Bind group cache + velocity format shrink
-- [ ] Phase 5: Shader impulse buffer & application
+- [ ] Phase 3: Pass graph + ping-pong (finish dye front swap, no copies)
+- [ ] Phase 4: Multi-impulse GPU application + dye deposition (visible wakes)
+- [ ] Phase 5: Bind group cache + velocity format shrink
 - [ ] Phase 6: (Optional) Obstacle mask integration
 - [ ] Phase 7: Fluid → ball drag sampling
 - [ ] Phase 8: Diagnostics (timings + divergence residual)
