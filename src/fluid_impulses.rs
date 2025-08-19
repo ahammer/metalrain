@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
-use crate::components::{Ball, Velocity};
+use crate::components::Ball;
+use bevy_rapier2d::prelude::Velocity; // Rapier velocity component
 use crate::config::GameConfig;
 
 /// Different semantic kinds of fluid impulses; extended later for directional / dye / swirl.
@@ -45,7 +46,7 @@ pub fn collect_ball_wake_impulses(
     let radius_scale = 2.0_f32; // arbitrary scaling factor
     let strength_scale = 0.4_f32;
     for (tf, vel) in &q_balls {
-        let v = **vel; // Velocity deref newtype
+        let v = Vec2::new(vel.linvel.x, vel.linvel.y);
         let speed = v.length();
         if speed < min_speed { continue; }
         let pos = tf.translation.truncate();
@@ -75,7 +76,7 @@ impl Plugin for FluidImpulsesPlugin {
             .add_systems(Update, collect_ball_wake_impulses)
             .add_systems(PostUpdate, clear_fluid_impulse_queue.after(collect_ball_wake_impulses));
         // Add extraction system into render app
-        if let Ok(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
+        if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render_app.add_systems(bevy::render::ExtractSchedule, extract_fluid_impulses);
         }
     }
