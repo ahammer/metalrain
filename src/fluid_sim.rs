@@ -12,6 +12,24 @@ use wgpu::TexelCopyTextureInfo;
 use crate::config::GameConfig;
 use crate::background::ActiveBackground;
 
+// Feature-gated logging macro for verbose fluid sim pass/gating details.
+// Enable with cargo feature `fluid_debug_passes` to elevate to info-level.
+#[cfg(feature = "fluid_debug_passes")]
+macro_rules! fluid_log { ($($t:tt)*) => { info!($($t)*); }; }
+#[cfg(not(feature = "fluid_debug_passes"))]
+macro_rules! fluid_log { ($($t:tt)*) => { trace!($($t)*); }; }
+
+// Public so other modules (e.g. debug overlay) can inspect current state.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FluidSimStatus {
+    Disabled,
+    NotReadyResources,
+    WaitingLayout,
+    WaitingPipelines { ready: usize, total: usize },
+    Running,
+}
+impl Default for FluidSimStatus { fn default() -> Self { FluidSimStatus::Disabled } }
+
 // High-level design: GPU Stable Fluids (semi-Lagrangian + Jacobi pressure projection) on a fixed grid.
 // This first iteration aims for clarity over maximal performance.
 // Steps per frame (in order): force_injection -> advect_velocity -> compute_divergence -> jacobi_pressure (N iters)
@@ -24,6 +42,7 @@ impl Plugin for FluidSimPlugin {
         info!("Building FluidSimPlugin (registering resources & systems)");
         app.init_resource::<FluidSimSettings>()
             .init_resource::<FluidSimDiagnostics>()
+            .init_resource::<FluidSimStatus>()
             .add_plugins((Material2dPlugin::<FluidDisplayMaterial>::default(),))
             .add_systems(Startup, sync_fluid_settings_from_config)
             .add_systems(Startup, setup_fluid_sim)
@@ -38,6 +57,7 @@ impl Plugin for FluidSimPlugin {
             let render_app = app.sub_app_mut(bevy::render::RenderApp);
             render_app
                 .init_resource::<FluidPipelines>()
+                .init_resource::<FluidSimStatus>()
                 .add_systems(
                     bevy::render::ExtractSchedule,
                     (
@@ -430,22 +450,29 @@ fn run_fluid_sim_compute(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     diag: Option<Res<FluidSimDiagnostics>>,
+    mut status: ResMut<FluidSimStatus>,
 ) {
     trace!("ENTER run_fluid_sim_compute");
     if sim_res.is_none() || sim_gpu.is_none() {
-        info!(have_sim_res = sim_res.is_some(), have_sim_gpu = sim_gpu.is_some(), "Fluid sim compute early-exit: resources not yet extracted");
+        *status = FluidSimStatus::NotReadyResources;
+        fluid_log!(have_sim_res = sim_res.is_some(), have_sim_gpu = sim_gpu.is_some(), "Fluid sim compute early-exit: resources not yet extracted");
         return;
     }
     let (sim_res, sim_gpu) = (sim_res.unwrap(), sim_gpu.unwrap());
     // Gate on enabled flag and active background selection
     if !fluid_sim_should_run(settings.as_deref(), active_bg.as_deref()) {
-        info!("Fluid sim compute gated off (disabled or background not active)");
+        *status = FluidSimStatus::Disabled;
+        fluid_log!("Fluid sim compute gated off (disabled or background not active)");
         return;
     }
     // Log once when first active dispatch occurs
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| { info!("Fluid sim compute dispatch now active (background visible)"); });
-    let Some(layout) = pipelines.layout.as_ref() else { info!("Fluid sim compute waiting: no bind group layout yet"); return };
+    ONCE.call_once(|| { fluid_log!("Fluid sim compute dispatch now active (background visible)"); });
+    let Some(layout) = pipelines.layout.as_ref() else {
+        *status = FluidSimStatus::WaitingLayout;
+        fluid_log!("Fluid sim compute waiting: no bind group layout yet");
+        return
+    };
     let required = [
         pipelines.add_force,
         pipelines.advect_velocity,
@@ -456,9 +483,11 @@ fn run_fluid_sim_compute(
     ];
     if required.iter().any(|id| pipeline_cache.get_compute_pipeline(*id).is_none()) {
         let ready = required.iter().filter(|id| pipeline_cache.get_compute_pipeline(**id).is_some()).count();
-        info!(ready, total = required.len(), "Fluid sim compute waiting: pipelines not all ready yet");
+        *status = FluidSimStatus::WaitingPipelines { ready, total: required.len() };
+        fluid_log!(ready, total = required.len(), "Fluid sim compute waiting: pipelines not all ready yet");
         return;
     }
+    *status = FluidSimStatus::Running;
 
     // We keep the "A" textures stable for sampling by the material in the main world.
     // Each compute pass writes into the corresponding * _b texture, then we copy back into *_a.
