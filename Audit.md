@@ -182,7 +182,7 @@ Acceptance: All new tests pass in CI; documentation updated; developer can enque
 ---
 ## 11. Actionable Checklist (Condensed)
 - [x] Phase 1: Clean logging & status resource (implemented: `FluidSimStatus`, gated logging via `fluid_debug_passes` feature)
-- [ ] Phase 2: Implement `FluidImpulseQueue` + extraction
+- [x] Phase 2: Implement `FluidImpulseQueue` + extraction (implemented: `FluidImpulsesPlugin`, queue collection & extraction)
 - [ ] Phase 3: Pass graph + ping-pong (remove copy-backs)
 - [ ] Phase 4: Bind group cache + velocity format shrink
 - [ ] Phase 5: Shader impulse buffer & application
