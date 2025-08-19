@@ -27,8 +27,39 @@ pub enum FluidSimStatus {
     WaitingLayout,
     WaitingPipelines { ready: usize, total: usize },
     Running,
+    // ---------------------------------------------------------------------------
+    // Pass Graph Scaffolding (Phase 3 - initial step)
+    // ---------------------------------------------------------------------------
+    // We introduce a lightweight enumeration of logical fluid simulation passes.
+    // This will allow the monolithic compute driver to be refactored into a data-
+    // driven loop while preserving order. Later phases (bind group cache, optional
+    // conditional passes, dynamic insertion) will build on this structure. For now
+    // we mirror the existing hard-coded order and represent each Jacobi iteration
+    // explicitly so diagnostics can attribute work to individual iterations if
+    // desired.
 }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    enum FluidPass {
+        AddForce,
+        AdvectVelocity,
+        ComputeDivergence,
+        Jacobi(u32), // iteration index (0-based)
+        ProjectVelocity,
+        AdvectDye,
+    }
 impl Default for FluidSimStatus { fn default() -> Self { FluidSimStatus::Disabled } }
+    fn build_pass_graph(jacobi_iterations: u32) -> Vec<FluidPass> {
+        let mut passes = Vec::with_capacity(6 + jacobi_iterations as usize);
+        passes.push(FluidPass::AddForce);
+        passes.push(FluidPass::AdvectVelocity);
+        passes.push(FluidPass::ComputeDivergence);
+        for i in 0..jacobi_iterations.max(1) { // ensure at least one iteration
+            passes.push(FluidPass::Jacobi(i));
+        }
+        passes.push(FluidPass::ProjectVelocity);
+        passes.push(FluidPass::AdvectDye);
+        passes
+    }
 
 // High-level design: GPU Stable Fluids (semi-Lagrangian + Jacobi pressure projection) on a fixed grid.
 // This first iteration aims for clarity over maximal performance.
@@ -541,73 +572,78 @@ fn run_fluid_sim_compute(
     let grid = sim_gpu.sim.grid_size;
     let extent = Extent3d { width: grid.x, height: grid.y, depth_or_array_layers: 1 };
 
-    // True ping-pong for velocity: alternate read/write without copying back each time.
-    let mut vel_read = va; let mut vel_write = vb; let mut velocity_front_is_a = true; // track where latest velocity resides
-    // 1. Add force (vel_read -> vel_write)
-    let mut bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
-    // BUGFIX (2025-08-18): The WGSL add_force pass originally only wrote inside the force radius.
-    // Outside that radius, velocity_out remained uninitialized (effectively zero). Because we
-    // immediately swapped read/write after the pass, the majority of seeded swirl velocity was
-    // lost on frame 1, producing a rapid wipe-to-black of dye. The shader now always writes a
-    // pass-through value outside the radius so velocity is preserved.
-    run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
-    std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
-    // 2. Advect velocity (vel_read -> vel_write)
-    bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
-    run_pass(pipelines.advect_velocity, &bg, "advect_velocity", &mut encoder, grid);
-    std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
-    // 3. Compute divergence (read current velocity front)
-    bg = make_bg(vel_read, vel_write, da, db, pa, pb, div); // velocity_out unused in divergence shader
-    run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
-    // 4. Jacobi pressure iterations with internal ping-pong
+    // True ping-pong for velocity: alternate read/write without copying back each time (same as previous logic)
+    let mut vel_read = va; let mut vel_write = vb; let mut velocity_front_is_a = true;
     let jacobi_iters_val = settings.as_ref().map(|s| s.jacobi_iterations).unwrap_or(20).max(1);
-    let mut ping_is_a = true; // read A write B first
-    for _ in 0..jacobi_iters_val {
-        let (p_in, p_out) = if ping_is_a { (pa, pb) } else { (pb, pa) };
-        let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div);
-        run_pass(pipelines.jacobi_pressure, &jacobi_bg, "jacobi_pressure", &mut encoder, grid);
-        ping_is_a = !ping_is_a;
-    }
-    if !ping_is_a { // final result resides in pressure_b -> copy once
-        if let (Some(pb_tex), Some(pa_tex)) = (gpu_images.get(pres_back), gpu_images.get(pres_front)) {
-            encoder.copy_texture_to_texture(
-                TexelCopyTextureInfo { texture: &pb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                TexelCopyTextureInfo { texture: &pa_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                extent,
-            );
+    let pass_list = build_pass_graph(jacobi_iters_val);
+    let mut ping_is_a = true; // for pressure jacobi internal ping-pong
+
+    for pass in pass_list.iter() {
+        match *pass {
+            FluidPass::AddForce => {
+                let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
+                run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
+                std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
+            }
+            FluidPass::AdvectVelocity => {
+                let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
+                run_pass(pipelines.advect_velocity, &bg, "advect_velocity", &mut encoder, grid);
+                std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
+            }
+            FluidPass::ComputeDivergence => {
+                let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
+                run_pass(pipelines.compute_divergence, &bg, "compute_divergence", &mut encoder, grid);
+            }
+            FluidPass::Jacobi(_i) => {
+                let (p_in, p_out) = if ping_is_a { (pa, pb) } else { (pb, pa) };
+                let jacobi_bg = make_bg(va, vb, da, db, p_in, p_out, div);
+                run_pass(pipelines.jacobi_pressure, &jacobi_bg, "jacobi_pressure", &mut encoder, grid);
+                ping_is_a = !ping_is_a;
+            }
+            FluidPass::ProjectVelocity => {
+                // After Jacobi loop, ensure pressure_a is front (copy if needed)
+                if !ping_is_a { // result in pressure_b
+                    if let (Some(pb_tex), Some(pa_tex)) = (gpu_images.get(pres_back), gpu_images.get(pres_front)) {
+                        encoder.copy_texture_to_texture(
+                            TexelCopyTextureInfo { texture: &pb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                            TexelCopyTextureInfo { texture: &pa_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                            extent,
+                        );
+                    }
+                }
+                let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
+                run_pass(pipelines.project_velocity, &bg, "project_velocity", &mut encoder, grid);
+                std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
+                if !velocity_front_is_a { // latest velocity in back -> copy once
+                    if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
+                        encoder.copy_texture_to_texture(
+                            TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                            TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                            extent,
+                        );
+                    }
+                }
+            }
+            FluidPass::AdvectDye => {
+                let bg = make_bg(va, vb, da, db, pa, pb, div);
+                run_pass(pipelines.advect_dye, &bg, "advect_dye", &mut encoder, grid);
+                if let (Some(db_tex), Some(da_tex)) = (gpu_images.get(dye_back), gpu_images.get(dye_front)) {
+                    encoder.copy_texture_to_texture(
+                        TexelCopyTextureInfo { texture: &db_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                        TexelCopyTextureInfo { texture: &da_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
+                        extent,
+                    );
+                }
+            }
         }
-    }
-    // 5. Project velocity (vel_read -> vel_write)
-    bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
-    run_pass(pipelines.project_velocity, &bg, "project_velocity", &mut encoder, grid);
-    std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
-    // Ensure velocity_a holds latest for next frame starting state if needed
-    if !velocity_front_is_a { // latest in vb -> copy once back to va
-        if let (Some(vb_tex), Some(va_tex)) = (gpu_images.get(vel_back), gpu_images.get(vel_front)) {
-            encoder.copy_texture_to_texture(
-                TexelCopyTextureInfo { texture: &vb_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                TexelCopyTextureInfo { texture: &va_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-                extent,
-            );
-        }
-    }
-    // 6. Advect dye (dye_a -> dye_b) copy back
-    bg = make_bg(va, vb, da, db, pa, pb, div);
-    run_pass(pipelines.advect_dye, &bg, "advect_dye", &mut encoder, grid);
-    if let (Some(db_tex), Some(da_tex)) = (gpu_images.get(dye_back), gpu_images.get(dye_front)) {
-        encoder.copy_texture_to_texture(
-            TexelCopyTextureInfo { texture: &db_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            TexelCopyTextureInfo { texture: &da_tex.texture, mip_level: 0, origin: Origin3d::ZERO, aspect: TextureAspect::All },
-            extent,
-        );
     }
 
     // Submit all compute + copy work
     render_queue.submit(std::iter::once(encoder.finish()));
     if let Some(d) = diag {
         let wg_x = (grid.x as u64 + 7) / 8; let wg_y = (grid.y as u64 + 7) / 8;
-        let jacobi_iters_u64 = jacobi_iters_val as u64;
-        let approx_passes = 4 + jacobi_iters_u64 + 2; // same heuristic as before
+    let jacobi_iters_u64 = jacobi_iters_val as u64;
+    let approx_passes = 4 + jacobi_iters_u64 + 2; // unchanged heuristic (force, advect vel, divergence, jacobi*N, project, advect dye)
         d.record_dispatch(grid, wg_x * wg_y * approx_passes, jacobi_iters_u64);
     }
 }

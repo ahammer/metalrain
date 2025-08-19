@@ -146,8 +146,8 @@ Acceptance: Build passes; debug overlay (if feature) shows status transitions; n
 Acceptance: Queue visible in debug overlay with count.
 
 ### Phase 3: Pass Graph Refactor & Ping-Pong
-- Implement `FluidPassGraph` and replace monolithic function with iteration.
-- Implement front/back index management and remove intermediate copy-backs; update display material handle.
+- (IN PROGRESS) Introduced `FluidPass` enum + `build_pass_graph` and refactored compute driver to iterate passes (completed).
+- NEXT: Implement front/back index management for all writable fields (velocity currently mirrors earlier behavior) and remove copy-backs for velocity/pressure/dye by swapping display handle instead of copying.
 Acceptance: Visual output matches pre-refactor (within minor floating error); copies reduced (profile log). CI tests still pass.
 
 ### Phase 4: Bind Group Cache & Format Optimization
