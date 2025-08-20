@@ -41,7 +41,7 @@ pub enum FluidSimStatus {
 }
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     enum FluidPass {
-        AddForce,
+        ApplyImpulses,
         AdvectVelocity,
         ComputeDivergence,
         Jacobi(u32), // iteration index (0-based)
@@ -51,7 +51,7 @@ pub enum FluidSimStatus {
 impl Default for FluidSimStatus { fn default() -> Self { FluidSimStatus::Disabled } }
     fn build_pass_graph(jacobi_iterations: u32) -> Vec<FluidPass> {
         let mut passes = Vec::with_capacity(6 + jacobi_iterations as usize);
-        passes.push(FluidPass::AddForce);
+    passes.push(FluidPass::ApplyImpulses);
         passes.push(FluidPass::AdvectVelocity);
         passes.push(FluidPass::ComputeDivergence);
         for i in 0..jacobi_iterations.max(1) { // ensure at least one iteration
@@ -210,7 +210,7 @@ impl FluidSimResources {
 #[derive(Resource)]
 pub struct FluidPipelines {
     pub layout: Option<BindGroupLayout>,
-    pub add_force: CachedComputePipelineId,
+    pub apply_impulses: CachedComputePipelineId,
     pub advect_velocity: CachedComputePipelineId,
     pub compute_divergence: CachedComputePipelineId,
     pub jacobi_pressure: CachedComputePipelineId,
@@ -222,7 +222,7 @@ impl Default for FluidPipelines {
     fn default() -> Self {
         // Use dummy zero ids until queued; these will be replaced.
         let zero = CachedComputePipelineId::INVALID;
-        Self { layout: None, add_force: zero, advect_velocity: zero, compute_divergence: zero, jacobi_pressure: zero, project_velocity: zero, advect_dye: zero }
+    Self { layout: None, apply_impulses: zero, advect_velocity: zero, compute_divergence: zero, jacobi_pressure: zero, project_velocity: zero, advect_dye: zero }
     }
 }
 
@@ -555,7 +555,7 @@ fn run_fluid_sim_compute(
         return
     };
     let required = [
-        pipelines.add_force,
+    pipelines.apply_impulses,
         pipelines.advect_velocity,
         pipelines.compute_divergence,
         pipelines.jacobi_pressure,
@@ -661,9 +661,9 @@ fn run_fluid_sim_compute(
 
     for pass in pass_list.iter() {
         match *pass {
-            FluidPass::AddForce => {
+            FluidPass::ApplyImpulses => {
                 let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
-                run_pass(pipelines.add_force, &bg, "add_force", &mut encoder, grid);
+                run_pass(pipelines.apply_impulses, &bg, "apply_impulses", &mut encoder, grid);
                 std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
             }
             FluidPass::AdvectVelocity => {
@@ -705,7 +705,7 @@ fn run_fluid_sim_compute(
     if let Some(d) = diag {
         let wg_x = (grid.x as u64 + 7) / 8; let wg_y = (grid.y as u64 + 7) / 8;
     let jacobi_iters_u64 = jacobi_iters_val as u64;
-    // Passes counted: add_force, advect_velocity, compute_divergence, jacobi*N, project_velocity, advect_dye
+    // Passes counted: apply_impulses, advect_velocity, compute_divergence, jacobi*N, project_velocity, advect_dye
     // All copy passes eliminated; approx_passes metric unchanged for now (kept simple)
     let approx_passes = 4 + jacobi_iters_u64 + 2;
         d.record_dispatch(grid, wg_x * wg_y * approx_passes, jacobi_iters_u64);
@@ -743,7 +743,7 @@ fn prepare_fluid_pipelines(
     }
     if pipelines.layout.is_none() { return; }
     let already_ready = [
-        pipelines.add_force,
+    pipelines.apply_impulses,
         pipelines.advect_velocity,
         pipelines.compute_divergence,
         pipelines.jacobi_pressure,
@@ -754,7 +754,7 @@ fn prepare_fluid_pipelines(
     let shader_handle: Handle<Shader> = asset_server.load("shaders/fluid_sim.wgsl");
     let layout = pipelines.layout.as_ref().unwrap().clone();
     let entries: [(&'static str, *mut CachedComputePipelineId); 6] = [
-        ("add_force", &mut pipelines.add_force as *mut _),
+        ("apply_impulses", &mut pipelines.apply_impulses as *mut _),
         ("advect_velocity", &mut pipelines.advect_velocity as *mut _),
         ("compute_divergence", &mut pipelines.compute_divergence as *mut _),
         ("jacobi_pressure", &mut pipelines.jacobi_pressure as *mut _),

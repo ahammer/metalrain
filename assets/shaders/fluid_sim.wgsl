@@ -51,6 +51,10 @@ struct GpuImpulse { pos: vec2<f32>, radius: f32, strength: f32, dir: vec2<f32>, 
 @group(0) @binding(8) var<storage, read> impulses : array<GpuImpulse>;
 @group(0) @binding(9) var<uniform> impulse_count : vec4<u32>; // x = count
 
+// Phase 4: shared constants for impulse processing
+const IMPULSE_FALLOFF_EXPONENT : f32 = 2.0;   // (1 - r/R)^n exponent
+const DYE_INJECT_SCALE         : f32 = 0.15;  // global multiplier for dye deposition strength
+
 // ─────────────────────────────────────────────────────────────
 // 2. Velocity helpers
 //    read_velocity : nearest sample with clamped addressing
@@ -90,7 +94,6 @@ fn apply_impulses(@builtin(global_invocation_id) gid_in : vec3<u32>) {
     let cell_pos = vec2<f32>(vec2<i32>(gid));
     let count = impulse_count.x;
     if (count == 0u) { write_velocity(gid, v); return; }
-    let exponent = 2.0; // TODO: make configurable (falloff exponent n)
     for (var i:u32 = 0u; i < count; i = i + 1u) {
         let imp = impulses[i];
         if (imp.strength <= 0.0 || imp.radius <= 0.0) { continue; }
@@ -100,7 +103,7 @@ fn apply_impulses(@builtin(global_invocation_id) gid_in : vec3<u32>) {
         if (dist2 < r * r) {
             let dist = sqrt(dist2);
             let norm_r = dist / r; // in [0,1)
-            let falloff = pow(max(0.0, 1.0 - norm_r), exponent);
+            let falloff = pow(max(0.0, 1.0 - norm_r), IMPULSE_FALLOFF_EXPONENT);
             if (falloff > 0.0) {
                 var dir = vec2<f32>(0.0,0.0);
                 if (imp.kind == 0u) {
@@ -246,7 +249,31 @@ fn advect_dye(@builtin(global_invocation_id) gid_in : vec3<u32>) {
     let vel = read_velocity(gid);
     let backp = p - vel * sim.dt;
     let dye   = read_dye_lin(backp);
-    textureStore(scalar_b, gid, dye * sim.dye_dissipation);
+    var out_dye = dye * sim.dye_dissipation;
+
+    // Phase 4: dye deposition from impulses (uses same falloff as velocity injection)
+    let count = impulse_count.x;
+    if (count > 0u) {
+        for (var i:u32 = 0u; i < count; i = i + 1u) {
+            let imp = impulses[i];
+            if (imp.strength <= 0.0 || imp.radius <= 0.0) { continue; }
+            let d = p - imp.pos;
+            let dist2 = dot(d,d);
+            let r = imp.radius;
+            if (dist2 < r * r) {
+                let dist = sqrt(dist2);
+                let norm_r = dist / r;
+                let falloff = pow(max(0.0, 1.0 - norm_r), IMPULSE_FALLOFF_EXPONENT);
+                if (falloff > 0.0) {
+                    // Simple coloring: swirl (kind 0) = cool blue, directional = warm orange
+                    let base_color = select(vec3<f32>(1.0, 0.55, 0.2), vec3<f32>(0.25, 0.6, 1.0), imp.kind == 0u);
+                    let strength_scale = imp.strength * falloff * DYE_INJECT_SCALE;
+                    out_dye = vec4<f32>(clamp(out_dye.rgb + base_color * strength_scale, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+                }
+            }
+        }
+    }
+    textureStore(scalar_b, gid, out_dye);
 }
 
 // ─────────────────────────────────────────────────────────────

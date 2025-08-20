@@ -45,7 +45,7 @@
         jacobi_iterations: 20,
         time_step: 0.016666667,
         dissipation: 0.999,
-        velocity_dissipation: 0.95,
+        velocity_dissipation: 0.999,
         force_strength: 10.0,
         enabled: true,
     ),
