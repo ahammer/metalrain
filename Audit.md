@@ -216,13 +216,13 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 ### Phase 4: Multi-Impulse GPU Application + Dye Deposition (VISIBLE FEATURE)
 	- [x] Define `GpuImpulse` struct & max count constant (implemented Phase 4 Step 1)
 	- [x] Add storage buffer + count uniform (allocated & written each frame; WGSL placeholder bindings 8/9)
-	- [ ] Extend extraction: pack impulses -> mapped buffer write each frame
-	- [ ] Update bind group layout with impulse storage binding
-	- [ ] WGSL: Replace `add_force` with `apply_impulses` looping impulses
+	- [x] Extend extraction: pack impulses -> mapped buffer write each frame
+	- [x] Update bind group layout with impulse storage binding
+	- [x] WGSL: Replace `add_force` with `apply_impulses` looping impulses
 	- [ ] Implement radial velocity injection (falloff: (1 - r/R)^n)
 	- [ ] Inject dye (constant color or simple per-impulse hue)
 	- [ ] Clamp & track overflow (warn if overflowed)
-	- [ ] Add unit test: `GpuImpulse` size/alignment stable (NOTE: preliminary test added in `fluid_impulses.rs` – may expand)
+	- [x] Add unit test: `GpuImpulse` size/alignment stable (NOTE: preliminary test added in `fluid_impulses.rs` – may expand)
 	- Acceptance: Balls create visible wakes/trails; disabling impulses removes effect; no crashes with 0 impulses
 
 ### Phase 5: Bind Group Cache & Velocity Format Shrink
