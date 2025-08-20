@@ -80,23 +80,43 @@ fn write_velocity(coord : vec2<i32>, v : vec2<f32>) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3. add_force – swirl impulse around sim.force_pos
+// 3. apply_impulses – iterate all queued impulses adding velocity contributions
 // ─────────────────────────────────────────────────────────────
 @compute @workgroup_size(8,8,1)
-fn add_force(@builtin(global_invocation_id) gid_in : vec3<u32>) {
+fn apply_impulses(@builtin(global_invocation_id) gid_in : vec3<u32>) {
     let gid = vec2<i32>(gid_in.xy);
     if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-
-    let pos    = vec2<f32>(vec2<i32>(gid));
-    let d      = pos - sim.force_pos;
-    let r2     = sim.force_radius * sim.force_radius;
-    let dist2  = dot(d, d);
-
-    var v = read_velocity(gid);                // pass-through by default
-    if (dist2 < r2 && sim.force_strength > 0.0) {
-        let falloff = 1.0 - dist2 / r2;
-        let dir     = normalize(vec2<f32>(-d.y, d.x)); // tangential swirl
-        v += dir * sim.force_strength * falloff * sim.dt;
+    var v = read_velocity(gid);
+    let cell_pos = vec2<f32>(vec2<i32>(gid));
+    let count = impulse_count.x;
+    if (count == 0u) { write_velocity(gid, v); return; }
+    let exponent = 2.0; // TODO: make configurable (falloff exponent n)
+    for (var i:u32 = 0u; i < count; i = i + 1u) {
+        let imp = impulses[i];
+        if (imp.strength <= 0.0 || imp.radius <= 0.0) { continue; }
+        let d = cell_pos - imp.pos;
+        let dist2 = dot(d,d);
+        let r = imp.radius;
+        if (dist2 < r * r) {
+            let dist = sqrt(dist2);
+            let norm_r = dist / r; // in [0,1)
+            let falloff = pow(max(0.0, 1.0 - norm_r), exponent);
+            if (falloff > 0.0) {
+                var dir = vec2<f32>(0.0,0.0);
+                if (imp.kind == 0u) {
+                    // Swirl: perpendicular to radial vector (normalized)
+                    let safe_div = dist + 1e-5;
+                    dir = vec2<f32>(-d.y, d.x) / safe_div;
+                } else {
+                    // Directional: provided dir (normalize to be safe)
+                    let base = imp.dir;
+                    let mag = max(length(base), 1e-5);
+                    dir = base / mag;
+                }
+                // Scale by strength, falloff, and dt
+                v += dir * imp.strength * falloff * sim.dt;
+            }
+        }
     }
     write_velocity(gid, v);
 }
