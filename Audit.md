@@ -23,6 +23,8 @@ Key Immediate Wins:
 4. Add tests asserting divergence reduction & uniform size invariants.
 5. Extend shader to process multiple impulses, paving the way for ball wake effects.
 
+Pivot (2025-08-20): Original Phase 4 bundled dye deposition with multi-impulse velocity injection (dye tied to impulses). We are pivoting: impulse-based dye is deprecated; a new Phase 4B introduces continuous per-ball color dye deposition after first tearing down the obsolete impulse-dye path. Phase 4 is now strictly about multi-impulse velocity.
+
 ---
 ## 3. Current State Overview
 - Fluid simulation plugin handles allocation, extraction, compute dispatch, and display in one file.
@@ -153,14 +155,42 @@ Acceptance (Why it matters):
 	* Reduced GPU bandwidth (copy removal) without altering visuals.
 	* Provides stable abstraction layer required before multi-impulse logic.
 
-### Phase 4: Multi-Impulse & Dye Deposition (Pulled Forward)
+### Phase 4: Multi-Impulse Velocity Injection (Narrowed Scope)
 - Implement GPU impulse storage buffer & count; replace single-force pass with loop (`apply_impulses`).
-- Inject dye (constant or per-impulse color) so ball motion becomes visibly traceable.
+- (Removed) Impulse-driven dye deposition (moved to Phase 4B; legacy path disabled by default).
 - Clamp impulses to capacity; track overflow.
-Acceptance (Visible Goal):
-	* First tangible physics→fluid coupling (wakes/trails visible).
-	* Demonstrates correctness of pass graph & ping-pong abstractions.
-	* Establishes data path later reused for directional forces & drag.
+Acceptance (Velocity Focus):
+	* Multiple simultaneous impulses modify velocity field with correct radial falloff.
+	* No new dye logic introduced here; legacy impulse dye off.
+	* Architecture confirmed stable for subsequent independent dye deposition pass.
+
+### Phase 4B: Ball Color Dye Deposition (Pivot – Teardown First)
+Rationale: Dye should reflect persistent per-ball colors (painting the fluid) instead of transient impulse events. Teardown removes semantic coupling and reduces accidental color artifacts when impulses are disabled.
+
+Steps:
+1. Teardown / Deprecation
+	- Remove or guard (feature + config default off) impulse-based dye write in `apply_impulses`.
+	- Mark `impulse_dye_scale` as deprecated (doc + comment) and set default = 0.0.
+	- Update debug overlay to hide legacy dye metrics when disabled.
+2. Ball Dye Data Path
+	- Add `BallDyeConfig` (enabled, radius_mode, radius_scale, fixed_radius, falloff_exponent, base_emission, speed_influence, max_speed_for_influence, color_saturation, clamp_per_cell, normalize_after_blend, order_after_advection(bool)).
+	- CPU system gathers per-ball dye records (position, emission radius (mode), speed magnitude, linear color).
+	- Extraction uploads packed `GpuBallDye` array + count.
+3. New Compute Pass
+	- WGSL: `deposit_ball_dye` entry (cell-parallel) loops balls, applies falloff pow(t, exponent), optional speed factor, clamps accumulation.
+	- Insert pass after projection and before dye advection (default) with optional config to invert ordering.
+4. Integration & Overlay
+	- Add `FluidPass::DepositBallDye` variant and scheduling.
+	- Overlay: ball dye enabled flag, count, avg radius, clamp hits.
+5. Testing
+	- Layout: `size_of::<GpuBallDye>()` & alignment.
+	- Single ball deposition: center cell > 0, monotonic radial decay.
+	- Speed influence: high speed emits >= baseline within tolerance.
+6. Acceptance
+	- Ball trails exist with impulses disabled.
+	- Changing a ball color affects subsequent dye emission next frame.
+	- Legacy impulse dye path fully disabled; no regressions in velocity behavior.
+	- Performance acceptable at target scales (qualitative baseline noted).
 
 ### Phase 5: Bind Group Cache & Velocity Format Optimization (Moved Later)
 - Switch velocity texture to `Rg16Float` (halve velocity bandwidth).
@@ -213,19 +243,33 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- [x] Adjust diagnostics to report copy savings (optional lightweight counter)
 	- Acceptance: Zero functional differences; GPU copies reduced (all copy-backs removed); architecture ready for multi-impulse
 
-### Phase 4: Multi-Impulse GPU Application + Dye Deposition (VISIBLE FEATURE)
-	- [x] Define `GpuImpulse` struct & max count constant (implemented Phase 4 Step 1)
-	- [x] Add storage buffer + count uniform (allocated & written each frame; WGSL placeholder bindings 8/9)
+### Phase 4: Multi-Impulse Velocity Injection (COMPLETED)
+	- [x] Define `GpuImpulse` struct & max count constant
+	- [x] Add storage buffer + count uniform (allocated & written each frame)
 	- [x] Extend extraction: pack impulses -> mapped buffer write each frame
 	- [x] Update bind group layout with impulse storage binding
 	- [x] WGSL: Replace `add_force` with `apply_impulses` looping impulses
 	- [x] Implement radial velocity injection (falloff: (1 - r/R)^n)
-	- [x] Inject dye (constant color or simple per-impulse hue)
 	- [x] Clamp & track overflow (warn if overflowed) via `ImpulseStats` resource & throttled logging
-	- [x] Externalize impulse & dye tuning parameters to config (impulse_min_speed_factor, impulse_radius_scale, impulse_radius_world_min/max, impulse_strength_scale, impulse_falloff_exponent, impulse_dye_scale)
-	- [x] Add impulse falloff exponent & dye scale to `SimUniform` (WGSL uses uniform instead of constants)
-	- [x] Add unit test: `GpuImpulse` size/alignment stable (NOTE: preliminary test added in `fluid_impulses.rs` – may expand)
-	- Acceptance: Balls create visible wakes/trails; disabling impulses removes effect; no crashes with 0 impulses
+	- [x] Externalize impulse tuning parameters to config (impulse_min_speed_factor, impulse_radius_scale, impulse_radius_world_min/max, impulse_strength_scale, impulse_falloff_exponent, impulse_dye_scale (deprecated))
+	- [x] Add unit test: `GpuImpulse` size/alignment stable (preliminary test in `fluid_impulses.rs`)
+	- Acceptance: Multiple simultaneous impulses modify velocity; legacy impulse dye disabled.
+
+### Phase 4B: Ball Color Dye Deposition (PENDING)
+	A. Teardown
+	- [ ] Remove or guard impulse dye write path (default off)
+	- [ ] Annotate `impulse_dye_scale` as deprecated in code/docs
+	B. Implementation
+	- [ ] Add `BallDyeConfig` to `GameConfig` + RON defaults
+	- [ ] Define `GpuBallDye` struct & capacity constant
+	- [ ] CPU gather system builds `BallDyeBuffer` each frame
+	- [ ] Extraction system uploads buffer + count
+	- [ ] WGSL: `deposit_ball_dye` compute entry & structs
+	- [ ] Insert `DepositBallDye` pass into graph (after projection, before advection)
+	- [ ] Overlay metrics (enabled, count, avg radius, clamp hits)
+	- [ ] Tests: layout, single-ball deposit, speed influence
+	- [ ] Docs: update Audit & instructions; mark legacy config deprecated
+	- Acceptance: Ball trails reflect palette color independent of impulses; disabling feature halts new dye.
 
 ### Phase 5: Bind Group Cache & Velocity Format Shrink
 	- [ ] Convert velocity textures to `Rg16Float`
@@ -271,6 +315,7 @@ Each phase should leave the system buildable, visually stable (except intended n
 | Performance regression post-refactor | A/B frame time sampling before/after each phase |
 | Complexity creep in pass graph | Keep enum simple; avoid DAG until needed |
 | GPU buffer overflow for impulses | Clamp count; overflow counter & periodic warning |
+| Legacy impulse dye config lingering | Mark deprecated; remove after Phase 4B stabilization |
 | Async mapping stalls (drag sampling) | Use downsampled texture & double-buffer result |
 
 ---
