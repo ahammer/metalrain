@@ -215,7 +215,7 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 
 ### Phase 4: Multi-Impulse GPU Application + Dye Deposition (VISIBLE FEATURE)
 	- [x] Define `GpuImpulse` struct & max count constant (implemented Phase 4 Step 1)
-	- [ ] Add storage buffer + count uniform (or pack count in existing uniform padding)
+	- [x] Add storage buffer + count uniform (allocated & written each frame; WGSL placeholder bindings 8/9)
 	- [ ] Extend extraction: pack impulses -> mapped buffer write each frame
 	- [ ] Update bind group layout with impulse storage binding
 	- [ ] WGSL: Replace `add_force` with `apply_impulses` looping impulses
