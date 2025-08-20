@@ -1,3 +1,5 @@
+#[cfg(target_arch = "wasm32")]
+static mut FLUID_SIM_SHADER_HANDLE: Option<Handle<Shader>> = None;
 use bevy::prelude::*;
 use bevy::input::ButtonInput;
 use bevy::render::render_resource::*;
@@ -113,6 +115,17 @@ impl Plugin for FluidSimPlugin {
                             .after(prepare_fluid_pipelines),
                     ),
                 );
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use bevy::asset::Assets;
+            use bevy::render::render_resource::Shader;
+            let mut shaders = app.world_mut().resource_mut::<Assets<Shader>>();
+            let handle = shaders.add(Shader::from_wgsl(
+                include_str!("../assets/shaders/fluid_sim.wgsl"),
+                "fluid_sim_embedded.wgsl"
+            ));
+            unsafe { FLUID_SIM_SHADER_HANDLE = Some(handle); }
         }
     }
 }
@@ -320,8 +333,38 @@ impl Default for FluidDisplayMaterial {
 }
 
 impl Material2d for FluidDisplayMaterial {
-    fn fragment_shader() -> ShaderRef { "shaders/fluid_sim.wgsl".into() }
-    fn vertex_shader() -> ShaderRef { "shaders/fluid_sim.wgsl".into() }
+    fn fragment_shader() -> ShaderRef {
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_arch = "wasm32")]
+        {
+            unsafe {
+                FLUID_SIM_SHADER_HANDLE
+                    .as_ref()
+                    .map(|h| ShaderRef::Handle(h.clone()))
+                    .unwrap_or_else(|| ShaderRef::Path("shaders/fluid_sim.wgsl".into()))
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            "shaders/fluid_sim.wgsl".into()
+        }
+    }
+    fn vertex_shader() -> ShaderRef {
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_arch = "wasm32")]
+        {
+            unsafe {
+                FLUID_SIM_SHADER_HANDLE
+                    .as_ref()
+                    .map(|h| ShaderRef::Handle(h.clone()))
+                    .unwrap_or_else(|| ShaderRef::Path("shaders/fluid_sim.wgsl".into()))
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            "shaders/fluid_sim.wgsl".into()
+        }
+    }
 }
 
 #[derive(Component)]
