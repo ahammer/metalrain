@@ -55,7 +55,5 @@
         impulse_strength_scale: 0.15,
         impulse_falloff_exponent: 2.0,
         impulse_dye_scale: 0.2,
-        impulse_debug_strength_mul: 4.0,
-        impulse_debug_test_enabled: true,
     ),
 )
