@@ -12,8 +12,8 @@
 // 7. advect_dye
 //
 // Velocity    : RG of rgba16float
-// Divergence  : r16float (read-write)
-// Pressure    : r16float
+// Divergence  : r32float (read-write)
+// Pressure    : r32float (was r16float; upgraded for WebGPU browser storage texture compatibility)
 // Dye         : rgba8unorm
 
 // ─────────────────────────────────────────────────────────────
@@ -44,10 +44,10 @@ struct SimUniform {
 @group(0) @binding(3) var scalar_a : texture_storage_2d<rgba8unorm, read>;
 @group(0) @binding(4) var scalar_b : texture_storage_2d<rgba8unorm, write>;
 
-@group(0) @binding(5) var pressure_in  : texture_storage_2d<r16float, read>;
-@group(0) @binding(6) var pressure_out : texture_storage_2d<r16float, write>;
+@group(0) @binding(5) var pressure_in  : texture_storage_2d<r32float, read>;
+@group(0) @binding(6) var pressure_out : texture_storage_2d<r32float, write>;
 
-@group(0) @binding(7) var divergence_tex : texture_storage_2d<r16float, read_write>;
+@group(0) @binding(7) var divergence_tex : texture_storage_2d<r32float, read_write>;
 // Phase 4 step 2: placeholder bindings for upcoming multi-impulse support (currently unused)
 struct GpuImpulse { pos: vec2<f32>, radius: f32, strength: f32, dir: vec2<f32>, kind: u32, _pad: u32 };
 @group(0) @binding(8) var<storage, read> impulses : array<GpuImpulse>;

@@ -415,7 +415,8 @@ fn setup_fluid_sim(
     let size = Extent3d { width: settings.resolution.x, height: settings.resolution.y, depth_or_array_layers: 1 };
     let mut make_tex = |format: TextureFormat, usage: TextureUsages| -> Handle<Image> {
         let pixel_size = match format {
-            TextureFormat::R16Float => 2,
+            TextureFormat::R16Float => 2, // legacy path (no longer used for storage textures on web)
+            TextureFormat::R32Float => 4,
             TextureFormat::Rgba16Float => 8,
             TextureFormat::Rgba8Unorm => 4,
             _ => 4,
@@ -440,9 +441,10 @@ fn setup_fluid_sim(
     // NOTE: velocity uses RG channels but allocated as RGBA16F to match shader's storage texture declaration (rgba16float)
     let velocity_a = make_tex(TextureFormat::Rgba16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
     let velocity_b = make_tex(TextureFormat::Rgba16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
-    let pressure_a = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
-    let pressure_b = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
-    let divergence = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    // Use R32Float for browser compatibility (R16Float storage not widely allowed in WebGPU yet)
+    let pressure_a = make_tex(TextureFormat::R32Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let pressure_b = make_tex(TextureFormat::R32Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let divergence = make_tex(TextureFormat::R32Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
     let dye_a = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
     let dye_b = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
 
@@ -817,9 +819,9 @@ fn prepare_fluid_pipelines(
             BindGroupLayoutEntry { binding: 2, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba16Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 3, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 4, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 }, count: None },
-            BindGroupLayoutEntry { binding: 5, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
-            BindGroupLayoutEntry { binding: 6, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
-            BindGroupLayoutEntry { binding: 7, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadWrite, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 5, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::R32Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 6, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::R32Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            BindGroupLayoutEntry { binding: 7, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadWrite, format: TextureFormat::R32Float, view_dimension: TextureViewDimension::D2 }, count: None },
             // New: impulses storage buffer + count uniform (padding to 16 bytes). Shader will consume later.
             BindGroupLayoutEntry { binding: 8, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
             BindGroupLayoutEntry { binding: 9, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: Some(std::num::NonZeroU64::new(16).unwrap()) }, count: None },
@@ -983,7 +985,7 @@ fn realloc_fluid_textures_if_needed(
     // Allocate new textures similar to setup_fluid_sim (simplified: zero-filled; skip swirl & dye seeding for now)
     let size = Extent3d { width: settings.resolution.x, height: settings.resolution.y, depth_or_array_layers: 1 };
     let mut make_tex = |format: TextureFormat, usage: TextureUsages| -> Handle<Image> {
-        let pixel_size = match format { TextureFormat::R16Float => 2, TextureFormat::Rgba16Float => 8, TextureFormat::Rgba8Unorm => 4, _ => 4 };
+    let pixel_size = match format { TextureFormat::R16Float => 2, TextureFormat::R32Float => 4, TextureFormat::Rgba16Float => 8, TextureFormat::Rgba8Unorm => 4, _ => 4 };
         let data_size = (size.width * size.height) as usize * pixel_size;
         let mut img = Image::default();
         img.data = Some(vec![0u8; data_size]);
@@ -994,9 +996,9 @@ fn realloc_fluid_textures_if_needed(
     };
     let velocity_a = make_tex(TextureFormat::Rgba16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
     let velocity_b = make_tex(TextureFormat::Rgba16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
-    let pressure_a = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
-    let pressure_b = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
-    let divergence  = make_tex(TextureFormat::R16Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let pressure_a = make_tex(TextureFormat::R32Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let pressure_b = make_tex(TextureFormat::R32Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
+    let divergence  = make_tex(TextureFormat::R32Float, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
     let dye_a = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
     let dye_b = make_tex(TextureFormat::Rgba8Unorm, TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING);
     // Replace inner resource data
