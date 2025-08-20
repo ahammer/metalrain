@@ -46,6 +46,10 @@ struct SimUniform {
 @group(0) @binding(6) var pressure_out : texture_storage_2d<r16float, write>;
 
 @group(0) @binding(7) var divergence_tex : texture_storage_2d<r16float, read_write>;
+// Phase 4 step 2: placeholder bindings for upcoming multi-impulse support (currently unused)
+struct GpuImpulse { pos: vec2<f32>, radius: f32, strength: f32, dir: vec2<f32>, kind: u32, _pad: u32 };
+@group(0) @binding(8) var<storage, read> impulses : array<GpuImpulse>;
+@group(0) @binding(9) var<uniform> impulse_count : vec4<u32>; // x = count
 
 // ─────────────────────────────────────────────────────────────
 // 2. Velocity helpers

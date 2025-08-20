@@ -11,6 +11,7 @@ use bevy::prelude::Mesh2d;
 // (Phase 3 completion) Removed need for TexelCopyTextureInfo after converting dye to true ping-pong.
 use crate::config::GameConfig;
 use crate::background::ActiveBackground;
+use crate::fluid_impulses::{GpuImpulse, MAX_GPU_IMPULSES, FluidImpulseQueue};
 
 // Feature-gated logging macro for verbose fluid sim pass/gating details.
 // Enable with cargo feature `fluid_debug_passes` to elevate to info-level.
@@ -149,7 +150,7 @@ fn extract_fluid_resources(mut commands: Commands, src: Extract<Res<FluidSimReso
     commands.insert_resource(src.clone());
 }
 fn extract_fluid_gpu(mut commands: Commands, src: Extract<Res<FluidSimGpu>>) {
-    commands.insert_resource(FluidSimGpu { uniform_buffer: src.uniform_buffer.clone(), sim: src.sim });
+    commands.insert_resource(src.clone());
 }
 
 fn extract_fluid_settings(mut commands: Commands, src: Extract<Res<FluidSimSettings>>) {
@@ -225,10 +226,14 @@ impl Default for FluidPipelines {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub struct FluidSimGpu {
     pub uniform_buffer: Buffer,
     pub sim: SimUniform,
+    // Phase 4 step 2: GPU impulse storage buffer & count uniform (not yet consumed by shader).
+    pub impulse_buffer: Buffer,
+    pub impulse_count_buffer: Buffer,
+    pub impulse_capacity: usize,
 }
 
 // Diagnostics resource (main world copy extracted to render world not required). Tracks total dispatches & last frame id.
@@ -459,7 +464,21 @@ fn setup_fluid_sim(
         std::slice::from_raw_parts((&sim_u as *const SimUniform) as *const u8, size_of::<SimUniform>())
     };
     render_queue.write_buffer(&buffer, 0, bytes);
-    commands.insert_resource(FluidSimGpu { uniform_buffer: buffer, sim: sim_u });
+    // Allocate impulse GPU buffers (storage + count). Not yet used by shader.
+    let storage_size = (MAX_GPU_IMPULSES * std::mem::size_of::<GpuImpulse>()) as u64;
+    let impulse_buffer = render_device.create_buffer(&BufferDescriptor {
+        label: Some("fluid-impulses-storage"),
+        size: storage_size,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let impulse_count_buffer = render_device.create_buffer(&BufferDescriptor {
+        label: Some("fluid-impulses-count"),
+        size: 16, // u32 count + padding
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    commands.insert_resource(FluidSimGpu { uniform_buffer: buffer, sim: sim_u, impulse_buffer, impulse_count_buffer, impulse_capacity: MAX_GPU_IMPULSES });
 }
 
 // Removed placeholder debug system now that real compute passes are active.
@@ -512,6 +531,7 @@ fn run_fluid_sim_compute(
     diag: Option<Res<FluidSimDiagnostics>>,
     mut status: ResMut<FluidSimStatus>,
     mut ping: ResMut<FluidPingState>,
+    impulses: Option<Res<FluidImpulseQueue>>,
 ) {
     trace!("ENTER run_fluid_sim_compute");
     if sim_res.is_none() || sim_gpu.is_none() {
@@ -550,6 +570,34 @@ fn run_fluid_sim_compute(
     }
     *status = FluidSimStatus::Running;
 
+    // Phase 4 step 2: write impulse queue into GPU storage + count uniform (shader still unused).
+    if let Some(queue) = impulses.as_ref() {
+        // Pack up to capacity
+        let mut packed: Vec<GpuImpulse> = Vec::with_capacity(queue.0.len().min(sim_gpu.impulse_capacity));
+        for imp in queue.0.iter().take(sim_gpu.impulse_capacity) {
+            let kind_code = match imp.kind { crate::fluid_impulses::FluidImpulseKind::SwirlFromVelocity => 0u32, crate::fluid_impulses::FluidImpulseKind::DirectionalVelocity => 1u32 };
+            packed.push(GpuImpulse {
+                pos: [imp.position.x, imp.position.y],
+                radius: imp.radius,
+                strength: imp.strength,
+                dir: [imp.dir.x, imp.dir.y],
+                kind: kind_code,
+                _pad: 0,
+            });
+        }
+        if !packed.is_empty() {
+            // Safety: Pod
+            let bytes: &[u8] = bytemuck::cast_slice(&packed);
+            render_queue.write_buffer(&sim_gpu.impulse_buffer, 0, bytes);
+        }
+        // Write count (u32 + padding)
+        let count_bytes: [u8;16] = {
+            let c = packed.len() as u32;
+            [c as u8, (c>>8) as u8, (c>>16) as u8, (c>>24) as u8, 0,0,0,0, 0,0,0,0, 0,0,0,0]
+        };
+        render_queue.write_buffer(&sim_gpu.impulse_count_buffer, 0, &count_bytes);
+    }
+
     // Phase 3 completion: true ping-pong for velocity, pressure, and dye (no copy-back for dye).
     let (vel_front, vel_back) = front_back(ping.velocity_front_is_a, &sim_res.velocity_a, &sim_res.velocity_b);
     let (pres_front, pres_back) = front_back(ping.pressure_front_is_a, &sim_res.pressure_a, &sim_res.pressure_b);
@@ -580,6 +628,8 @@ fn run_fluid_sim_compute(
                 BindGroupEntry { binding: 5, resource: BindingResource::TextureView(p_in) },
                 BindGroupEntry { binding: 6, resource: BindingResource::TextureView(p_out) },
                 BindGroupEntry { binding: 7, resource: BindingResource::TextureView(divergence) },
+                BindGroupEntry { binding: 8, resource: sim_gpu.impulse_buffer.as_entire_binding() },
+                BindGroupEntry { binding: 9, resource: sim_gpu.impulse_count_buffer.as_entire_binding() },
             ],
         )
     };
@@ -683,6 +733,9 @@ fn prepare_fluid_pipelines(
             BindGroupLayoutEntry { binding: 5, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 6, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 7, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadWrite, format: TextureFormat::R16Float, view_dimension: TextureViewDimension::D2 }, count: None },
+            // New: impulses storage buffer + count uniform (padding to 16 bytes). Shader will consume later.
+            BindGroupLayoutEntry { binding: 8, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            BindGroupLayoutEntry { binding: 9, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: Some(std::num::NonZeroU64::new(16).unwrap()) }, count: None },
         ];
     let layout = render_device.create_bind_group_layout(Some("fluid-sim-layout"), &entries);
     debug!("Created fluid sim bind group layout");
