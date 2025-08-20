@@ -7,6 +7,11 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d; // Bevy 0.16: Mesh2d is re-exported via prelude; prior internal path caused privacy error.
 
+#[cfg(target_arch = "wasm32")]
+use std::sync::OnceLock;
+#[cfg(target_arch = "wasm32")]
+static METABALLS_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+
 use crate::cluster::Clusters;
 use crate::components::{Ball, BallRadius};
 use crate::config::GameConfig;
@@ -75,10 +80,16 @@ impl MetaballsMaterial {
 
 impl Material2d for MetaballsMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/metaballs.wgsl".into()
+    #[cfg(target_arch = "wasm32")]
+    { return METABALLS_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/metaballs.wgsl".into())); }
+        #[cfg(not(target_arch = "wasm32"))]
+        { "shaders/metaballs.wgsl".into() }
     }
     fn vertex_shader() -> ShaderRef {
-        "shaders/metaballs.wgsl".into()
+    #[cfg(target_arch = "wasm32")]
+    { return METABALLS_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/metaballs.wgsl".into())); }
+        #[cfg(not(target_arch = "wasm32"))]
+        { "shaders/metaballs.wgsl".into() }
     }
 }
 
@@ -108,6 +119,14 @@ pub struct MetaballsPlugin;
 
 impl Plugin for MetaballsPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use bevy::asset::Assets;
+            use bevy::render::render_resource::Shader;
+            let mut shaders = app.world_mut().resource_mut::<Assets<Shader>>();
+            let handle = shaders.add(Shader::from_wgsl(include_str!("../assets/shaders/metaballs.wgsl"), "metaballs_embedded.wgsl"));
+            METABALLS_SHADER_HANDLE.get_or_init(|| handle.clone());
+        }
         app.init_resource::<MetaballsToggle>()
             .init_resource::<MetaballsParams>()
             .add_plugins((Material2dPlugin::<MetaballsMaterial>::default(),))

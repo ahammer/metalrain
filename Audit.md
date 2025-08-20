@@ -120,6 +120,31 @@ pub struct GpuImpulse { pub pos: [f32;2], pub radius: f32, pub kind: u32, pub st
 ```
 
 ---
+## 8. WebAssembly Shader Embedding Update (2025-08-20)
+Rationale: Eliminated `.wgsl.meta` fetch 404s and reduced runtime asset I/O on web builds by embedding WGSL sources directly in the binary for `wasm32`.
+
+Changes Implemented:
+- Added `OnceLock<Handle<Shader>>` statics per shader (fluid_sim, metaballs, bg_worldgrid, bg_fluid) guarded by `cfg(target_arch="wasm32")`.
+- On each plugin's `build()`, the WGSL source is registered via `Shader::from_wgsl(include_str!(...))` and handle stored in the `OnceLock`.
+- Material `vertex_shader/fragment_shader` implementations now return the embedded handle on wasm; native path still uses file-based loading for hot-reload friendliness.
+- Removed placeholder `.wgsl.meta` files (`bg_fluid.wgsl.meta`, `bg_worldgrid.wgsl.meta`, `fluid_sim.wgsl.meta`, `metaballs.wgsl.meta`).
+- Refactored previous `static mut Option<Handle<Shader>>` (unsafe shared refs produced warnings and potential UB) to `OnceLock` (thread-safe one-time init, no unsafe blocks on access).
+
+Benefits:
+- Avoids network fetches for meta sidecar files (improves initial load & eliminates console errors).
+- Ensures shader host code & source cannot drift at runtime on wasm (single compilation unit).
+- Removes all `static_mut_refs` warnings and potential undefined behavior.
+
+Considerations / Future:
+- If hot-reload on web becomes desirable, a feature flag could re-enable asset server loading path.
+- For deterministic hashing / cache busting, consider embedding a build-time SHA of each shader for diagnostics.
+
+Acceptance Criteria Met:
+- Native & wasm builds succeed after removal of meta files.
+- No remaining uses of unsafe static mutable shader handles.
+---
+
+---
 ## 8. Shader Additions (Concept)
 Extend uniform with `impulse_count`, add storage buffer of impulses. Replace single-force logic within `add_force` pass (rename `apply_impulses`). For obstacles, add sampled mask check gating advection and boundary conditions.
 

@@ -1,5 +1,7 @@
 #[cfg(target_arch = "wasm32")]
-static mut FLUID_SIM_SHADER_HANDLE: Option<Handle<Shader>> = None;
+use std::sync::OnceLock;
+#[cfg(target_arch = "wasm32")]
+static FLUID_SIM_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 use bevy::prelude::*;
 use bevy::input::ButtonInput;
 use bevy::render::render_resource::*;
@@ -123,9 +125,9 @@ impl Plugin for FluidSimPlugin {
             let mut shaders = app.world_mut().resource_mut::<Assets<Shader>>();
             let handle = shaders.add(Shader::from_wgsl(
                 include_str!("../assets/shaders/fluid_sim.wgsl"),
-                "fluid_sim_embedded.wgsl"
+                "fluid_sim_embedded.wgsl",
             ));
-            unsafe { FLUID_SIM_SHADER_HANDLE = Some(handle); }
+            FLUID_SIM_SHADER_HANDLE.get_or_init(|| handle.clone());
         }
     }
 }
@@ -335,14 +337,12 @@ impl Default for FluidDisplayMaterial {
 impl Material2d for FluidDisplayMaterial {
     fn fragment_shader() -> ShaderRef {
         #[cfg(target_arch = "wasm32")]
-        #[cfg(target_arch = "wasm32")]
         {
-            unsafe {
-                FLUID_SIM_SHADER_HANDLE
-                    .as_ref()
-                    .map(|h| ShaderRef::Handle(h.clone()))
-                    .unwrap_or_else(|| ShaderRef::Path("shaders/fluid_sim.wgsl".into()))
-            }
+            FLUID_SIM_SHADER_HANDLE
+                .get()
+                .cloned()
+                .map(ShaderRef::Handle)
+                .unwrap_or_else(|| ShaderRef::Path("shaders/fluid_sim.wgsl".into()))
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -351,14 +351,12 @@ impl Material2d for FluidDisplayMaterial {
     }
     fn vertex_shader() -> ShaderRef {
         #[cfg(target_arch = "wasm32")]
-        #[cfg(target_arch = "wasm32")]
         {
-            unsafe {
-                FLUID_SIM_SHADER_HANDLE
-                    .as_ref()
-                    .map(|h| ShaderRef::Handle(h.clone()))
-                    .unwrap_or_else(|| ShaderRef::Path("shaders/fluid_sim.wgsl".into()))
-            }
+            FLUID_SIM_SHADER_HANDLE
+                .get()
+                .cloned()
+                .map(ShaderRef::Handle)
+                .unwrap_or_else(|| ShaderRef::Path("shaders/fluid_sim.wgsl".into()))
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -840,7 +838,17 @@ fn prepare_fluid_pipelines(
         pipelines.advect_dye,
     ].iter().all(|id| *id != CachedComputePipelineId::INVALID);
     if already_ready { return; }
-    let shader_handle: Handle<Shader> = asset_server.load("shaders/fluid_sim.wgsl");
+    let shader_handle: Handle<Shader> = {
+        #[cfg(target_arch = "wasm32")]
+        {
+            FLUID_SIM_SHADER_HANDLE
+                .get()
+                .cloned()
+                .expect("Fluid sim embedded shader handle not initialized")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        { asset_server.load("shaders/fluid_sim.wgsl") }
+    };
     let layout = pipelines.layout.as_ref().unwrap().clone();
     let entries: [(&'static str, *mut CachedComputePipelineId); 6] = [
         ("apply_impulses", &mut pipelines.apply_impulses as *mut _),

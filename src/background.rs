@@ -4,6 +4,13 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d;
 
+#[cfg(target_arch = "wasm32")]
+use std::sync::OnceLock;
+#[cfg(target_arch = "wasm32")]
+static BG_WORLDGRID_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+#[cfg(target_arch = "wasm32")]
+static BG_FLUID_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+
 #[derive(Clone, Copy, ShaderType, Debug)]
 struct BgData {
     window_size: Vec2,
@@ -21,8 +28,18 @@ impl Default for BgData {
 struct BgMaterial { #[uniform(0)] data: BgData }
 
 impl Material2d for BgMaterial {
-    fn fragment_shader() -> ShaderRef { "shaders/bg_worldgrid.wgsl".into() }
-    fn vertex_shader() -> ShaderRef { "shaders/bg_worldgrid.wgsl".into() }
+    fn fragment_shader() -> ShaderRef {
+    #[cfg(target_arch = "wasm32")]
+    { return BG_WORLDGRID_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/bg_worldgrid.wgsl".into())); }
+        #[cfg(not(target_arch = "wasm32"))]
+        { "shaders/bg_worldgrid.wgsl".into() }
+    }
+    fn vertex_shader() -> ShaderRef {
+    #[cfg(target_arch = "wasm32")]
+    { return BG_WORLDGRID_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/bg_worldgrid.wgsl".into())); }
+        #[cfg(not(target_arch = "wasm32"))]
+        { "shaders/bg_worldgrid.wgsl".into() }
+    }
 }
 
 #[derive(Component)]
@@ -46,15 +63,35 @@ impl Default for FluidData {
 struct FluidMaterial { #[uniform(0)] data: FluidData }
 
 impl Material2d for FluidMaterial {
-    fn fragment_shader() -> ShaderRef { "shaders/bg_fluid.wgsl".into() }
-    fn vertex_shader() -> ShaderRef { "shaders/bg_fluid.wgsl".into() }
+    fn fragment_shader() -> ShaderRef {
+    #[cfg(target_arch = "wasm32")]
+    { return BG_FLUID_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/bg_fluid.wgsl".into())); }
+        #[cfg(not(target_arch = "wasm32"))]
+        { "shaders/bg_fluid.wgsl".into() }
+    }
+    fn vertex_shader() -> ShaderRef {
+    #[cfg(target_arch = "wasm32")]
+    { return BG_FLUID_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/bg_fluid.wgsl".into())); }
+        #[cfg(not(target_arch = "wasm32"))]
+        { "shaders/bg_fluid.wgsl".into() }
+    }
 }
 
 pub struct BackgroundPlugin;
 
 impl Plugin for BackgroundPlugin {
     fn build(&self, app: &mut App) {
-    app.insert_resource(ActiveBackground::FluidSim)
+        #[cfg(target_arch = "wasm32")]
+        {
+            use bevy::asset::Assets;
+            use bevy::render::render_resource::Shader;
+            let mut shaders = app.world_mut().resource_mut::<Assets<Shader>>();
+            let worldgrid = shaders.add(Shader::from_wgsl(include_str!("../assets/shaders/bg_worldgrid.wgsl"), "bg_worldgrid_embedded.wgsl"));
+            let fluid = shaders.add(Shader::from_wgsl(include_str!("../assets/shaders/bg_fluid.wgsl"), "bg_fluid_embedded.wgsl"));
+            BG_WORLDGRID_SHADER_HANDLE.get_or_init(|| worldgrid.clone());
+            BG_FLUID_SHADER_HANDLE.get_or_init(|| fluid.clone());
+        }
+        app.insert_resource(ActiveBackground::FluidSim)
             .add_plugins((Material2dPlugin::<BgMaterial>::default(), Material2dPlugin::<FluidMaterial>::default()))
             .add_systems(Startup, setup_backgrounds)
             .add_systems(Update, (resize_bg_uniform, resize_fluid_uniform, update_fluid_time, toggle_background));
