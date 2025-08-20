@@ -72,6 +72,8 @@ Repeated texture copies: after each write, content is copied back to a fixed fro
 ### 5.3 Data Formats
 Velocity stored with 4 channels wastes memory/bandwidth. Unless future features need extra channels (e.g., temperature, vorticity), prefer `Rg16Float`.
 
+Alignment Note (2025-08-20): Background material uniform structs (`BgData`, `FluidData`) were 24 bytes (Vec2 + 3 f32) triggering WebGPU / wgpu validation on downlevel targets lacking `BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`. They are now padded to 32 bytes (multiple of 16) by adding three f32 pad fields. Maintain any future uniform blocks at sizes that are multiples of 16 bytes to avoid this validation error.
+
 ### 5.4 Extensibility for Forces
 Current uniform supports exactly one force position and scalar parameters. Ball wakes, explosions, or drag injection require a variable-length list. A fixed-capacity storage buffer (e.g., 256 impulses) with overflow count is sufficient.
 
