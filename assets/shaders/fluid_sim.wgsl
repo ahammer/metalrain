@@ -266,7 +266,7 @@ fn advect_dye(@builtin(global_invocation_id) gid_in : vec3<u32>) {
                 let falloff = pow(max(0.0, 1.0 - norm_r), sim.impulse_falloff_exp);
                 if (falloff > 0.0) {
                     // Simple coloring: swirl (kind 0) = cool blue, directional = warm orange
-                    let base_color = select(vec3<f32>(1.0, 0.55, 0.2), vec3<f32>(0.25, 0.6, 1.0), imp.kind == 0u);
+                    let base_color = select(vec3<f32>(1.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), imp.kind == 0u);
                     let strength_scale = imp.strength * falloff * sim.impulse_dye_scale;
                     out_dye = vec4<f32>(clamp(out_dye.rgb + base_color * strength_scale, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
                 }
