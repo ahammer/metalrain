@@ -12,6 +12,7 @@ use bevy::prelude::Mesh2d;
 use crate::config::GameConfig;
 use crate::background::ActiveBackground;
 use crate::fluid_impulses::{GpuImpulse, MAX_GPU_IMPULSES, FluidImpulseQueue};
+use std::time::{Duration, Instant};
 
 // Feature-gated logging macro for verbose fluid sim pass/gating details.
 // Enable with cargo feature `fluid_debug_passes` to elevate to info-level.
@@ -290,6 +291,18 @@ impl FluidSimDiagnostics {
     fn removed_dye_copies(&self) -> u64 { self.inner.removed_dye_copies.load(Ordering::Relaxed) }
 }
 
+// Per-frame impulse statistics (inserted as resource each frame for overlay / debugging)
+#[derive(Resource, Debug, Clone)]
+pub struct ImpulseStats {
+    pub emitted_main: u32,
+    pub sent_to_gpu: u32,
+    pub overflowed: bool,
+    pub first_pos: Option<Vec2>,
+    pub first_radius: Option<f32>,
+    pub last_logged: Instant,
+}
+impl Default for ImpulseStats { fn default() -> Self { Self { emitted_main: 0, sent_to_gpu: 0, overflowed: false, first_pos: None, first_radius: None, last_logged: Instant::now() } } }
+
 // Display handled via a fullscreen material (to be implemented); no sprite/quad yet.
 
 // Fullscreen display material sampling dye texture (for now just dye_a)
@@ -326,6 +339,8 @@ pub struct SimUniform {
     pub force_pos: Vec2,
     pub force_radius: f32,
     pub force_strength: f32,
+    pub impulse_falloff_exp: f32,
+    pub impulse_dye_scale: f32,
 }
 
 impl Default for SimUniform {
@@ -341,6 +356,8 @@ impl Default for SimUniform {
             force_pos: Vec2::new(128.0,128.0),
             force_radius: 32.0,
             force_strength: 150.0,
+            impulse_falloff_exp: 2.0,
+            impulse_dye_scale: 0.15,
         }
     }
 }
@@ -532,6 +549,8 @@ fn run_fluid_sim_compute(
     mut status: ResMut<FluidSimStatus>,
     mut ping: ResMut<FluidPingState>,
     impulses: Option<Res<FluidImpulseQueue>>,
+    mut commands: Commands,
+    mut existing_stats: Local<Option<ImpulseStats>>,
 ) {
     trace!("ENTER run_fluid_sim_compute");
     if sim_res.is_none() || sim_gpu.is_none() {
@@ -571,10 +590,14 @@ fn run_fluid_sim_compute(
     *status = FluidSimStatus::Running;
 
     // Phase 4 step 2: write impulse queue into GPU storage + count uniform (shader still unused).
+    let mut stats_frame = ImpulseStats::default();
     if let Some(queue) = impulses.as_ref() {
-        // Pack up to capacity
-        let mut packed: Vec<GpuImpulse> = Vec::with_capacity(queue.0.len().min(sim_gpu.impulse_capacity));
-        for imp in queue.0.iter().take(sim_gpu.impulse_capacity) {
+        stats_frame.emitted_main = queue.0.len() as u32;
+        // Pack up to capacity with overflow detection
+        let cap = sim_gpu.impulse_capacity;
+        let mut packed: Vec<GpuImpulse> = Vec::with_capacity(queue.0.len().min(cap));
+        for (idx, imp) in queue.0.iter().enumerate() {
+            if idx >= cap { stats_frame.overflowed = true; break; }
             let kind_code = match imp.kind { crate::fluid_impulses::FluidImpulseKind::SwirlFromVelocity => 0u32, crate::fluid_impulses::FluidImpulseKind::DirectionalVelocity => 1u32 };
             packed.push(GpuImpulse {
                 pos: [imp.position.x, imp.position.y],
@@ -585,6 +608,8 @@ fn run_fluid_sim_compute(
                 _pad: 0,
             });
         }
+        stats_frame.sent_to_gpu = packed.len() as u32;
+        if packed.len() > 0 { stats_frame.first_pos = Some(Vec2::new(packed[0].pos[0], packed[0].pos[1])); stats_frame.first_radius = Some(packed[0].radius); }
         if !packed.is_empty() {
             // Safety: Pod
             let bytes: &[u8] = bytemuck::cast_slice(&packed);
@@ -597,6 +622,17 @@ fn run_fluid_sim_compute(
         };
         render_queue.write_buffer(&sim_gpu.impulse_count_buffer, 0, &count_bytes);
     }
+    // Log impulse stats throttled (every ~0.5s) or on overflow
+    let now = Instant::now();
+    let mut log_it = false;
+    if let Some(prev) = existing_stats.as_ref() { if now.duration_since(prev.last_logged) > Duration::from_millis(500) { log_it = true; } }
+    if stats_frame.overflowed { log_it = true; }
+    if log_it && (stats_frame.emitted_main > 0 || stats_frame.overflowed) {
+        debug!(emitted = stats_frame.emitted_main, sent = stats_frame.sent_to_gpu, overflowed = stats_frame.overflowed, first = ?stats_frame.first_pos, first_radius = ?stats_frame.first_radius, falloff = sim_gpu.sim.impulse_falloff_exp, dye_scale = sim_gpu.sim.impulse_dye_scale, "Impulse stats");
+        stats_frame.last_logged = now;
+    }
+    *existing_stats = Some(stats_frame.clone());
+    commands.insert_resource(stats_frame);
 
     // Phase 3 completion: true ping-pong for velocity, pressure, and dye (no copy-back for dye).
     let (vel_front, vel_back) = front_back(ping.velocity_front_is_a, &sim_res.velocity_a, &sim_res.velocity_b);
@@ -692,7 +728,8 @@ fn run_fluid_sim_compute(
                 ping.velocity_front_is_a = velocity_front_is_a;
             }
             FluidPass::AdvectDye => {
-                let bg = make_bg(va, vb, da, db, pa, pb, div);
+                // Use latest velocity front/back (vel_read treated as current read/front)
+                let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
                 run_pass(pipelines.advect_dye, &bg, "advect_dye", &mut encoder, grid);
                 ping.dye_front_is_a = !ping.dye_front_is_a; // flip dye front
                 if let Some(d) = &diag { d.set_dye_front(ping.dye_front_is_a); d.inc_removed_dye_copy(); }
@@ -790,6 +827,7 @@ fn fluid_sim_should_run(settings: Option<&FluidSimSettings>, bg: Option<&ActiveB
 fn update_sim_uniforms(
     gpu: Option<ResMut<FluidSimGpu>>,
     settings: Res<FluidSimSettings>,
+    cfg: Option<Res<GameConfig>>,
     render_queue: Res<RenderQueue>,
 ) {
     let Some(mut gpu) = gpu else { return };
@@ -799,6 +837,11 @@ fn update_sim_uniforms(
     gpu.sim.dissipation = settings.dissipation;
     gpu.sim.vel_dissipation = settings.velocity_dissipation;
     gpu.sim.force_strength = settings.force_strength;
+    if let Some(cfg) = cfg {
+        let fc = &cfg.fluid_sim;
+        gpu.sim.impulse_falloff_exp = fc.impulse_falloff_exponent.max(0.01);
+        gpu.sim.impulse_dye_scale = fc.impulse_dye_scale.max(0.0);
+    }
     // Write entire uniform (small struct) to GPU
     unsafe {
         let bytes = std::slice::from_raw_parts((&gpu.sim as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>());
@@ -827,7 +870,7 @@ fn update_display_dye_handle(
     q_display: Query<&MeshMaterial2d<FluidDisplayMaterial>, With<FluidDisplayQuad>>,
 ) {
     let (diag, sim_res) = match (diag, sim_res) { (Some(d), Some(r)) => (d, r), _ => return };
-    let Ok(handle) = q_display.get_single() else { return; };
+    let Ok(handle) = q_display.single() else { return; };
     let Some(mat) = materials.get_mut(&handle.0) else { return; };
     let is_a = diag.dye_front_is_a();
     let desired = if is_a { &sim_res.dye_a } else { &sim_res.dye_b };

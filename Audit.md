@@ -221,7 +221,9 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- [x] WGSL: Replace `add_force` with `apply_impulses` looping impulses
 	- [x] Implement radial velocity injection (falloff: (1 - r/R)^n)
 	- [x] Inject dye (constant color or simple per-impulse hue)
-	- [ ] Clamp & track overflow (warn if overflowed)
+	- [x] Clamp & track overflow (warn if overflowed) via `ImpulseStats` resource & throttled logging
+	- [x] Externalize impulse & dye tuning parameters to config (impulse_min_speed_factor, impulse_radius_scale, impulse_radius_world_min/max, impulse_strength_scale, impulse_falloff_exponent, impulse_dye_scale)
+	- [x] Add impulse falloff exponent & dye scale to `SimUniform` (WGSL uses uniform instead of constants)
 	- [x] Add unit test: `GpuImpulse` size/alignment stable (NOTE: preliminary test added in `fluid_impulses.rs` – may expand)
 	- Acceptance: Balls create visible wakes/trails; disabling impulses removes effect; no crashes with 0 impulses
 

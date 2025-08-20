@@ -30,6 +30,8 @@ struct SimUniform {
     force_pos       : vec2<f32>,
     force_radius    : f32,
     force_strength  : f32,
+    impulse_falloff_exp : f32,
+    impulse_dye_scale   : f32,
 };
 @group(0) @binding(0) var<uniform> sim : SimUniform;
 
@@ -51,9 +53,7 @@ struct GpuImpulse { pos: vec2<f32>, radius: f32, strength: f32, dir: vec2<f32>, 
 @group(0) @binding(8) var<storage, read> impulses : array<GpuImpulse>;
 @group(0) @binding(9) var<uniform> impulse_count : vec4<u32>; // x = count
 
-// Phase 4: shared constants for impulse processing
-const IMPULSE_FALLOFF_EXPONENT : f32 = 2.0;   // (1 - r/R)^n exponent
-const DYE_INJECT_SCALE         : f32 = 0.15;  // global multiplier for dye deposition strength
+// Phase 4: parameters now supplied via uniform (impulse_falloff_exp, impulse_dye_scale)
 
 // ─────────────────────────────────────────────────────────────
 // 2. Velocity helpers
@@ -103,7 +103,7 @@ fn apply_impulses(@builtin(global_invocation_id) gid_in : vec3<u32>) {
         if (dist2 < r * r) {
             let dist = sqrt(dist2);
             let norm_r = dist / r; // in [0,1)
-            let falloff = pow(max(0.0, 1.0 - norm_r), IMPULSE_FALLOFF_EXPONENT);
+            let falloff = pow(max(0.0, 1.0 - norm_r), sim.impulse_falloff_exp);
             if (falloff > 0.0) {
                 var dir = vec2<f32>(0.0,0.0);
                 if (imp.kind == 0u) {
@@ -263,11 +263,11 @@ fn advect_dye(@builtin(global_invocation_id) gid_in : vec3<u32>) {
             if (dist2 < r * r) {
                 let dist = sqrt(dist2);
                 let norm_r = dist / r;
-                let falloff = pow(max(0.0, 1.0 - norm_r), IMPULSE_FALLOFF_EXPONENT);
+                let falloff = pow(max(0.0, 1.0 - norm_r), sim.impulse_falloff_exp);
                 if (falloff > 0.0) {
                     // Simple coloring: swirl (kind 0) = cool blue, directional = warm orange
                     let base_color = select(vec3<f32>(1.0, 0.55, 0.2), vec3<f32>(0.25, 0.6, 1.0), imp.kind == 0u);
-                    let strength_scale = imp.strength * falloff * DYE_INJECT_SCALE;
+                    let strength_scale = imp.strength * falloff * sim.impulse_dye_scale;
                     out_dye = vec4<f32>(clamp(out_dye.rgb + base_color * strength_scale, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
                 }
             }
