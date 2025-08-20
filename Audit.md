@@ -255,11 +255,7 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- [x] Add unit test: `GpuImpulse` size/alignment stable (preliminary test in `fluid_impulses.rs`)
 	- Acceptance: Multiple simultaneous impulses modify velocity; legacy impulse dye disabled.
 
-### Phase 4B: Ball Color Dye Deposition (PENDING)
-	A. Teardown
-	- [ ] Remove or guard impulse dye write path (default off)
-	- [ ] Annotate `impulse_dye_scale` as deprecated in code/docs
-	B. Implementation
+### Phase 4B: Ball Color Dye Deposition (PENDING)	
 	- [ ] Add `BallDyeConfig` to `GameConfig` + RON defaults
 	- [ ] Define `GpuBallDye` struct & capacity constant
 	- [ ] CPU gather system builds `BallDyeBuffer` each frame
@@ -284,12 +280,6 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- [ ] Rasterize balls each frame (CPU upload or compute)
 	- [ ] Modify divergence & projection to treat obstacles as solid (zero normal velocity)
 	- Acceptance: Flow diverts around ball regions (visual inspection)
-
-### Phase 7: Fluid → Ball Drag
-	- [ ] Downsample velocity field (compute) or create sampling pass
-	- [ ] Sample per-ball velocities → buffer → extract to main world
-	- [ ] Apply drag system (configurable coefficient)
-	- Acceptance: Balls slow when moving against flow; toggle off reverts behavior
 
 ### Phase 8: Diagnostics & Residuals
 	- [ ] Optional GPU timestamp queries (feature gated)
