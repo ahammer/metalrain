@@ -144,6 +144,7 @@ fn sync_fluid_settings_from_config(
     settings.velocity_dissipation = fc.velocity_dissipation.clamp(0.0, 1.0);
     settings.force_strength = fc.force_strength.max(0.0);
     settings.enabled = fc.enabled;
+    settings.seed_initial_dye = fc.seed_initial_dye;
 }
 
 // Extraction systems move main-world resources into render world each frame (simple clone / copy of handles)
@@ -176,11 +177,12 @@ pub struct FluidSimSettings {
     pub velocity_dissipation: f32,
     pub force_strength: f32,
     pub enabled: bool,
+    pub seed_initial_dye: bool,
 }
 
 impl Default for FluidSimSettings {
     fn default() -> Self {
-        Self { resolution: UVec2::new(256, 256), jacobi_iterations: 20, time_step: 1.0/60.0, dissipation: 0.995, velocity_dissipation: 0.999, force_strength: 120.0, enabled: true }
+    Self { resolution: UVec2::new(256, 256), jacobi_iterations: 20, time_step: 1.0/60.0, dissipation: 0.995, velocity_dissipation: 0.999, force_strength: 120.0, enabled: true, seed_initial_dye: true }
     }
 }
 
@@ -432,24 +434,26 @@ fn setup_fluid_sim(
         if let Some(img) = images.get_mut(&velocity_a) { if let Some(data) = &mut img.data { data.copy_from_slice(&swirl); } }
         if let Some(img) = images.get_mut(&velocity_b) { if let Some(data) = &mut img.data { data.copy_from_slice(&swirl); } }
     }
-    // Seed dye_a with random color blotches so motion is visible
-    if let Some(img) = images.get_mut(&dye_a) {
-        if let Some(data) = &mut img.data {
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-            let w = size.width as usize; let h = size.height as usize;
-            for _ in 0..(w*h/300) { // number of blotches
-                let cx = rng.gen_range(0..w);
-                let cy = rng.gen_range(0..h);
-                let radius = rng.gen_range(6..24) as i32;
-                let color = [rng.gen_range(80..255) as u8, rng.gen_range(50..200) as u8, rng.gen_range(50..220) as u8];
-                for dy in -radius..=radius { for dx in -radius..=radius {
-                    let nx = cx as i32 + dx; let ny = cy as i32 + dy;
-                    if nx<0 || ny<0 || nx>=w as i32 || ny>=h as i32 { continue; }
-                    let d2 = dx*dx + dy*dy; if d2 > radius*radius { continue; }
-                    let idx = (ny as usize * w + nx as usize) * 4;
-                    data[idx] = color[0]; data[idx+1] = color[1]; data[idx+2] = color[2]; data[idx+3] = 255;
-                }}
+    // Optionally seed dye_a with random color blotches so motion is visible before ball wakes.
+    if settings.seed_initial_dye {
+        if let Some(img) = images.get_mut(&dye_a) {
+            if let Some(data) = &mut img.data {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                let w = size.width as usize; let h = size.height as usize;
+                for _ in 0..(w*h/300) { // number of blotches
+                    let cx = rng.gen_range(0..w);
+                    let cy = rng.gen_range(0..h);
+                    let radius = rng.gen_range(6..24) as i32;
+                    let color = [rng.gen_range(80..255) as u8, rng.gen_range(50..200) as u8, rng.gen_range(50..220) as u8];
+                    for dy in -radius..=radius { for dx in -radius..=radius {
+                        let nx = cx as i32 + dx; let ny = cy as i32 + dy;
+                        if nx<0 || ny<0 || nx>=w as i32 || ny>=h as i32 { continue; }
+                        let d2 = dx*dx + dy*dy; if d2 > radius*radius { continue; }
+                        let idx = (ny as usize * w + nx as usize) * 4;
+                        data[idx] = color[0]; data[idx+1] = color[1]; data[idx+2] = color[2]; data[idx+3] = 255;
+                    }}
+                }
             }
         }
     }
@@ -628,7 +632,12 @@ fn run_fluid_sim_compute(
     if let Some(prev) = existing_stats.as_ref() { if now.duration_since(prev.last_logged) > Duration::from_millis(500) { log_it = true; } }
     if stats_frame.overflowed { log_it = true; }
     if log_it && (stats_frame.emitted_main > 0 || stats_frame.overflowed) {
-        debug!(emitted = stats_frame.emitted_main, sent = stats_frame.sent_to_gpu, overflowed = stats_frame.overflowed, first = ?stats_frame.first_pos, first_radius = ?stats_frame.first_radius, falloff = sim_gpu.sim.impulse_falloff_exp, dye_scale = sim_gpu.sim.impulse_dye_scale, "Impulse stats");
+        let first_est_dye = if let (Some(r), Some(_pos)) = (stats_frame.first_radius, stats_frame.first_pos) {
+            // Estimate: base strength (approx radius as proxy) * dye_scale (heuristic for logging only)
+            // Real per-pixel injection also multiplies falloff (<=1), so this is an upper bound indicator.
+            (r * sim_gpu.sim.impulse_dye_scale) as f32
+        } else { 0.0 };
+        debug!(emitted = stats_frame.emitted_main, sent = stats_frame.sent_to_gpu, overflowed = stats_frame.overflowed, first = ?stats_frame.first_pos, first_radius = ?stats_frame.first_radius, falloff = sim_gpu.sim.impulse_falloff_exp, dye_scale = sim_gpu.sim.impulse_dye_scale, est_first_dye = first_est_dye, "Impulse stats");
         stats_frame.last_logged = now;
     }
     *existing_stats = Some(stats_frame.clone());

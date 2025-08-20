@@ -255,6 +255,8 @@ pub struct FluidSimConfig {
     pub impulse_debug_strength_mul: f32,
     /// Optional debug flag to spawn a periodic central test impulse
     pub impulse_debug_test_enabled: bool,
+    /// When true, seed the dye texture with random blotches at startup for motion visibility. Disable to view only ball‑injected dye.
+    pub seed_initial_dye: bool,
 }
 impl Default for FluidSimConfig {
     fn default() -> Self {
@@ -276,6 +278,7 @@ impl Default for FluidSimConfig {
             impulse_dye_scale: 0.15,
             impulse_debug_strength_mul: 1.0,
             impulse_debug_test_enabled: false,
+            seed_initial_dye: true,
         }
     }
 }
@@ -643,7 +646,7 @@ mod tests {
             },
             fluid_sim: FluidSimConfig { width: 0, height: 10, jacobi_iterations: 0, time_step: 0.2, dissipation: 2.0, velocity_dissipation: -0.5, force_strength: -10.0, enabled: true,
                 impulse_min_speed_factor: 0.05, impulse_radius_scale: 2.0, impulse_radius_world_min: 1.0, impulse_radius_world_max: 2.0,
-                impulse_strength_scale: 0.4, impulse_falloff_exponent: 2.0, impulse_dye_scale: 0.15, impulse_debug_strength_mul: 1.0, impulse_debug_test_enabled: false },
+                impulse_strength_scale: 0.4, impulse_falloff_exponent: 2.0, impulse_dye_scale: 0.15, impulse_debug_strength_mul: 1.0, impulse_debug_test_enabled: false, seed_initial_dye: true },
         };
         let warnings = bad.validate();
         // Ensure a representative subset of expected warnings are present
