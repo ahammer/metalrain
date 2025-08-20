@@ -220,7 +220,7 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- [x] Update bind group layout with impulse storage binding
 	- [x] WGSL: Replace `add_force` with `apply_impulses` looping impulses
 	- [x] Implement radial velocity injection (falloff: (1 - r/R)^n)
-	- [ ] Inject dye (constant color or simple per-impulse hue)
+	- [x] Inject dye (constant color or simple per-impulse hue)
 	- [ ] Clamp & track overflow (warn if overflowed)
 	- [x] Add unit test: `GpuImpulse` size/alignment stable (NOTE: preliminary test added in `fluid_impulses.rs` – may expand)
 	- Acceptance: Balls create visible wakes/trails; disabling impulses removes effect; no crashes with 0 impulses
