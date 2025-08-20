@@ -13,15 +13,19 @@ static BG_FLUID_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
 #[derive(Clone, Copy, ShaderType, Debug)]
 struct BgData {
-    window_size: Vec2,
-    cell_size: f32,
-    line_thickness: f32,
-    dark_factor: f32,
-    _pad: f32,
+    // 32-byte aligned uniform block (WebGPU / wgpu downlevel requires multiple of 16 bytes)
+    // Layout (std140-like rules Bevy follows for ShaderType): Vec2 (8) + 3*f32 (12) + 3*f32 padding = 32 total.
+    window_size: Vec2,    // 8
+    cell_size: f32,       // 12
+    line_thickness: f32,  // 16
+    dark_factor: f32,     // 20
+    _pad0: f32,           // 24
+    _pad1: f32,           // 28
+    _pad2: f32,           // 32
 }
 
 impl Default for BgData {
-    fn default() -> Self { Self { window_size: Vec2::ZERO, cell_size: 128.0, line_thickness: 0.015, dark_factor: 0.15, _pad: 0.0 } }
+    fn default() -> Self { Self { window_size: Vec2::ZERO, cell_size: 128.0, line_thickness: 0.015, dark_factor: 0.15, _pad0: 0.0, _pad1: 0.0, _pad2: 0.0 } }
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
@@ -53,10 +57,19 @@ struct FluidBackgroundQuad;
 pub enum ActiveBackground { Grid, Fluid, #[default] FluidSim }
 
 #[derive(Clone, Copy, ShaderType, Debug)]
-struct FluidData { window_size: Vec2, time: f32, scale: f32, intensity: f32, _pad: f32 }
+struct FluidData {
+    // Also pad to 32 bytes (was 24)
+    window_size: Vec2, // 8
+    time: f32,         // 12
+    scale: f32,        // 16
+    intensity: f32,    // 20
+    _pad0: f32,        // 24
+    _pad1: f32,        // 28
+    _pad2: f32,        // 32
+}
 
 impl Default for FluidData {
-    fn default() -> Self { Self { window_size: Vec2::ZERO, time: 0.0, scale: 1.25, intensity: 0.9, _pad: 0.0 } }
+    fn default() -> Self { Self { window_size: Vec2::ZERO, time: 0.0, scale: 1.25, intensity: 0.9, _pad0: 0.0, _pad1: 0.0, _pad2: 0.0 } }
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
