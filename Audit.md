@@ -214,7 +214,7 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- Acceptance: Zero functional differences; GPU copies reduced (all copy-backs removed); architecture ready for multi-impulse
 
 ### Phase 4: Multi-Impulse GPU Application + Dye Deposition (VISIBLE FEATURE)
-	- [ ] Define `GpuImpulse` struct & max count constant
+	- [x] Define `GpuImpulse` struct & max count constant (implemented Phase 4 Step 1)
 	- [ ] Add storage buffer + count uniform (or pack count in existing uniform padding)
 	- [ ] Extend extraction: pack impulses -> mapped buffer write each frame
 	- [ ] Update bind group layout with impulse storage binding
@@ -222,7 +222,7 @@ Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
 	- [ ] Implement radial velocity injection (falloff: (1 - r/R)^n)
 	- [ ] Inject dye (constant color or simple per-impulse hue)
 	- [ ] Clamp & track overflow (warn if overflowed)
-	- [ ] Add unit test: `GpuImpulse` size/alignment stable
+	- [ ] Add unit test: `GpuImpulse` size/alignment stable (NOTE: preliminary test added in `fluid_impulses.rs` – may expand)
 	- Acceptance: Balls create visible wakes/trails; disabling impulses removes effect; no crashes with 0 impulses
 
 ### Phase 5: Bind Group Cache & Velocity Format Shrink

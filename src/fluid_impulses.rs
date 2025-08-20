@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bytemuck::{Pod, Zeroable};
 
 use crate::components::Ball;
 use bevy_rapier2d::prelude::Velocity; // Rapier velocity component
@@ -79,5 +80,44 @@ impl Plugin for FluidImpulsesPlugin {
         if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render_app.add_systems(bevy::render::ExtractSchedule, extract_fluid_impulses);
         }
+    }
+}
+
+// ------------------------------------------------------------------------------------
+// Phase 4 (GPU multi-impulse) groundwork: GPU-ready packed impulse representation.
+// This is intentionally not yet wired to any buffers or shaders; we just establish
+// a stable, size/alignment-friendly layout so later steps can create a storage buffer
+// without churn.
+// Layout rationale (repr C): 32 bytes total, 16-byte multiple for predictable strides.
+// Fields:
+//   pos (vec2)          : 8 bytes
+//   radius (f32)        : 4
+//   strength (f32)      : 4   -> first 16-byte block
+//   dir (vec2)          : 8
+//   kind (u32)          : 4
+//   _pad (u32)          : 4   -> second 16-byte block (32 total)
+// Future extension room: replace _pad with color index / flags without enlarging struct.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct GpuImpulse {
+    pub pos: [f32; 2],
+    pub radius: f32,
+    pub strength: f32,
+    pub dir: [f32; 2],
+    pub kind: u32,
+    pub _pad: u32,
+}
+
+/// Maximum number of impulses the GPU path will process per frame (tunable).
+/// Chosen to balance buffer size vs. typical ball counts; 256 * 32B = 8KB.
+pub const MAX_GPU_IMPULSES: usize = 256;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn gpu_impulse_layout() {
+        assert_eq!(std::mem::size_of::<GpuImpulse>(), 32, "GpuImpulse must remain 32 bytes");
+        assert_eq!(std::mem::align_of::<GpuImpulse>(), 4, "Expected 4-byte alignment (repr C scalar alignment)");
     }
 }
