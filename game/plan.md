@@ -201,7 +201,7 @@ Tracking list (mirrors high-level phases). Update status inline (DO NOT remove c
 - [x] Phase 1: Port config crate + tests (no bevy) (completed 2025-08-21 commit 9b04bb5)
 - [x] Phase 1: Port core crate (components, system sets) (completed 2025-08-21 commit 9b04bb5)
 - [ ] Phase 2: Implement physics crate (rapier setup, radial gravity, separation) + deterministic headless test (baseline systems 96a8cb2; harness smoke test a803d1a; drift movement test e25ed53; drift snapshot pending)
-- [ ] Phase 3: Implement rendering crate (camera, background, materials, palette)
+- [ ] Phase 3: Implement rendering crate (camera, background, materials, palette) (camera + clear color palette scaffold 9c01337; background & materials pending)
 - [ ] Phase 4: Port spawning (ring) + emitter (seeded RNG path) into gameplay crate
 - [ ] Phase 4: Add spawn & emitter integration tests (entity count distribution)
 - [ ] Phase 5: Port input interactions (drag, explosion) with scripted input test
@@ -224,6 +224,7 @@ Tracking list (mirrors high-level phases). Update status inline (DO NOT remove c
 | 2025-08-21 | 2 | 96a8cb2 | Physics baseline: Rapier zero gravity, radial gravity, separation systems, helpers + unit tests |
 | 2025-08-21 | 2 | a803d1a | Integration tests: headless physics harness smoke test (radial gravity velocity assertion) |
 | 2025-08-21 | 2 | e25ed53 | Integration tests: dynamic body drift movement test (partial snapshot progress) |
+| 2025-08-21 | 3 | 9c01337 | Rendering basics: camera entity spawn + clear color palette scaffold |
 
 ---
 ## 12. Open Questions / To Clarify Later
@@ -234,7 +235,7 @@ Tracking list (mirrors high-level phases). Update status inline (DO NOT remove c
 ---
 ## 13. Immediate Next Steps
 1. Implement drift snapshot harness: spawn configured dynamic bodies, run 100 fixed 1/60 steps, serialize positions JSON baseline, add comparison & thresholds (<0.5 avg, <2.0 max) to finish Phase 2 exit criteria.
-2. Start Phase 3 rendering basics (camera, background, materials/palette scaffolds).
+2. Continue Phase 3 rendering: add background placeholder (grid/fluid), simple circle sprite/material setup, prepare golden frame hash scaffolding.
 3. Design spawning (Phase 4) using RngSeed for deterministic tests (document spawn parameter distribution expectations).
 
 ---
