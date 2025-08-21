@@ -210,4 +210,84 @@ mod tests {
         // Relaxed minimal inward drift threshold; observed ~0.545 in current baseline.
         assert!(final_x < initial_x - 0.3, "expected inward drift >=0.3, initial_x={initial_x} final_x={final_x}");
     }
+
+    /// Drift snapshot serialization: capture 100 steps, serialize to JSON, deserialize, and compute metrics.
+    /// This is a preparatory harness; legacy parity comparison will be added later.
+    #[test]
+    fn headless_physics_drift_snapshot_serialization() {
+        use bm_core::{CorePlugin, GameConfigRes, Ball, BallRadius};
+        use bm_physics::PhysicsPlugin;
+        use bevy_rapier2d::prelude::{Velocity, RigidBody, Collider};
+        use serde::{Serialize, Deserialize};
+
+        #[derive(Serialize, Deserialize)]
+        struct SnapPoint {
+            step: u32,
+            x: f32,
+        }
+
+        fn capture(initial_x: f32, steps: u32, dt: f32) -> Vec<SnapPoint> {
+            let mut app = build_minimal_app();
+            app.add_plugins(CorePlugin);
+            app.add_plugins(PhysicsPlugin);
+            app.insert_resource(GameConfigRes::default());
+
+            let e = app.world_mut().spawn((
+                Ball,
+                BallRadius(10.0),
+                Transform::from_xyz(initial_x, 0.0, 0.0),
+                GlobalTransform::default(),
+                RigidBody::Dynamic,
+                Collider::ball(10.0),
+                Velocity::default(),
+            )).id();
+
+            let mut data = Vec::with_capacity((steps + 1) as usize);
+            data.push(SnapPoint { step: 0, x: initial_x });
+            for step in 1..=steps {
+                {
+                    let mut time = app.world_mut().resource_mut::<Time>();
+                    time.advance_by(std::time::Duration::from_secs_f32(dt));
+                }
+                app.update();
+                let tf = app.world().entity(e).get::<Transform>().unwrap();
+                data.push(SnapPoint { step, x: tf.translation.x });
+            }
+            data
+        }
+
+        let initial_x = 150.0;
+        let steps = 100;
+        let dt = 1.0 / 60.0;
+        let snap = capture(initial_x, steps, dt);
+
+        // Serialize to JSON (in-memory for now; future: write baseline file).
+        let json = serde_json::to_string_pretty(&snap).expect("serialize snapshot");
+        // Round-trip
+        let round: Vec<SnapPoint> = serde_json::from_str(&json).expect("deserialize snapshot");
+        assert_eq!(snap.len(), round.len(), "length mismatch after round trip");
+
+        // Compute drift metrics (inward movement expected).
+        let mut sum_drift = 0.0f32;
+        let mut max_drift = 0.0f32;
+        for sp in &round {
+            let drift = initial_x - sp.x;
+            if drift > max_drift {
+                max_drift = drift;
+            }
+            sum_drift += drift;
+        }
+        let avg_drift = sum_drift / round.len() as f32;
+
+        // Basic expectations (not legacy parity yet).
+        assert!(max_drift > 0.3, "expected noticeable max drift >0.3, got {max_drift}");
+        assert!(avg_drift > 0.05, "expected some average inward drift, got {avg_drift}");
+
+        // Ensure monotonic (non-increasing x) after first few frames (allow minor floating noise).
+        for w in round.windows(2).skip(2) {
+            if let [a, b] = w {
+                assert!(b.x <= a.x + 1e-3, "x increased unexpectedly at step {} -> {}", a.step, b.step);
+            }
+        }
+    }
 }
