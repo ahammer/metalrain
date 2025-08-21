@@ -197,9 +197,9 @@ Each example must compile in isolation; use feature flags as needed.
 Tracking list (mirrors high-level phases). Update status inline (DO NOT remove completed entries; append result notes).
 
 ```
-- [ ] Phase 0: Scaffold workspace & stub crates
-- [ ] Phase 1: Port config crate + tests (no bevy)
-- [ ] Phase 1: Port core crate (components, system sets)
+- [x] Phase 0: Scaffold workspace & stub crates (completed 2025-08-21 commit 2a1484e36f495f65566e12e268ae3acf1958152f)
+- [x] Phase 1: Port config crate + tests (no bevy) (completed 2025-08-21 pending commit)
+- [x] Phase 1: Port core crate (components, system sets) (completed 2025-08-21 pending commit)
 - [ ] Phase 2: Implement physics crate (rapier setup, radial gravity, separation) + deterministic headless test
 - [ ] Phase 3: Implement rendering crate (camera, background, materials, palette)
 - [ ] Phase 4: Port spawning (ring) + emitter (seeded RNG path) into gameplay crate
@@ -219,7 +219,7 @@ Tracking list (mirrors high-level phases). Update status inline (DO NOT remove c
 
 | Date | Phase | Commit | Notes |
 |------|-------|--------|-------|
-| (tbd) | 0 | | Workspace scaffold created |
+| 2025-08-21 | 0 | 2a1484e36f495f65566e12e268ae3acf1958152f | Workspace scaffold created |
 
 ---
 ## 12. Open Questions / To Clarify Later
@@ -229,10 +229,9 @@ Tracking list (mirrors high-level phases). Update status inline (DO NOT remove c
 
 ---
 ## 13. Immediate Next Steps
-1. Execute Phase 0 checklist item: create workspace + stub crates with minimal `lib.rs` + feature placeholders.
-2. Port config + tests (Phase 1 start).
-3. Seed RNG abstraction early to avoid test rewrites later.
+1. Commit Phase 1 initial port (config + core) and record migration log entry with commit hash.
+2. Introduce RNG seed abstraction resource (core or gameplay) to support deterministic spawning tests.
+3. Begin Phase 2: implement physics crate baseline (Rapier setup + placeholders for radial gravity & separation).
 
 ---
 END OF PLAN
-
