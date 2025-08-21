@@ -15,8 +15,7 @@ use bevy::prelude::Mesh2d;
 // (Phase 3 completion) Removed need for TexelCopyTextureInfo after converting dye to true ping-pong.
 use crate::config::GameConfig;
 use crate::background::ActiveBackground;
-use crate::fluid_impulses::{GpuImpulse, MAX_GPU_IMPULSES, FluidImpulseQueue};
-use std::time::{Duration, Instant};
+// Removed impulse-based injection path (replaced by texture-driven ingestion in upcoming phases)
 
 // Feature-gated logging macro for verbose fluid sim pass/gating details.
 // Enable with cargo feature `fluid_debug_passes` to elevate to info-level.
@@ -46,7 +45,6 @@ pub enum FluidSimStatus {
 }
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     enum FluidPass {
-        ApplyImpulses,
         AdvectVelocity,
         ComputeDivergence,
         Jacobi(u32), // iteration index (0-based)
@@ -56,7 +54,6 @@ pub enum FluidSimStatus {
 impl Default for FluidSimStatus { fn default() -> Self { FluidSimStatus::Disabled } }
     fn build_pass_graph(jacobi_iterations: u32) -> Vec<FluidPass> {
         let mut passes = Vec::with_capacity(6 + jacobi_iterations as usize);
-    passes.push(FluidPass::ApplyImpulses);
         passes.push(FluidPass::AdvectVelocity);
         passes.push(FluidPass::ComputeDivergence);
         for i in 0..jacobi_iterations.max(1) { // ensure at least one iteration
@@ -228,7 +225,6 @@ impl FluidSimResources {
 #[derive(Resource)]
 pub struct FluidPipelines {
     pub layout: Option<BindGroupLayout>,
-    pub apply_impulses: CachedComputePipelineId,
     pub advect_velocity: CachedComputePipelineId,
     pub compute_divergence: CachedComputePipelineId,
     pub jacobi_pressure: CachedComputePipelineId,
@@ -240,19 +236,12 @@ impl Default for FluidPipelines {
     fn default() -> Self {
         // Use dummy zero ids until queued; these will be replaced.
         let zero = CachedComputePipelineId::INVALID;
-    Self { layout: None, apply_impulses: zero, advect_velocity: zero, compute_divergence: zero, jacobi_pressure: zero, project_velocity: zero, advect_dye: zero }
+    Self { layout: None, advect_velocity: zero, compute_divergence: zero, jacobi_pressure: zero, project_velocity: zero, advect_dye: zero }
     }
 }
 
 #[derive(Resource, Clone)]
-pub struct FluidSimGpu {
-    pub uniform_buffer: Buffer,
-    pub sim: SimUniform,
-    // Phase 4 step 2: GPU impulse storage buffer & count uniform (not yet consumed by shader).
-    pub impulse_buffer: Buffer,
-    pub impulse_count_buffer: Buffer,
-    pub impulse_capacity: usize,
-}
+pub struct FluidSimGpu { pub uniform_buffer: Buffer, pub sim: SimUniform }
 
 // Diagnostics resource (main world copy extracted to render world not required). Tracks total dispatches & last frame id.
 #[derive(Debug)]
@@ -308,17 +297,7 @@ impl FluidSimDiagnostics {
     fn removed_dye_copies(&self) -> u64 { self.inner.removed_dye_copies.load(Ordering::Relaxed) }
 }
 
-// Per-frame impulse statistics (inserted as resource each frame for overlay / debugging)
-#[derive(Resource, Debug, Clone)]
-pub struct ImpulseStats {
-    pub emitted_main: u32,
-    pub sent_to_gpu: u32,
-    pub overflowed: bool,
-    pub first_pos: Option<Vec2>,
-    pub first_radius: Option<f32>,
-    pub last_logged: Instant,
-}
-impl Default for ImpulseStats { fn default() -> Self { Self { emitted_main: 0, sent_to_gpu: 0, overflowed: false, first_pos: None, first_radius: None, last_logged: Instant::now() } } }
+// ImpulseStats removed (legacy impulse injection path decommissioned).
 
 // Display handled via a fullscreen material (to be implemented); no sprite/quad yet.
 
@@ -382,8 +361,9 @@ pub struct SimUniform {
     pub force_pos: Vec2,
     pub force_radius: f32,
     pub force_strength: f32,
-    pub impulse_falloff_exp: f32,
-    pub impulse_dye_scale: f32,
+    // padding / legacy removed impulse fields
+    pub _pad0: f32,
+    pub _pad1: f32,
 }
 
 impl Default for SimUniform {
@@ -399,8 +379,8 @@ impl Default for SimUniform {
             force_pos: Vec2::new(128.0,128.0),
             force_radius: 32.0,
             force_strength: 150.0,
-            impulse_falloff_exp: 2.0,
-            impulse_dye_scale: 0.15,
+            _pad0: 0.0,
+            _pad1: 0.0,
         }
     }
 }
@@ -528,21 +508,7 @@ fn setup_fluid_sim(
         std::slice::from_raw_parts((&sim_u as *const SimUniform) as *const u8, size_of::<SimUniform>())
     };
     render_queue.write_buffer(&buffer, 0, bytes);
-    // Allocate impulse GPU buffers (storage + count). Not yet used by shader.
-    let storage_size = (MAX_GPU_IMPULSES * std::mem::size_of::<GpuImpulse>()) as u64;
-    let impulse_buffer = render_device.create_buffer(&BufferDescriptor {
-        label: Some("fluid-impulses-storage"),
-        size: storage_size,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let impulse_count_buffer = render_device.create_buffer(&BufferDescriptor {
-        label: Some("fluid-impulses-count"),
-        size: 16, // u32 count + padding
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    commands.insert_resource(FluidSimGpu { uniform_buffer: buffer, sim: sim_u, impulse_buffer, impulse_count_buffer, impulse_capacity: MAX_GPU_IMPULSES });
+    commands.insert_resource(FluidSimGpu { uniform_buffer: buffer, sim: sim_u });
 }
 
 // Removed placeholder debug system now that real compute passes are active.
@@ -595,9 +561,7 @@ fn run_fluid_sim_compute(
     diag: Option<Res<FluidSimDiagnostics>>,
     mut status: ResMut<FluidSimStatus>,
     mut ping: ResMut<FluidPingState>,
-    impulses: Option<Res<FluidImpulseQueue>>,
     mut commands: Commands,
-    mut existing_stats: Local<Option<ImpulseStats>>,
 ) {
     trace!("ENTER run_fluid_sim_compute");
     if sim_res.is_none() || sim_gpu.is_none() {
@@ -621,7 +585,6 @@ fn run_fluid_sim_compute(
         return
     };
     let required = [
-    pipelines.apply_impulses,
         pipelines.advect_velocity,
         pipelines.compute_divergence,
         pipelines.jacobi_pressure,
@@ -636,55 +599,7 @@ fn run_fluid_sim_compute(
     }
     *status = FluidSimStatus::Running;
 
-    // Phase 4 step 2: write impulse queue into GPU storage + count uniform (shader still unused).
-    let mut stats_frame = ImpulseStats::default();
-    if let Some(queue) = impulses.as_ref() {
-        stats_frame.emitted_main = queue.0.len() as u32;
-        // Pack up to capacity with overflow detection
-        let cap = sim_gpu.impulse_capacity;
-        let mut packed: Vec<GpuImpulse> = Vec::with_capacity(queue.0.len().min(cap));
-        for (idx, imp) in queue.0.iter().enumerate() {
-            if idx >= cap { stats_frame.overflowed = true; break; }
-            let kind_code = match imp.kind { crate::fluid_impulses::FluidImpulseKind::SwirlFromVelocity => 0u32, crate::fluid_impulses::FluidImpulseKind::DirectionalVelocity => 1u32 };
-            packed.push(GpuImpulse {
-                pos: [imp.position.x, imp.position.y],
-                radius: imp.radius,
-                strength: imp.strength,
-                dir: [imp.dir.x, imp.dir.y],
-                kind: kind_code,
-                _pad: 0,
-            });
-        }
-        stats_frame.sent_to_gpu = packed.len() as u32;
-        if packed.len() > 0 { stats_frame.first_pos = Some(Vec2::new(packed[0].pos[0], packed[0].pos[1])); stats_frame.first_radius = Some(packed[0].radius); }
-        if !packed.is_empty() {
-            // Safety: Pod
-            let bytes: &[u8] = bytemuck::cast_slice(&packed);
-            render_queue.write_buffer(&sim_gpu.impulse_buffer, 0, bytes);
-        }
-        // Write count (u32 + padding)
-        let count_bytes: [u8;16] = {
-            let c = packed.len() as u32;
-            [c as u8, (c>>8) as u8, (c>>16) as u8, (c>>24) as u8, 0,0,0,0, 0,0,0,0, 0,0,0,0]
-        };
-        render_queue.write_buffer(&sim_gpu.impulse_count_buffer, 0, &count_bytes);
-    }
-    // Log impulse stats throttled (every ~0.5s) or on overflow
-    let now = Instant::now();
-    let mut log_it = false;
-    if let Some(prev) = existing_stats.as_ref() { if now.duration_since(prev.last_logged) > Duration::from_millis(500) { log_it = true; } }
-    if stats_frame.overflowed { log_it = true; }
-    if log_it && (stats_frame.emitted_main > 0 || stats_frame.overflowed) {
-        let first_est_dye = if let (Some(r), Some(_pos)) = (stats_frame.first_radius, stats_frame.first_pos) {
-            // Estimate: base strength (approx radius as proxy) * dye_scale (heuristic for logging only)
-            // Real per-pixel injection also multiplies falloff (<=1), so this is an upper bound indicator.
-            (r * sim_gpu.sim.impulse_dye_scale) as f32
-        } else { 0.0 };
-        debug!(emitted = stats_frame.emitted_main, sent = stats_frame.sent_to_gpu, overflowed = stats_frame.overflowed, first = ?stats_frame.first_pos, first_radius = ?stats_frame.first_radius, falloff = sim_gpu.sim.impulse_falloff_exp, dye_scale = sim_gpu.sim.impulse_dye_scale, est_first_dye = first_est_dye, "Impulse stats");
-        stats_frame.last_logged = now;
-    }
-    *existing_stats = Some(stats_frame.clone());
-    commands.insert_resource(stats_frame);
+    // Impulse path removed; future texture ingestion will inject forces & dye.
 
     // Phase 3 completion: true ping-pong for velocity, pressure, and dye (no copy-back for dye).
     let (vel_front, vel_back) = front_back(ping.velocity_front_is_a, &sim_res.velocity_a, &sim_res.velocity_b);
@@ -716,8 +631,6 @@ fn run_fluid_sim_compute(
                 BindGroupEntry { binding: 5, resource: BindingResource::TextureView(p_in) },
                 BindGroupEntry { binding: 6, resource: BindingResource::TextureView(p_out) },
                 BindGroupEntry { binding: 7, resource: BindingResource::TextureView(divergence) },
-                BindGroupEntry { binding: 8, resource: sim_gpu.impulse_buffer.as_entire_binding() },
-                BindGroupEntry { binding: 9, resource: sim_gpu.impulse_count_buffer.as_entire_binding() },
             ],
         )
     };
@@ -749,11 +662,6 @@ fn run_fluid_sim_compute(
 
     for pass in pass_list.iter() {
         match *pass {
-            FluidPass::ApplyImpulses => {
-                let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
-                run_pass(pipelines.apply_impulses, &bg, "apply_impulses", &mut encoder, grid);
-                std::mem::swap(&mut vel_read, &mut vel_write); velocity_front_is_a = !velocity_front_is_a;
-            }
             FluidPass::AdvectVelocity => {
                 let bg = make_bg(vel_read, vel_write, da, db, pa, pb, div);
                 run_pass(pipelines.advect_velocity, &bg, "advect_velocity", &mut encoder, grid);
@@ -794,9 +702,8 @@ fn run_fluid_sim_compute(
     if let Some(d) = diag {
         let wg_x = (grid.x as u64 + 7) / 8; let wg_y = (grid.y as u64 + 7) / 8;
     let jacobi_iters_u64 = jacobi_iters_val as u64;
-    // Passes counted: apply_impulses, advect_velocity, compute_divergence, jacobi*N, project_velocity, advect_dye
-    // All copy passes eliminated; approx_passes metric unchanged for now (kept simple)
-    let approx_passes = 4 + jacobi_iters_u64 + 2;
+    // Passes counted: advect_velocity, compute_divergence, jacobi*N, project_velocity, advect_dye
+    let approx_passes = 3 + jacobi_iters_u64 + 2;
         d.record_dispatch(grid, wg_x * wg_y * approx_passes, jacobi_iters_u64);
     }
 }
@@ -822,9 +729,7 @@ fn prepare_fluid_pipelines(
             BindGroupLayoutEntry { binding: 5, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadOnly, format: TextureFormat::R32Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 6, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::R32Float, view_dimension: TextureViewDimension::D2 }, count: None },
             BindGroupLayoutEntry { binding: 7, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::ReadWrite, format: TextureFormat::R32Float, view_dimension: TextureViewDimension::D2 }, count: None },
-            // New: impulses storage buffer + count uniform (padding to 16 bytes). Shader will consume later.
-            BindGroupLayoutEntry { binding: 8, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            BindGroupLayoutEntry { binding: 9, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: Some(std::num::NonZeroU64::new(16).unwrap()) }, count: None },
+            // bindings 8 & 9 removed (legacy impulse buffers)
         ];
     let layout = render_device.create_bind_group_layout(Some("fluid-sim-layout"), &entries);
     debug!("Created fluid sim bind group layout");
@@ -832,7 +737,6 @@ fn prepare_fluid_pipelines(
     }
     if pipelines.layout.is_none() { return; }
     let already_ready = [
-    pipelines.apply_impulses,
         pipelines.advect_velocity,
         pipelines.compute_divergence,
         pipelines.jacobi_pressure,
@@ -852,8 +756,7 @@ fn prepare_fluid_pipelines(
         { asset_server.load("shaders/fluid_sim.wgsl") }
     };
     let layout = pipelines.layout.as_ref().unwrap().clone();
-    let entries: [(&'static str, *mut CachedComputePipelineId); 6] = [
-        ("apply_impulses", &mut pipelines.apply_impulses as *mut _),
+    let entries: [(&'static str, *mut CachedComputePipelineId); 5] = [
         ("advect_velocity", &mut pipelines.advect_velocity as *mut _),
         ("compute_divergence", &mut pipelines.compute_divergence as *mut _),
         ("jacobi_pressure", &mut pipelines.jacobi_pressure as *mut _),
@@ -899,11 +802,7 @@ fn update_sim_uniforms(
     gpu.sim.dissipation = settings.dissipation;
     gpu.sim.vel_dissipation = settings.velocity_dissipation;
     gpu.sim.force_strength = settings.force_strength;
-    if let Some(cfg) = cfg {
-        let fc = &cfg.fluid_sim;
-        gpu.sim.impulse_falloff_exp = fc.impulse_falloff_exponent.max(0.01);
-        gpu.sim.impulse_dye_scale = fc.impulse_dye_scale.max(0.0);
-    }
+    // Legacy impulse-driven dye/velocity injection removed; no per-frame impulse params.
     // Write entire uniform (small struct) to GPU
     unsafe {
         let bytes = std::slice::from_raw_parts((&gpu.sim as *const SimUniform) as *const u8, std::mem::size_of::<SimUniform>());

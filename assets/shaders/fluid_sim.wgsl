@@ -30,8 +30,9 @@ struct SimUniform {
     force_pos       : vec2<f32>,
     force_radius    : f32,
     force_strength  : f32,
-    impulse_falloff_exp : f32,
-    impulse_dye_scale   : f32,
+    // Removed impulse_falloff_exp / impulse_dye_scale (legacy impulse system)
+    _pad0 : f32,
+    _pad1 : f32,
 };
 @group(0) @binding(0) var<uniform> sim : SimUniform;
 
@@ -48,12 +49,6 @@ struct SimUniform {
 @group(0) @binding(6) var pressure_out : texture_storage_2d<r32float, write>;
 
 @group(0) @binding(7) var divergence_tex : texture_storage_2d<r32float, read_write>;
-// Phase 4 step 2: placeholder bindings for upcoming multi-impulse support (currently unused)
-struct GpuImpulse { pos: vec2<f32>, radius: f32, strength: f32, dir: vec2<f32>, kind: u32, _pad: u32 };
-@group(0) @binding(8) var<storage, read> impulses : array<GpuImpulse>;
-@group(0) @binding(9) var<uniform> impulse_count : vec4<u32>; // x = count
-
-// Phase 4: parameters now supplied via uniform (impulse_falloff_exp, impulse_dye_scale)
 
 // ─────────────────────────────────────────────────────────────
 // 2. Velocity helpers
@@ -83,46 +78,7 @@ fn write_velocity(coord : vec2<i32>, v : vec2<f32>) {
     textureStore(velocity_out, coord, vec4<f32>(v, 0.0, 0.0));
 }
 
-// ─────────────────────────────────────────────────────────────
-// 3. apply_impulses – iterate all queued impulses adding velocity contributions
-// ─────────────────────────────────────────────────────────────
-@compute @workgroup_size(8,8,1)
-fn apply_impulses(@builtin(global_invocation_id) gid_in : vec3<u32>) {
-    let gid = vec2<i32>(gid_in.xy);
-    if (u32(gid.x) >= sim.grid_size.x || u32(gid.y) >= sim.grid_size.y) { return; }
-    var v = read_velocity(gid);
-    let cell_pos = vec2<f32>(vec2<i32>(gid));
-    let count = impulse_count.x;
-    if (count == 0u) { write_velocity(gid, v); return; }
-    for (var i:u32 = 0u; i < count; i = i + 1u) {
-        let imp = impulses[i];
-        if (imp.strength <= 0.0 || imp.radius <= 0.0) { continue; }
-        let d = cell_pos - imp.pos;
-        let dist2 = dot(d,d);
-        let r = imp.radius;
-        if (dist2 < r * r) {
-            let dist = sqrt(dist2);
-            let norm_r = dist / r; // in [0,1)
-            let falloff = pow(max(0.0, 1.0 - norm_r), sim.impulse_falloff_exp);
-            if (falloff > 0.0) {
-                var dir = vec2<f32>(0.0,0.0);
-                if (imp.kind == 0u) {
-                    // Swirl: perpendicular to radial vector (normalized)
-                    let safe_div = dist + 1e-5;
-                    dir = vec2<f32>(-d.y, d.x) / safe_div;
-                } else {
-                    // Directional: provided dir (normalize to be safe)
-                    let base = imp.dir;
-                    let mag = max(length(base), 1e-5);
-                    dir = base / mag;
-                }
-                // Scale by strength, falloff, and dt
-                v += dir * imp.strength * falloff * sim.dt;
-            }
-        }
-    }
-    write_velocity(gid, v);
-}
+// (Removed legacy apply_impulses compute pass)
 
 // ─────────────────────────────────────────────────────────────
 // 4. advect_velocity – semi-Lagrangian self-advection (bilinear sample)
@@ -251,28 +207,7 @@ fn advect_dye(@builtin(global_invocation_id) gid_in : vec3<u32>) {
     let dye   = read_dye_lin(backp);
     var out_dye = dye * sim.dye_dissipation;
 
-    // Phase 4: dye deposition from impulses (uses same falloff as velocity injection)
-    let count = impulse_count.x;
-    if (count > 0u) {
-        for (var i:u32 = 0u; i < count; i = i + 1u) {
-            let imp = impulses[i];
-            if (imp.strength <= 0.0 || imp.radius <= 0.0) { continue; }
-            let d = p - imp.pos;
-            let dist2 = dot(d,d);
-            let r = imp.radius;
-            if (dist2 < r * r) {
-                let dist = sqrt(dist2);
-                let norm_r = dist / r;
-                let falloff = pow(max(0.0, 1.0 - norm_r), sim.impulse_falloff_exp);
-                if (falloff > 0.0) {
-                    // Simple coloring: swirl (kind 0) = cool blue, directional = warm orange
-                    let base_color = select(vec3<f32>(1.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), imp.kind == 0u);
-                    let strength_scale = imp.strength * falloff * sim.impulse_dye_scale;
-                    out_dye = vec4<f32>(clamp(out_dye.rgb + base_color * strength_scale, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
-                }
-            }
-        }
-    }
+    // Legacy impulse dye deposition removed.
     textureStore(scalar_b, gid, out_dye);
 }
 

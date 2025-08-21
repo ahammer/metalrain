@@ -18,7 +18,6 @@ use crate::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
 use crate::debug::DebugPlugin;
 use crate::config_hot_reload::ConfigHotReloadPlugin;
 use crate::fluid_sim::FluidSimPlugin;
-use crate::fluid_impulses::FluidImpulsesPlugin;
 use crate::auto_close::AutoClosePlugin;
 
 pub struct GamePlugin;
@@ -33,7 +32,6 @@ impl Plugin for GamePlugin {
             )
             .add_plugins((
     BackgroundPlugin, // draws implicit background (no clear)
-    FluidImpulsesPlugin, // collects & extracts per-frame fluid impulses (Phase 2)
     FluidSimPlugin, // GPU fluid simulation background
                 CameraPlugin,
                 MaterialsPlugin,

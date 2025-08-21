@@ -237,24 +237,6 @@ pub struct FluidSimConfig {
     pub force_strength: f32,
     /// Master enable; when false the FluidSimPlugin may skip heavy work / allocation (future optimization).
     pub enabled: bool,
-    // --- Impulse (ball wake) parameters (Phase 4) ---
-    /// Minimum speed factor relative to force_strength to emit an impulse (speed < force_strength * factor => skip)
-    pub impulse_min_speed_factor: f32,
-    /// World-space radius scale applied to ball speed to derive base impulse radius before clamping.
-    pub impulse_radius_scale: f32,
-    /// Minimum / maximum world-space radius clamp applied before mapping to grid space.
-    pub impulse_radius_world_min: f32,
-    pub impulse_radius_world_max: f32,
-    /// Multiplier converting ball speed to impulse base strength.
-    pub impulse_strength_scale: f32,
-    /// Falloff exponent n in (1 - r/R)^n for both velocity + dye.
-    pub impulse_falloff_exponent: f32,
-    /// Dye injection global multiplier applied after strength & falloff.
-    pub impulse_dye_scale: f32,
-    /// Optional debug amplification factor applied to impulse strength (not persisted if 1.0)
-    pub impulse_debug_strength_mul: f32,
-    /// Optional debug flag to spawn a periodic central test impulse
-    pub impulse_debug_test_enabled: bool,
     /// When true, seed the dye texture with random blotches at startup for motion visibility. Disable to view only ball‑injected dye.
     pub seed_initial_dye: bool,
 }
@@ -269,15 +251,6 @@ impl Default for FluidSimConfig {
             velocity_dissipation: 0.999,
             force_strength: 120.0,
             enabled: true,
-            impulse_min_speed_factor: 0.05,
-            impulse_radius_scale: 2.0,
-            impulse_radius_world_min: 8.0,
-            impulse_radius_world_max: 96.0,
-            impulse_strength_scale: 0.4,
-            impulse_falloff_exponent: 2.0,
-            impulse_dye_scale: 0.15,
-            impulse_debug_strength_mul: 1.0,
-            impulse_debug_test_enabled: false,
             seed_initial_dye: true,
         }
     }
@@ -645,8 +618,7 @@ mod tests {
                 },
             },
             fluid_sim: FluidSimConfig { width: 0, height: 10, jacobi_iterations: 0, time_step: 0.2, dissipation: 2.0, velocity_dissipation: -0.5, force_strength: -10.0, enabled: true,
-                impulse_min_speed_factor: 0.05, impulse_radius_scale: 2.0, impulse_radius_world_min: 1.0, impulse_radius_world_max: 2.0,
-                impulse_strength_scale: 0.4, impulse_falloff_exponent: 2.0, impulse_dye_scale: 0.15, impulse_debug_strength_mul: 1.0, impulse_debug_test_enabled: false, seed_initial_dye: true },
+                seed_initial_dye: true },
         };
         let warnings = bad.validate();
         // Ensure a representative subset of expected warnings are present

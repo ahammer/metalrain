@@ -25,7 +25,6 @@ mod debug; // debug feature plugin (gated internally)
 mod config_hot_reload; // runtime config hot reload (native only)
 mod fluid_sim; // GPU fluid simulation module
 mod auto_close; // timed auto-exit functionality
-mod fluid_impulses; // fluid impulse queue & extraction (phase 2)
 
 use config::GameConfig;
 

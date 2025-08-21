@@ -48,13 +48,6 @@
         velocity_dissipation: 0.999,
         force_strength: 5.0,
         enabled: true,
-        seed_initial_dye: false,
-        impulse_min_speed_factor: 0.05,
-        impulse_radius_scale: 1.0, // increased for larger visible wake area
-        impulse_radius_world_min: 8.0,
-        impulse_radius_world_max: 128.0, // allow larger wakes
-        impulse_strength_scale: 0.3, // stronger velocity / dye baseline
-        impulse_falloff_exponent: 1.1, // softer falloff -> broader influence
-        impulse_dye_scale: 0.1, // amplify dye deposition
+    seed_initial_dye: false,
     ),
 )
