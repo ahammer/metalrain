@@ -3,8 +3,8 @@
 // Exposes configurable cell size in world units.
 
 struct BgUniform {
-    v0: vec4<f32>; // (window_size.x, window_size.y, cell_size, line_thickness)
-    v1: vec4<f32>; // (dark_factor, reserved1, reserved2, reserved3)
+    v0: vec4<f32>, // (window_size.x, window_size.y, cell_size, line_thickness)
+    v1: vec4<f32> // (dark_factor, reserved1, reserved2, reserved3)
 };
 
 @group(2) @binding(0)

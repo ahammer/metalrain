@@ -284,7 +284,6 @@ mod tests {
                     max_speed: 0.0,
                 },
             },
-            fluid_sim: crate::config::FluidSimConfig::default(),
         });
         // Minimal camera & window substitute not set -> system will early return; skip full integration due to complexity.
         // Instead directly invoke logic: create an explosion at origin and ensure velocity changes.
@@ -354,7 +353,6 @@ mod tests {
                     max_speed: 0.0,
                 },
             },
-            fluid_sim: crate::config::FluidSimConfig::default(),
         });
         app.insert_resource(ActiveDrag {
             entity: Some(Entity::from_raw(1)),

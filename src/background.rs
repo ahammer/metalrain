@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use crate::fluid_sim; // access FluidDisplayQuad component for toggling FluidSim background
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::prelude::Mesh2d;
@@ -8,8 +7,6 @@ use bevy::prelude::Mesh2d;
 use std::sync::OnceLock;
 #[cfg(target_arch = "wasm32")]
 static BG_WORLDGRID_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
-#[cfg(target_arch = "wasm32")]
-static BG_FLUID_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug)]
@@ -59,52 +56,7 @@ impl Material2d for BgMaterial {
 #[derive(Component)]
 struct BackgroundQuad;
 
-#[derive(Component)]
-struct FluidBackgroundQuad;
-
-// Active background selector
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActiveBackground { Grid, Fluid, #[default] FluidSim }
-
-#[repr(C, align(16))]
-#[derive(Clone, Copy, ShaderType, Debug)]
-struct FluidData {
-    // v0: (window_size.x, window_size.y, time, scale)
-    // v1: (intensity, reserved1, reserved2, reserved3)
-    v0: Vec4,
-    v1: Vec4,
-}
-
-impl Default for FluidData {
-    fn default() -> Self { Self { v0: Vec4::new(0.0,0.0,0.0,1.25), v1: Vec4::new(0.9,0.0,0.0,0.0) } }
-}
-
-impl FluidData {
-    fn window_size(&self) -> Vec2 { Vec2::new(self.v0.x, self.v0.y) }
-    fn set_window_size(&mut self, size: Vec2) { self.v0.x = size.x; self.v0.y = size.y; }
-    fn time(&self) -> f32 { self.v0.z }
-    fn increment_time(&mut self, dt: f32) { self.v0.z += dt; }
-    fn scale(&self) -> f32 { self.v0.w }
-    fn intensity(&self) -> f32 { self.v1.x }
-}
-
-#[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
-struct FluidMaterial { #[uniform(0)] data: FluidData }
-
-impl Material2d for FluidMaterial {
-    fn fragment_shader() -> ShaderRef {
-    #[cfg(target_arch = "wasm32")]
-    { return BG_FLUID_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/bg_fluid.wgsl".into())); }
-        #[cfg(not(target_arch = "wasm32"))]
-        { "shaders/bg_fluid.wgsl".into() }
-    }
-    fn vertex_shader() -> ShaderRef {
-    #[cfg(target_arch = "wasm32")]
-    { return BG_FLUID_SHADER_HANDLE.get().cloned().map(ShaderRef::Handle).unwrap_or_else(|| ShaderRef::Path("shaders/bg_fluid.wgsl".into())); }
-        #[cfg(not(target_arch = "wasm32"))]
-        { "shaders/bg_fluid.wgsl".into() }
-    }
-}
+// (Removed fluid background implementation: simplified to single grid background.)
 
 pub struct BackgroundPlugin;
 
@@ -116,49 +68,34 @@ impl Plugin for BackgroundPlugin {
             use bevy::render::render_resource::Shader;
             let mut shaders = app.world_mut().resource_mut::<Assets<Shader>>();
             let worldgrid = shaders.add(Shader::from_wgsl(include_str!("../assets/shaders/bg_worldgrid.wgsl"), "bg_worldgrid_embedded.wgsl"));
-            let fluid = shaders.add(Shader::from_wgsl(include_str!("../assets/shaders/bg_fluid.wgsl"), "bg_fluid_embedded.wgsl"));
             BG_WORLDGRID_SHADER_HANDLE.get_or_init(|| worldgrid.clone());
-            BG_FLUID_SHADER_HANDLE.get_or_init(|| fluid.clone());
         }
-        app.insert_resource(ActiveBackground::FluidSim)
-            .add_plugins((Material2dPlugin::<BgMaterial>::default(), Material2dPlugin::<FluidMaterial>::default()))
-            .add_systems(Startup, setup_backgrounds)
-            .add_systems(Update, (resize_bg_uniform, resize_fluid_uniform, update_fluid_time, toggle_background));
+        app
+            .add_plugins(Material2dPlugin::<BgMaterial>::default())
+            .add_systems(Startup, setup_background)
+            .add_systems(Update, resize_bg_uniform);
     }
 }
-fn setup_backgrounds(
+
+fn setup_background(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut grid_mats: ResMut<Assets<BgMaterial>>,
-    mut fluid_mats: ResMut<Assets<FluidMaterial>>,
     windows: Query<&Window>,
 ) {
     let (w,h) = if let Ok(win) = windows.single() {(win.width(), win.height())} else {(800.0,600.0)};
     let mut grid_mat = BgMaterial::default();
     grid_mat.data.set_window_size(Vec2::new(w,h));
     let grid_handle = grid_mats.add(grid_mat);
-
-    let mut fluid_mat = FluidMaterial::default();
-    fluid_mat.data.set_window_size(Vec2::new(w,h));
-    let fluid_handle = fluid_mats.add(fluid_mat);
-
     let mesh = meshes.add(Mesh::from(Rectangle::new(2.0,2.0)));
-    // Spawn grid hidden initially; fluid visible by default
-    commands.spawn((
-        Mesh2d::from(mesh.clone()),
-        MeshMaterial2d(grid_handle),
-        Transform::from_xyz(0.0,0.0,-500.0),
-        Visibility::Hidden,
-        InheritedVisibility::HIDDEN,
-        BackgroundQuad));
     commands.spawn((
         Mesh2d::from(mesh),
-        MeshMaterial2d(fluid_handle),
-        Transform::from_xyz(0.0,0.0,-499.9),
+        MeshMaterial2d(grid_handle),
+        Transform::from_xyz(0.0,0.0,-500.0),
         Visibility::Visible,
         InheritedVisibility::VISIBLE,
-        FluidBackgroundQuad));
-    info!("Background quads spawned (grid + fluid)");
+        BackgroundQuad));
+    info!("Background grid spawned");
 }
 
 fn resize_bg_uniform(
@@ -171,38 +108,4 @@ fn resize_bg_uniform(
     if let Some(mat) = materials.get_mut(&handle.0) { let ws = mat.data.window_size(); if ws.x != win.width() || ws.y != win.height() { mat.data.set_window_size(Vec2::new(win.width(), win.height())); }}
 }
 
-fn resize_fluid_uniform(
-    windows: Query<&Window>,
-    q_mat: Query<&MeshMaterial2d<FluidMaterial>, With<FluidBackgroundQuad>>,
-    mut materials: ResMut<Assets<FluidMaterial>>,
-) {
-    let Ok(win) = windows.single() else { return; };
-    let Ok(handle) = q_mat.single() else { return; };
-    if let Some(mat) = materials.get_mut(&handle.0) { let ws = mat.data.window_size(); if ws.x != win.width() || ws.y != win.height() { mat.data.set_window_size(Vec2::new(win.width(), win.height())); }}
-}
-
-fn update_fluid_time(
-    time: Res<Time>,
-    q_mat: Query<&MeshMaterial2d<FluidMaterial>, With<FluidBackgroundQuad>>,
-    mut materials: ResMut<Assets<FluidMaterial>>,
-) {
-    let Ok(handle) = q_mat.single() else { return; };
-    if let Some(mat) = materials.get_mut(&handle.0) { mat.data.increment_time(time.delta_secs()); }
-}
-
-fn toggle_background(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut state: ResMut<ActiveBackground>,
-    mut q_grid: Query<&mut Visibility, (With<BackgroundQuad>, Without<FluidBackgroundQuad>)>,
-    mut q_fluid: Query<&mut Visibility, (With<FluidBackgroundQuad>, Without<BackgroundQuad>)>,
-    mut q_sim: Query<&mut Visibility, (With<fluid_sim::FluidDisplayQuad>, Without<BackgroundQuad>, Without<FluidBackgroundQuad>)>,
-) {
-    // Toggle with letter B key; adjust variant name if Bevy changes (currently KeyCode::KeyB in newer versions)
-    if !keys.just_pressed(KeyCode::KeyB) { return; }
-    let new_state = match *state { ActiveBackground::Grid => ActiveBackground::Fluid, ActiveBackground::Fluid => ActiveBackground::FluidSim, ActiveBackground::FluidSim => ActiveBackground::Grid };
-    *state = new_state;
-    if let Ok(mut vis_grid) = q_grid.single_mut() { *vis_grid = if *state == ActiveBackground::Grid { Visibility::Visible } else { Visibility::Hidden }; }
-    if let Ok(mut vis_fluid) = q_fluid.single_mut() { *vis_fluid = if *state == ActiveBackground::Fluid { Visibility::Visible } else { Visibility::Hidden }; }
-    if let Ok(mut vis_sim) = q_sim.single_mut() { *vis_sim = if *state == ActiveBackground::FluidSim { Visibility::Visible } else { Visibility::Hidden }; }
-    info!("Background toggled to {:?}", *state);
-}
+// (Removed: fluid resize, animation update, and toggle systems.)

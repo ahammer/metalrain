@@ -178,7 +178,6 @@ pub struct GameConfig {
     pub metaballs: MetaballsRenderConfig,
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
-    pub fluid_sim: FluidSimConfig,
 }
 impl Default for GameConfig {
     fn default() -> Self {
@@ -193,8 +192,7 @@ impl Default for GameConfig {
             metaballs_enabled: true,
             metaballs: Default::default(),
             draw_cluster_bounds: false,
-            interactions: Default::default(),
-            fluid_sim: Default::default(),
+            interactions: Default::default(),            
         }
     }
 }
@@ -214,44 +212,6 @@ impl Default for MetaballsRenderConfig {
             iso: 0.6,
             normal_z_scale: 1.0,
             radius_multiplier: 1.0,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
-#[serde(default)]
-pub struct FluidSimConfig {
-    /// Horizontal grid resolution (number of cells / pixels). Powers of two typical but not required.
-    pub width: u32,
-    /// Vertical grid resolution.
-    pub height: u32,
-    /// Jacobi pressure iterations per frame (higher -> less divergence, more cost).
-    pub jacobi_iterations: u32,
-    /// Simulation time step seconds (clamped internally to <= 0.033 for stability).
-    pub time_step: f32,
-    /// Scalar dye dissipation per step (0..1, closer to 1 retains color longer).
-    pub dissipation: f32,
-    /// Velocity field dissipation per step (0..1, closer to 1 retains motion longer).
-    pub velocity_dissipation: f32,
-    /// Strength of injected force when user drags / interacts.
-    pub force_strength: f32,
-    /// Master enable; when false the FluidSimPlugin may skip heavy work / allocation (future optimization).
-    pub enabled: bool,
-    /// When true, seed the dye texture with random blotches at startup for motion visibility. Disable to view only ball‑injected dye.
-    pub seed_initial_dye: bool,
-}
-impl Default for FluidSimConfig {
-    fn default() -> Self {
-        Self {
-            width: 256,
-            height: 256,
-            jacobi_iterations: 20,
-            time_step: 1.0/60.0,
-            dissipation: 0.995,
-            velocity_dissipation: 0.999,
-            force_strength: 120.0,
-            enabled: true,
-            seed_initial_dye: true,
         }
     }
 }
@@ -481,22 +441,6 @@ impl GameConfig {
                 self.metaballs.radius_multiplier
             ));
         }
-        // Fluid sim validation
-        if self.fluid_sim.enabled {
-            if self.fluid_sim.width < 8 || self.fluid_sim.height < 8 {
-                w.push("fluid_sim width/height must be >= 8".into());
-            }
-            if self.fluid_sim.width > 4096 || self.fluid_sim.height > 4096 {
-                w.push(format!("fluid_sim resolution {}x{} very large; VRAM heavy", self.fluid_sim.width, self.fluid_sim.height));
-            }
-            if self.fluid_sim.jacobi_iterations == 0 {
-                w.push("fluid_sim.jacobi_iterations is 0 -> no pressure solve (divergence)".into());
-            } else if self.fluid_sim.jacobi_iterations > 200 { w.push(format!("fluid_sim.jacobi_iterations {} extremely high", self.fluid_sim.jacobi_iterations)); }
-            if !(0.0..=0.1).contains(&self.fluid_sim.time_step) { w.push(format!("fluid_sim.time_step {} outside 0..0.1 typical", self.fluid_sim.time_step)); }
-            if !(0.0..=1.0).contains(&self.fluid_sim.dissipation) { w.push(format!("fluid_sim.dissipation {} outside 0..1", self.fluid_sim.dissipation)); }
-            if !(0.0..=1.0).contains(&self.fluid_sim.velocity_dissipation) { w.push(format!("fluid_sim.velocity_dissipation {} outside 0..1", self.fluid_sim.velocity_dissipation)); }
-            if self.fluid_sim.force_strength < 0.0 { w.push("fluid_sim.force_strength negative".into()); }
-        }
         w
     }
 }
@@ -539,16 +483,6 @@ mod tests {
                 explosion: (enabled: true, impulse: 500.0, radius: 200.0, falloff_exp: 1.0),
                 drag: (enabled: true, grab_radius: 30.0, pull_strength: 800.0, max_speed: 1200.0),
             ),
-            fluid_sim: (
-                width: 192,
-                height: 128,
-                jacobi_iterations: 30,
-                time_step: 0.014,
-                dissipation: 0.99,
-                velocity_dissipation: 0.995,
-                force_strength: 200.0,
-                enabled: true,
-            ),
         )"#;
         let mut file = tempfile::NamedTempFile::new().expect("tmp file");
         file.write_all(sample.as_bytes()).unwrap();
@@ -557,9 +491,6 @@ mod tests {
         assert_eq!(cfg.balls.count, 10);
         assert_eq!(cfg.bounce.restitution, 0.5);
     assert!((cfg.metaballs.iso - 0.55).abs() < 1e-6);
-    assert_eq!(cfg.fluid_sim.width, 192);
-    assert_eq!(cfg.fluid_sim.jacobi_iterations, 30);
-    assert!((cfg.fluid_sim.time_step - 0.014).abs() < 1e-6);
     // hard_cluster_boundaries removed in simplified flat-color renderer
         // Should produce no warnings for the nominal sample config
         assert!(
@@ -617,8 +548,6 @@ mod tests {
                     max_speed: -5.0,
                 },
             },
-            fluid_sim: FluidSimConfig { width: 0, height: 10, jacobi_iterations: 0, time_step: 0.2, dissipation: 2.0, velocity_dissipation: -0.5, force_strength: -10.0, enabled: true,
-                seed_initial_dye: true },
         };
         let warnings = bad.validate();
         // Ensure a representative subset of expected warnings are present
