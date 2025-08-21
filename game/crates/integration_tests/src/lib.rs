@@ -142,4 +142,72 @@ mod tests {
         let tf = app.world().entity(e).get::<Transform>().expect("transform exists");
         assert!(tf.translation.x < initial_x - 0.1, "expected inward motion (< {}), got {}", initial_x - 0.1, tf.translation.x);
     }
+
+    /// Drift snapshot self-consistency: run two identical simulations and compare recorded positions.
+    /// This establishes the harness structure pending legacy parity comparison.
+    #[test]
+    fn headless_physics_drift_self_consistent() {
+        use bm_core::{CorePlugin, GameConfigRes, Ball, BallRadius};
+        use bm_physics::PhysicsPlugin;
+        use bevy_rapier2d::prelude::{Velocity, RigidBody, Collider};
+
+        fn run_sim(initial_x: f32, steps: u32, dt: f32) -> Vec<f32> {
+            let mut app = build_minimal_app();
+            app.add_plugins(CorePlugin);
+            app.add_plugins(PhysicsPlugin);
+            app.insert_resource(GameConfigRes::default());
+
+            let e = app.world_mut().spawn((
+                Ball,
+                BallRadius(10.0),
+                Transform::from_xyz(initial_x, 0.0, 0.0),
+                GlobalTransform::default(),
+                RigidBody::Dynamic,
+                Collider::ball(10.0),
+                Velocity::default(),
+            )).id();
+
+            let mut positions = Vec::with_capacity(steps as usize + 1);
+            positions.push(initial_x);
+            for _ in 0..steps {
+                {
+                    let mut time = app.world_mut().resource_mut::<Time>();
+                    time.advance_by(std::time::Duration::from_secs_f32(dt));
+                }
+                app.update();
+                let tf = app.world().entity(e).get::<Transform>().unwrap();
+                positions.push(tf.translation.x);
+            }
+            positions
+        }
+
+        let initial_x = 150.0;
+        let steps = 100;
+        let dt = 1.0 / 60.0;
+        let run_a = run_sim(initial_x, steps, dt);
+        let run_b = run_sim(initial_x, steps, dt);
+
+        assert_eq!(run_a.len(), run_b.len());
+
+        let mut sum_diff = 0.0f32;
+        let mut max_diff = 0.0f32;
+        for (a, b) in run_a.iter().zip(run_b.iter()) {
+            let d = (a - b).abs();
+            sum_diff += d;
+            if d > max_diff {
+                max_diff = d;
+            }
+        }
+        let avg = sum_diff / run_a.len() as f32;
+
+        // Expect deterministic identical positions (within fp noise tolerance).
+        // TEMP tolerance until deterministic scheduling / single-threaded physics enforced.
+        assert!(avg < 0.05, "avg drift between runs too large (avg={avg}, max={max_diff})");
+        assert!(max_diff < 0.1, "max drift between runs too large (max={max_diff}, avg={avg})");
+
+        // Sanity: ensure inward motion occurred overall.
+        let final_x = *run_a.last().unwrap();
+        // Relaxed minimal inward drift threshold; observed ~0.545 in current baseline.
+        assert!(final_x < initial_x - 0.3, "expected inward drift >=0.3, initial_x={initial_x} final_x={final_x}");
+    }
 }
