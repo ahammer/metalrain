@@ -5,6 +5,87 @@ Target Branch: main
 Author: Automated planning (Copilot)
 Scope: Replace CPU impulse + storage buffer injection path with deterministic texture-driven coupling from balls to fluid sim using only render targets (compatible with Web/WebGL2 fallback constraints where storage buffers / compute may be limited). One‑way coupling (balls -> fluid only). No new external dependencies.
 
+## 0. User Stories & Task Checklist (Tear‑Down First)
+
+### Teardown / Removal
+- [ ] Remove `FluidImpulseQueue`, `GpuImpulse`, related bindings (8 & 9) from fluid pipeline (code + shader + bind group layout).
+- [ ] Remove/deprecate impulse_* config fields (list in §5.6) with transitional loader warnings.
+- [ ] Delete `fluid_impulses.rs` plugin registration and file (after replacement validated).
+- [ ] Ensure no references to old impulse symbols remain (grep test).
+
+### Foundations / Resources
+- [ ] Add `BallFieldResources` with `velocity_accum` (RGBA16F) & `color_accum` (RGBA8UnormSrgb or RGBA16F when high precision) Images.
+- [ ] Allocate resources at fluid resolution on startup.
+- [ ] Reallocate on fluid resolution changes (match `FluidSimSettings.resolution`).
+- [ ] Add runtime format capability check + fallback (e.g., RGBA16F blend support -> else RGBA32F native / RGBA8 path web).
+
+### MRT Render Pass
+- [ ] Introduce `BallFieldRenderPlugin` with custom render graph node (preferred) or offscreen camera.
+- [ ] Set up two color attachments (velocity, color) with additive blending.
+- [ ] Implement instanced draw (position, radius, velocity, color) buffer extraction each frame.
+- [ ] Fragment shader: compute falloff weight w = (1 - (d/r)^2)^2 inside radius.
+- [ ] Output RT0: (vx * w, vy * w, w, 0). RT1: (premul_rgb * w, w).
+- [ ] Clear attachments to zero each frame before draw.
+- [ ] Optional debug: toggle to visualize accumulation textures (fullscreen quad or split view).
+
+### Ingestion Compute Pass
+- [ ] Add `ingest_ball_fields` compute pipeline (separate bind group layout) sampling accum textures.
+- [ ] Normalize sums: if weight > eps, add averaged velocity * injection_scale.
+- [ ] Deposit dye: color avg * dye_strength * weight -> clamp.
+- [ ] Integrate into pass ordering before `advect_velocity` and remove `apply_impulses`.
+- [ ] Maintain ping-pong correctness for velocity/dye textures.
+
+### Configuration
+- [ ] Add `ball_field` section: `{ injection_scale: f32, dye_strength: f32, color_high_precision: bool }`.
+- [ ] Wire new config into systems (resource insertion & usage in compute shader params).
+- [ ] Log warnings on encountering deprecated impulse fields (one-time per run).
+- [ ] (Optional) Enable hot-reload responsiveness for new fields.
+
+### Diagnostics & Metrics
+- [ ] Track coverage (% cells with weight > 0) each frame.
+- [ ] Track max weight & injection energy (sum |vel_add|).
+- [ ] Expose metrics in debug overlay (feature gated).
+- [ ] Add early development debug log summarizing metrics (behind debug flag).
+
+### Testing
+- [ ] Unit test: resource allocation sizes & formats match fluid resolution.
+- [ ] Unit test: pass ordering ensures MRT draw precedes ingestion, which precedes advection.
+- [ ] Integration test: moving single ball injects non-zero velocity/dye vs baseline.
+- [ ] Regression test: deprecated config fields load without panic and emit warnings.
+- [ ] (Optional) GPU read-back test (native only) verifying weight normalization.
+
+### Web / Compatibility
+- [ ] wasm32 build free of storage buffer impulse bindings.
+- [ ] Conditional skip or warning when running under WebGL2 fallback (no compute support yet).
+- [ ] Document limitations & fallbacks in README / audit.
+
+### Performance / Optimization
+- [ ] Verify added cost: only +1 draw pass +1 compute pass (log once).
+- [ ] Evaluate overdraw (debug overdraw or approximate sample count) for large balls.
+- [ ] (Future) Consider quad + analytic SDF vs circle mesh if vertex cost high.
+- [ ] (Future) Consider downsampled accumulation for smoothing.
+
+### Risk Mitigations
+- [ ] Implement format fallback detection (float16 blend) with logged decision path.
+- [ ] Cap per-pixel weight to prevent saturation (configurable or constant cap).
+- [ ] Provide transitional deprecation period for config (two releases) before removal.
+- [ ] Ensure explicit render graph dependency: ingestion depends on MRT node completion.
+
+### Acceptance Verification
+- [ ] All old impulse symbols removed.
+- [ ] Two accumulation textures logged at expected resolution.
+- [ ] Ingestion executes exactly once per frame (instrumentation counter = frames run).
+- [ ] Stopping ball motion halts new injection (metrics show coverage drop when all stationary).
+- [ ] Config toggles affect outcome at runtime (manual / automated assertion of changed dye energy after parameter change).
+
+### Future / Deferred (Not in current scope)
+- [ ] Reverse coupling (fluid -> balls) design placeholder.
+- [ ] Temporal smoothing / decay-based accumulation (retain across frames).
+- [ ] Multi-resolution / tile culling strategy.
+- [ ] GPU-driven instancing / indirect draws.
+
+---
+
 ## 1. Objectives
 - Source all velocity + dye disturbances for the fluid simulation from per-frame render-generated field textures derived from ball state.
 - Eliminate `FluidImpulseQueue`, GPU impulse storage buffers, and related config fields (impulse_*).
