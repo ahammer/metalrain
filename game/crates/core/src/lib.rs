@@ -15,6 +15,26 @@ pub struct BallRadius(pub f32);
 #[derive(Component, Debug)]
 pub struct BallCircleVisual;
 
+/// Deterministic RNG seed resource (set once at startup / tests for reproducible spawning & logic).
+#[derive(Resource, Debug, Copy, Clone)]
+pub struct RngSeed(pub u64);
+
+// Wrapper Bevy resource for the pure-data GameConfig (keeps bm_config free of bevy dependency).
+#[derive(Resource, Debug, Clone)]
+pub struct GameConfigRes(pub bm_config::GameConfig);
+
+impl Default for GameConfigRes {
+    fn default() -> Self {
+        Self(bm_config::GameConfig::default())
+    }
+}
+
+impl Default for RngSeed {
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 // System set labels (ported from legacy/system_order.rs)
 #[derive(SystemSet, Debug, Hash, Eq, PartialEq, Clone)]
 pub struct PrePhysicsSet; // forces applied before physics simulation step
