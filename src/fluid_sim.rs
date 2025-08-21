@@ -716,6 +716,21 @@ fn prepare_fluid_pipelines(
     render_device: Res<RenderDevice>,
 ) {
     trace!("ENTER prepare_fluid_pipelines");
+    // Capability gate: some downlevel / WebGL fallback adapters expose 0 storage textures per stage.
+    // Our current compute layout requires 7 storage textures. If unsupported, skip creating pipelines.
+    const REQUIRED_STORAGE_TEXTURES: u32 = 7;
+    let limits = render_device.limits();
+    if limits.max_storage_textures_per_shader_stage < REQUIRED_STORAGE_TEXTURES {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            warn!(
+                have = limits.max_storage_textures_per_shader_stage,
+                required = REQUIRED_STORAGE_TEXTURES,
+                "FluidSim disabled: adapter does not support enough storage textures (compute not available / WebGL fallback)."
+            );
+        });
+        return; // leave pipelines.layout None; main-world system will remain in WaitingLayout/Disabled state
+    }
     // Create layout if missing
     if pipelines.layout.is_none() {
         let entries = [
