@@ -1,350 +1,195 @@
-# Audit: Rendering Composition & Fluid Simulation Architecture
+# Audit: Bridging Ball Simulation into Fluid Simulation via MRT Textures (No Storage Buffers)
 
-Date: 2025-08-19
-Scope Version: Repository state on main at time of writing.
+Date: 2025-08-20
+Target Branch: main
+Author: Automated planning (Copilot)
+Scope: Replace CPU impulse + storage buffer injection path with deterministic texture-driven coupling from balls to fluid sim using only render targets (compatible with Web/WebGL2 fallback constraints where storage buffers / compute may be limited). One‑way coupling (balls -> fluid only). No new external dependencies.
 
----
-## 1. Purpose & Scope
-This audit evaluates the current rendering & composition architecture with emphasis on the 2D fluid simulation system and its prospective coupling with the ball/physics system. Objectives:
-- Assess architectural cleanliness, modularity, and extensibility.
-- Identify blockers to introducing physics → fluid feedback (forces, dye, obstacles) and eventual fluid → physics influence (drag, flow advection).
-- Recommend concrete, phased improvements with measurable acceptance criteria.
+## 1. Objectives
+- Source all velocity + dye disturbances for the fluid simulation from per-frame render-generated field textures derived from ball state.
+- Eliminate `FluidImpulseQueue`, GPU impulse storage buffers, and related config fields (impulse_*).
+- Introduce two accumulation render targets ("ball field MRT"):
+  1. VelocityAccum (RGBA16F): encodes accumulated weighted velocity and weight.
+  2. ColorAccum (RGBA8UnormSrgb default, optional RGBA16F): encodes accumulated weighted color and weight.
+- Provide a new compute (or combined) ingestion pass that samples these textures before existing fluid steps, injecting velocity and dye—fully replacing `apply_impulses` logic (and possibly merging with it).
+- Maintain Web compatibility (no reliance on storage buffers for ingestion). All data flows via sampled / storage textures already supported in baseline WebGPU; degrade gracefully for WebGL2 (where compute may not exist) by keeping current gating (future consideration—out of current scope, but design should not preclude it).
 
-Out of scope: UI overlay styling, non-fluid gameplay logic, build pipeline.
+## 2. Current State Summary
+- Fluid sim (`fluid_sim.rs`) uses compute passes with a bind group layout consisting entirely of storage textures + uniform + (now) storage buffer impulses (bindings 8 & 9). `apply_impulses` loops over a storage buffer of impulses.
+- Ball wake impulses are produced CPU-side in `fluid_impulses.rs` by iterating balls, computing a radius & strength heuristic, pushing into `FluidImpulseQueue`, extracting, packing into a storage buffer.
+- Dye deposition also occurs in `advect_dye` via the same impulse list.
+- No existing path renders balls into auxiliary offscreen textures.
 
----
-## 2. Executive Summary
-The fluid simulation works and is visually integrated, but internal organization is monolithic: a single, large compute driver performs sequential passes, recreates bind groups, and copies textures back to maintain a stable front buffer. There is no formal API for external force injection or obstacle representation, limiting future two‑way coupling. Logging verbosity, potential shader/Rust drift, and unnecessary per-pass texture copies add noise and overhead. A modest refactor introducing an impulse queue abstraction, a lightweight pass graph, and true ping‑pong resource management will unlock clean physics integration while reducing complexity.
+## 3. Gap Analysis
+| Aspect | Current | Target | Delta |
+|--------|---------|--------|-------|
+| Impulse representation | CPU queue -> storage buffer | Implicit encoded fields in textures | Remove queue + buffers; add MRT pass |
+| Data transport | Storage buffer iteration (compute) | Sampled 2D textures | Extend pipeline layout or add separate pipeline |
+| Dependency ordering | Simple pass list | Needs ordering: Ball MRT draw -> ingestion compute -> rest | Add render graph node & pass insertion |
+| Config controls | Many impulse_* fields | Fewer: injection_scale, dye_strength, maybe precision toggle | Remove unused fields, add new ones |
+| Web constraints | Already using storage textures; storage buffer for impulses | No storage buffers | Remove storage buffer bindings entirely |
 
-Key Immediate Wins:
-1. Introduce a `FluidImpulseQueue` resource + extraction (no shader changes initially).
-2. Refactor compute into enumerated pass kinds (data-driven order) and remove redundant texture copy-backs.
-3. Shrink velocity texture format & cache bind groups (reduce bandwidth + allocations).
-4. Add tests asserting divergence reduction & uniform size invariants.
-5. Extend shader to process multiple impulses, paving the way for ball wake effects.
+## 4. Constraints & References
+- Web limits (Docs.rs `WgpuLimits`): WebGL2 fallback disallows storage buffers & compute; WebGPU default supports needed sampled + storage textures. We will strictly avoid requiring storage buffers for coupling (refs: docs.rs `downlevel_webgl2_defaults`, WebGPU article on bevy.org).
+- Max color attachments default: 8 (ample for dual MRT).
+- Need additive blending on float formats; ensure chosen formats are renderable + blendable across platforms (RGBA16Float typically is; verify at runtime and fallback to RGBA32Float if necessary on native; for web maintain simple path and document possible precision downgrade to RGBA8 if float16 blending unsupported).
 
-Pivot (2025-08-20): Original Phase 4 bundled dye deposition with multi-impulse velocity injection (dye tied to impulses). We are pivoting: impulse-based dye is deprecated; a new Phase 4B introduces continuous per-ball color dye deposition after first tearing down the obsolete impulse-dye path. Phase 4 is now strictly about multi-impulse velocity.
+## 5. High-Level Design
+### 5.1 New Resources
+- `BallFieldResources` (resource):
+  - `velocity_accum: Handle<Image>` (RGBA16Float, usage: RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_SRC)
+  - `color_accum: Handle<Image>` (RGBA8UnormSrgb or RGBA16Float)
+  - Option: sampler handle if required distinct filtering (nearest).
+- Resolution: identical to fluid grid (`FluidSimSettings.resolution`). Reallocate on fluid resolution change (system similar to existing reallocation for fluid textures).
 
----
-## 3. Current State Overview
-- Fluid simulation plugin handles allocation, extraction, compute dispatch, and display in one file.
-- Compute sequence: add_force → advect_velocity → divergence → jacobi iterations → project → boundaries → advect_dye.
-- After many passes, results are copied back to a front texture so the display material samples a consistent handle.
-- Single force position & parameters in uniform; no multi-impulse support.
-- No resource or event path for per-ball influence injection.
-- Logging at `info!` inside compute loop (noisy in release/dev).
-- Tests limited to configuration/struct size; no behavior/correctness tests.
+### 5.2 Ball Field Render Pass (MRT)
+- Implement `BallFieldRenderPlugin`.
+- Create an offscreen camera (or custom render graph node) rendering only ball visualization primitives to the two attachments. Options:
+  - (Preferred) Custom render graph node: Bypasses overhead of extra main camera, affords explicit ordering.
+  - Use `RenderLayers` to ensure only balls contribute to MRT.
+- Per-ball draw: Either reuse circle mesh scaled to diameter, or switch to a quad + fragment distance field to reduce vertex cost. Start with existing circle mesh for simplicity.
+- Fragment Shader Responsibilities:
+  - Compute normalized distance d/r for pixel inside ball; produce falloff weight w = (1 - (d/r)^2)^2 (C2 smooth, near-compact).
+  - Fetch ball world velocity (from uniform or per-instance attribute). Since current draw path doesn't supply velocity, we may introduce a lightweight CPU-built instance buffer OR encode velocity via a second pass (simpler initial approach: CPU updates a per-entity component used by a custom extraction stage adding per-instance data). Minimal approach: store velocity in a texture-less vertex attribute via instancing (requires custom pipeline). Simpler interim: sample velocity from a uniform array limited by max balls; reuse existing metaballs uniform method if acceptable. For planning: choose instanced buffer with position, radius, velocity, color to avoid uniform bloat.
+  - Convert world velocity to grid velocity: `vel_grid = vec2(vx * grid_w / window_width, vy * grid_h / window_height)`.
+  - Outputs:
+    - RT0 (VelocityAccum RGBA16F): (vel_grid * w, w, 0)
+    - RT1 (ColorAccum RGBA8 / 16F): (color.rgb * w, w)
+- Blending (additive / pre-multiplied):
+  - VelocityAccum: Color blend add (srcFactor=One, dstFactor=One) for RGB & w channel.
+  - ColorAccum: Add for RGB & Alpha.
+- Clear each frame to zero.
 
-Strengths:
-- Clear startup initialization & resource allocation patterns.
-- Separation of main world vs render world (extraction) already in place.
-- Config-driven parameters enable user tuning without recompilation.
-- Metaballs & background integrated cleanly as separate plugins (good model to emulate).
+### 5.3 Ingestion Compute Pass
+- New compute shader entry point `ingest_ball_fields` runs before existing `advect_velocity` (and replaces `apply_impulses`).
+- Inputs (sampled): velocity_accum, color_accum, plus velocity_in/out, dye_in/out storage textures.
+- For each cell (gid):
+  - Read accum texels at integer coords (no filtering). Let `acc_v = (vx_sum, vy_sum, w)`; if w > eps:
+    - `vel_add = (vx_sum, vy_sum)/w * injection_scale;`
+    - `new_vel = read(velocity_in) + vel_add`.
+    - For dye: read color accum `(cr_sum, cg_sum, cb_sum, w_c)`; average color = sum / max(w_c, eps); deposit: `dye_out = clamp(dye_in.rgb + avg_color * dye_strength * w_c, 0..1)`.
+  - Else: copy velocity_in to velocity_out & dye_in to dye_out.
+- Set ping front states analogous to existing apply_impulses; subsequent passes work unchanged.
+- Remove old `apply_impulses` from pass graph.
 
-Limitations / Smells:
-- Monolithic system function (hard to extend or selectively profile).
-- Recreating bind groups each pass introduces overhead.
-- Overuse of copy operations instead of pure ping-pong indexing.
-- Velocity texture stores unused channels (RGBA vs RG).
-- Lack of stable abstraction for external forces/dye/obstacles.
-- Shader entry points & Rust pipeline references can drift (no validation tests).
+### 5.4 Pipeline & Layout Changes
+Option A (Separate Layout):
+- Add second bind group layout for ingestion: sampled textures + existing storage targets.
+Option B (Extend Existing Layout):
+- Append bindings 10..12: `@binding(10) velocity_accum_tex : texture_2d<f32>; @binding(11) color_accum_tex : texture_2d<f32>; @binding(12) nearest_sampler : sampler;`
+- Pros: fewer bind groups; Cons: need to recreate pipelines / break existing layout stability.
+Decision: Use separate ingestion pipeline with its own layout to avoid touching stable existing pipelines (minimizes regression risk). Only new pipeline + layout addition.
 
----
-## 4. Architectural Gaps Blocking Physics ↔ Fluid Coupling
-| Gap | Impact | Needed Capability |
-|-----|--------|-------------------|
-| No impulse abstraction | Can't batch ball wake forces | Queue + GPU buffer for impulses |
-| Single-force uniform | Unscalable for multiple balls | Storage buffer & count uniform |
-| No obstacle mask | Balls can't act as boundaries | R8 texture mask & boundary-aware kernels |
-| Copy-back pattern | Harder to insert new passes | True ping-pong with front index swap |
-| Monolithic dispatch | Hard to conditionally add passes | Pass enum/graph iteration |
-| No divergence residual metric | Hard to tune iterations | Reduction or sampled metric |
-| No fluid→ball sampling | Can't apply fluid drag | Downsampled field or per-ball GPU sampling pass |
+### 5.5 Coordinate Mapping
+- Offscreen camera set so world space aligns with fluid grid center points as closely as practicable: use orthographic projection covering window dimensions; ingestion pass samples by integer pixel so minor sub-pixel differences acceptable.
+- UV formula in compute: `uv = (vec2(gid) + 0.5) / vec2(grid_size)`.
 
----
-## 5. Detailed Findings
-### 5.1 Compute Orchestration
-A single driver in `RenderSet::Prepare` performs all pass dispatches. This inflates responsibility (scheduling, resource aliasing, logging, parameter translation). Splitting into: (a) pass graph construction, (b) pass execution, (c) diagnostics aggregation improves clarity.
+### 5.6 Config Additions / Removals
+Remove (or deprecate) in `GameConfig.fluid_sim`:
+- `impulse_min_speed_factor`, `impulse_radius_scale`, `impulse_strength_scale`, `impulse_radius_world_min`, `impulse_radius_world_max`, `impulse_debug_strength_mul`, `impulse_debug_test_enabled`, `force_strength` (if solely used for impulses; verify gravity usage elsewhere). Keep generic `dissipation`, etc.
+Add:
+- `ball_field`: `{ injection_scale: f32, dye_strength: f32, color_high_precision: bool }`.
 
-### 5.2 Resource Management
-Repeated texture copies: after each write, content is copied back to a fixed front texture. A classic ping-pong scheme (track (read, write) indices; swap at end) avoids bandwidth overhead and code duplication. For display, update the material's handle to the current "front" each frame.
+### 5.7 Debug & Diagnostics
+- Add counters: average weight coverage (% cells with w>0), max w, injection energy (sum |vel_add|).
+- Overlay display updates.
 
-### 5.3 Data Formats
-Velocity stored with 4 channels wastes memory/bandwidth. Unless future features need extra channels (e.g., temperature, vorticity), prefer `Rg16Float`.
+## 6. Data Encoding & Formats
+| Target | Format | Channels | Rationale |
+|--------|--------|----------|-----------|
+| VelocityAccum | RGBA16Float | (vx_sum, vy_sum, weight, reserved) | High precision accumulation, moderate bandwidth, blendable |
+| ColorAccum | RGBA8UnormSrgb (default) or RGBA16Float (optional) | (premul_color_sum, weight) | sRGB-friendly output / lighter memory; upgrade path for precision |
 
-Alignment Note (2025-08-20): Background material uniform structs (`BgData`, `FluidData`) were 24 bytes (Vec2 + 3 f32) triggering WebGPU / wgpu validation on downlevel targets lacking `BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`. They are now padded to 32 bytes (multiple of 16) by adding three f32 pad fields. Maintain any future uniform blocks at sizes that are multiples of 16 bytes to avoid this validation error.
+Weight normalization done in compute. Clamp weight to >= eps (1e-5) to avoid division by zero.
 
-### 5.4 Extensibility for Forces
-Current uniform supports exactly one force position and scalar parameters. Ball wakes, explosions, or drag injection require a variable-length list. A fixed-capacity storage buffer (e.g., 256 impulses) with overflow count is sufficient.
+## 7. Pass Ordering (Per Frame)
+1. Ball Physics (Rapier / movement).
+2. BallField MRT Render (draw balls into accumulation targets; cleared beforehand).
+3. Fluid Compute (Render world Prepare):
+   - `ingest_ball_fields` (samples accum -> writes new velocity/dye front/back).
+   - `advect_velocity` ... existing sequence (minus old `apply_impulses`).
+4. Display (fullscreen dye quad / metaballs, etc.).
 
-### 5.5 Obstacles & Boundaries
-No ability to express dynamic obstacles (moving balls). Without an obstacle field, fluid passes treat space as empty. Introducing an occupancy / boundary normal mask enables no‑slip or partial slip conditions, improving realism and enabling fluid-driven drag.
+## 8. Migration Plan (Phased)
+### Phase 0: Prep
+- Document design (this audit). Add stub config section for `ball_field` (no usage yet).
 
-### 5.6 Diagnostics & Testing
-Absence of numerical tests means regressions in divergence correction or advection stability may slip in. Need minimal headless tests at tiny resolution verifying divergence reduction and deterministic evolution under fixed seeds.
+### Phase 1: Resource Allocation
+- Create `BallFieldResources` with two images sized to fluid resolution.
+- Reallocate on resolution change.
 
-### 5.7 Shader ↔ Host Parity
-Risk of stale pipeline references; no automated assertion enumerating expected WGSL entry points vs pipeline setup.
+### Phase 2: Render Pass Scaffolding
+- Add `BallFieldRenderPlugin` registering a custom node (or offscreen camera) that clears attachments only (no drawing). Validate lifetime & ordering (log once). Add minimal test verifying creation.
 
-### 5.8 Logging & Performance
-Per-pass `info!` logs saturate output. Replace with `trace!` gated by feature or compile-time conditional; optionally add GPU timestamp queries for profiling when a debug feature is enabled.
+### Phase 3: Ball Rendering + MRT Encoding
+- Implement shader + pipeline specialized for instanced circles.
+- Add per-instance buffer (position, radius, velocity, color, maybe packed into Vec4s) extracted each frame.
+- Enable additive blending.
+- Visual debug path (optional) to display accumulation textures on key toggle.
 
-### 5.9 Two-Way Coupling Pathway
-Downstream (fluid→balls) requires sampling velocity field near ball positions. Approaches:
-- GPU: Compute pass writes sampled velocities into a per-ball buffer; extract back next frame.
-- CPU: Async map a downsampled velocity texture every N frames (1-frame latency acceptable) and sample bilinearly in a system.
+### Phase 4: Ingestion Compute
+- Add ingestion pipeline + WGSL (new file or extend existing fluid shader with feature guard).
+- Insert ingestion in pass graph (replace `apply_impulses`).
+- Validate on native (print injection stats; ensure stable dye motion).
 
----
-## 6. Recommended Target Architecture
-Components:
-1. `FluidCore` (resource structs, settings, front/back indexing, status enum).
-2. `FluidImpulses` (queue in main world + extracted GPU buffer in render world).
-3. `FluidPassGraph` (ordered list of pass kinds derived from current config/state).
-4. `FluidDriver` (executes graph each frame; manages bind group cache & swaps front/back indices).
-5. `FluidDiagnostics` (timings, divergence residual, overflow counters, iteration stats).
-6. `FluidObstacles` (optional R8 occupancy texture & builder system for ball geometry).
+### Phase 5: Decommission Old Impulse Path
+- Remove `fluid_impulses.rs` plugin registration & related storage buffers + bindings 8/9 in layout.
+- Prune config fields; migration handling: treat missing old fields gracefully.
 
-Data Flow (per frame):
-Main World: collect impulses → extraction copies queue & optional ball metadata → Render World: update buffers → execute pass graph → update display material handle → (optional) sample fluid → write per-ball velocities → next frame main world consumes.
+### Phase 6: Tuning & Config Exposure
+- Wire `injection_scale`, `dye_strength`, precision toggle.
+- Add overlay metrics (coverage, energy).
 
----
-## 7. Proposed Data Structures (Sketch)
-```rust
-pub enum FluidPassKind { ApplyImpulses, AdvectVelocity, ComputeDivergence, Jacobi(u32), Project, EnforceBoundaries, AdvectDye }
+### Phase 7: Web Testing
+- Build wasm target w/ webgpu; confirm no storage buffer binding references; fallback detection if webgl2 backend active -> skip ingestion gracefully (document limitation).
 
-pub struct FluidPassGraph { pub passes: SmallVec<[FluidPassKind; 8]> }
+### Phase 8: Optimization & Polish
+- Optional: unify color + velocity accumulation into single RGBA16F (vx, vy, dye_luma_or_weight, weight) + second texture for color refinement if needed.
+- Optional downsampled accumulation (super-sample then shrink) for smoother influence.
 
-#[derive(Resource)]
-pub struct FluidFrontBack { pub velocity_front: usize, pub dye_front: usize /* plus pressure if needed */ }
+## 9. Risk Matrix & Mitigations
+| Risk | Impact | Likelihood | Mitigation |
+|------|--------|------------|------------|
+| Float16 blend unsupported on some web GPUs | Accum artifacts | Medium | Detect format support; fallback to RGBA32F (native) or RGBA8 path |
+| Overdraw cost with many large balls | Perf drop | Medium | Limit influence radius, use smaller quad + analytic falloff, frustum culling |
+| Weight saturation (bright dye wash) | Visual quality | Medium | Cap per-pixel weight; apply tone mapping or normalize before deposition |
+| Ordering bug (ingestion runs before MRT draw completes) | Wrong injections | Low | Explicit graph edge: ingestion depends_on MRT node |
+| Memory overhead (extra 2 large textures) | VRAM pressure | Low | Allow lower resolution override for ball field separate from fluid grid |
+| Precision loss in RGBA8 color accumulation | Subtle banding | Medium | Config toggle for RGBA16F color path |
+| Removal of impulse config breaks existing RON files | User friction | High | Provide transitional loader accepting both; deprecate old fields with log warnings |
 
-#[repr(C)]
-pub struct GpuImpulse { pub pos: [f32;2], pub radius: f32, pub kind: u32, pub strength: f32, pub dir: [f32;2], pub _pad: [f32;2] }
-```
+## 10. Acceptance Criteria
+- No references to `FluidImpulseQueue`, `GpuImpulse`, or impulse storage buffers in final pipeline.
+- Fluid dye & velocity respond to ball movement (stopping balls stops new injection; existing dye continues advecting).
+- Two new textures allocated & visible in diagnostic logs at expected resolution.
+- `ingest_ball_fields` executes exactly once per frame when background=FluidSim.
+- Web (wasm32) build runs without storage buffer feature usage (verify by log / inspector).
+- Config toggles modify injection magnitude in real time (after hot reload if implemented later).
 
----
-## 8. WebAssembly Shader Embedding Update (2025-08-20)
-Rationale: Eliminated `.wgsl.meta` fetch 404s and reduced runtime asset I/O on web builds by embedding WGSL sources directly in the binary for `wasm32`.
+## 11. Open Questions
+- Should dye deposition happen pre-advection (current plan) or post-advection for more trailing effect? (Initial: pre.)
+- Combine ingestion with boundary enforcement to reduce passes? (Probably not needed yet.)
+- Need cluster color coherence? Currently ball color direct; could average cluster.
+- Provide temporal smoothing to reduce flicker for fast small balls? Potential future enhancement.
 
-Changes Implemented:
-- Added `OnceLock<Handle<Shader>>` statics per shader (fluid_sim, metaballs, bg_worldgrid, bg_fluid) guarded by `cfg(target_arch="wasm32")`.
-- On each plugin's `build()`, the WGSL source is registered via `Shader::from_wgsl(include_str!(...))` and handle stored in the `OnceLock`.
-- Material `vertex_shader/fragment_shader` implementations now return the embedded handle on wasm; native path still uses file-based loading for hot-reload friendliness.
-- Removed placeholder `.wgsl.meta` files (`bg_fluid.wgsl.meta`, `bg_worldgrid.wgsl.meta`, `fluid_sim.wgsl.meta`, `metaballs.wgsl.meta`).
-- Refactored previous `static mut Option<Handle<Shader>>` (unsafe shared refs produced warnings and potential UB) to `OnceLock` (thread-safe one-time init, no unsafe blocks on access).
+## 12. Test Strategy
+- Unit: Ensure new resource allocation matches FluidSimSettings resolution; pass ordering test verifying ingestion inserted.
+- Integration (headless): Step simulation with a single moving ball; assert non-zero changes in sampled center velocity/dye after a few frames (using read-back on native only behind test feature).
+- Performance baseline: Count workgroups & draw calls added (diagnostic print) vs baseline (< +1 draw pass +1 compute pass).
 
-Benefits:
-- Avoids network fetches for meta sidecar files (improves initial load & eliminates console errors).
-- Ensures shader host code & source cannot drift at runtime on wasm (single compilation unit).
-- Removes all `static_mut_refs` warnings and potential undefined behavior.
+## 13. Implementation Notes
+- Favor separate ingestion pipeline to avoid re-layout cost.
+- Keep fluid WGSL modular: new section `// ingestion` guarded by `#ifdef`-style shader defs (Bevy shader defs) for easier iteration.
+- Use nearest sampling (no filtering) for accumulation read to keep energy localized.
+- If multiple frames should accumulate lingering influence, either (a) do not clear MRT each frame and use decay factor in ingestion, or (b) clear and rely on ball presence only (initial approach: clear for determinism).
 
-Considerations / Future:
-- If hot-reload on web becomes desirable, a feature flag could re-enable asset server loading path.
-- For deterministic hashing / cache busting, consider embedding a build-time SHA of each shader for diagnostics.
+## 14. De-scoping / Future Work
+- Reverse coupling (fluid -> ball forces) explicitly out of scope.
+- Multi-resolution or tile-based culling for huge ball counts deferred.
+- GPU-driven instancing / indirect draws deferred.
 
-Acceptance Criteria Met:
-- Native & wasm builds succeed after removal of meta files.
-- No remaining uses of unsafe static mutable shader handles.
----
-
----
-## 8. Shader Additions (Concept)
-Extend uniform with `impulse_count`, add storage buffer of impulses. Replace single-force logic within `add_force` pass (rename `apply_impulses`). For obstacles, add sampled mask check gating advection and boundary conditions.
-
----
-## 9. Testing Strategy
-| Test | Scenario | Assertion |
-|------|----------|-----------|
-| Uniform Layout | Build-time | Size & alignment stable |
-| Divergence Reduction | 16x16, random initial velocity | post-projection divergence norm < pre |
-| Dye Advection Stability | Inject dye pulse | Total dye mass within epsilon after N frames (with low dissipation) |
-| Impulse Application | Single impulse center cell | Velocity magnitude increases locally, decays with radius |
-| Impulse Overflow | >Max impulses queued | Overflow counter increments, processed count == max |
-| Pass Graph Order | Graph builder | Contains expected sequence for current config |
-
----
-## 10. Incremental Roadmap & Acceptance Criteria
-### Phase 1: Hygiene & Baseline (Low Risk)
-- Remove stale pipeline references (e.g., unused inject variants).
-- Downgrade per-pass logging to `trace!` (feature `fluid_debug_passes`).
-- Introduce `FluidSimStatus` resource with states: Disabled, WaitingPipelines, Running.
-Acceptance: Build passes; debug overlay (if feature) shows status transitions; no functional change in visuals.
-
-### Phase 2: Impulse Queue (CPU) (Low Risk)
-- Add `FluidImpulseQueue` resource + system collecting placeholder impulses (e.g., from mouse or a single test ball).
-- Extract queue into render world (just cloning; no shader usage yet).
-Acceptance: Queue visible in debug overlay with count.
-
-### Phase 3: Pass Graph Refactor & Ping-Pong
-- Status: (PARTIAL) `FluidPass` enum + pass iteration in place; velocity & pressure ping-pong via `FluidPingState` (copies removed). Dye still copy-backed.
-- NEXT: Eliminate dye copy by swapping display material's dye handle to current front each frame; unify front/back handling.
-Acceptance (Why it matters):
-	* Structural clarity (future passes insert with minimal churn).
-	* Reduced GPU bandwidth (copy removal) without altering visuals.
-	* Provides stable abstraction layer required before multi-impulse logic.
-
-### Phase 4: Multi-Impulse Velocity Injection (Narrowed Scope)
-- Implement GPU impulse storage buffer & count; replace single-force pass with loop (`apply_impulses`).
-- (Removed) Impulse-driven dye deposition (moved to Phase 4B; legacy path disabled by default).
-- Clamp impulses to capacity; track overflow.
-Acceptance (Velocity Focus):
-	* Multiple simultaneous impulses modify velocity field with correct radial falloff.
-	* No new dye logic introduced here; legacy impulse dye off.
-	* Architecture confirmed stable for subsequent independent dye deposition pass.
-
-### Phase 4B: Ball Color Dye Deposition (Pivot – Teardown First)
-Rationale: Dye should reflect persistent per-ball colors (painting the fluid) instead of transient impulse events. Teardown removes semantic coupling and reduces accidental color artifacts when impulses are disabled.
-
-Steps:
-1. Teardown / Deprecation
-	- Remove or guard (feature + config default off) impulse-based dye write in `apply_impulses`.
-	- Mark `impulse_dye_scale` as deprecated (doc + comment) and set default = 0.0.
-	- Update debug overlay to hide legacy dye metrics when disabled.
-2. Ball Dye Data Path
-	- Add `BallDyeConfig` (enabled, radius_mode, radius_scale, fixed_radius, falloff_exponent, base_emission, speed_influence, max_speed_for_influence, color_saturation, clamp_per_cell, normalize_after_blend, order_after_advection(bool)).
-	- CPU system gathers per-ball dye records (position, emission radius (mode), speed magnitude, linear color).
-	- Extraction uploads packed `GpuBallDye` array + count.
-3. New Compute Pass
-	- WGSL: `deposit_ball_dye` entry (cell-parallel) loops balls, applies falloff pow(t, exponent), optional speed factor, clamps accumulation.
-	- Insert pass after projection and before dye advection (default) with optional config to invert ordering.
-4. Integration & Overlay
-	- Add `FluidPass::DepositBallDye` variant and scheduling.
-	- Overlay: ball dye enabled flag, count, avg radius, clamp hits.
-5. Testing
-	- Layout: `size_of::<GpuBallDye>()` & alignment.
-	- Single ball deposition: center cell > 0, monotonic radial decay.
-	- Speed influence: high speed emits >= baseline within tolerance.
-6. Acceptance
-	- Ball trails exist with impulses disabled.
-	- Changing a ball color affects subsequent dye emission next frame.
-	- Legacy impulse dye path fully disabled; no regressions in velocity behavior.
-	- Performance acceptable at target scales (qualitative baseline noted).
-
-### Phase 5: Bind Group Cache & Velocity Format Optimization (Moved Later)
-- Switch velocity texture to `Rg16Float` (halve velocity bandwidth).
-- Introduce bind group cache keyed by (vel_front_is_a, pres_front_is_a, pass_kind) to avoid per-pass creation.
-Acceptance (Performance Focus):
-	* Lower GPU memory & bandwidth for sustained scalability.
-	* Reduced CPU overhead (bind group reuse) confirmed via lowered allocation counts in traces.
-
-### Phase 6: Obstacles (Optional Path)
-- Create obstacle mask texture; rasterize balls (compute or CPU -> upload) each frame.
-- Modify divergence & projection passes to enforce boundary (zero normal component at obstacles).
-Acceptance: Fluid flows around ball regions; divergence test passes with obstacles present.
-
-### Phase 7: Fluid → Ball Drag
-- Downsample velocity texture (dedicated compute pass) or sample per-ball on GPU; write results to buffer; extract next frame.
-- Apply drag force system using sampled velocity data.
-Acceptance: Balls exhibit directional drag aligning toward local flow; toggleable via config.
-
-### Phase 8: Diagnostics & Metrics
-- Add optional GPU timestamp queries (feature gated) to record per-pass duration.
-- Add divergence residual estimate (sum |div|) after projection.
-Acceptance: Overlay displays timings & residual; residual shrinks below threshold each frame.
-
-### Phase 9: Extended Tests & Docs
-- Implement full test matrix; add README section or extend `copilot-instructions.md` with new API usage.
-Acceptance: All new tests pass in CI; documentation updated; developer can enqueue impulses with ≤5 lines of code.
+## 15. Summary
+This plan migrates from a CPU impulse buffering model to a purely texture-driven field ingestion that aligns with web constraints and simplifies the injection path. It leverages additive MRT rendering for natural accumulation, reduces CPU-GPU synchronization complexity, and paves the way for further visual refinement (e.g., temporal smoothing, multi-resolution injection) without reintroducing storage buffer dependencies.
 
 ---
-## 11. Actionable Checklist (Expanded)
-
-Legend: [x] done, [>] in progress/partial, [ ] pending, (opt) optional scope
-
-### Phase 1: Clean Logging & Status (DONE)
-	- [x] Add `FluidSimStatus` enum & resource
-	- [x] Gate verbose logs behind `fluid_debug_passes` feature
-	- [x] Replace noisy per-pass info logs with feature/trace macro
-	- Acceptance: No visual change; status transitions observable
-
-### Phase 2: Impulse Queue (CPU) (DONE)
-	- [x] Define `FluidImpulse`, `FluidImpulseQueue`
-	- [x] Collect placeholder per-ball (or simulated) impulses
-	- [x] Extract queue to render world (no GPU usage yet)
-	- Acceptance: Queue length visible in debug (future overlay) / logs
-
-### Phase 3: Pass Graph & Ping-Pong (DONE)
-	- [x] Introduce `FluidPass` enum & iteration driver
-	- [x] Add `FluidPingState` (velocity/pressure indices) & remove their copy-backs
-	- [x] Swap dye front by updating material handle each frame (remove dye copy)
-	- [x] Consolidate front/back handling into single helper (reduce duplication)
-	- [x] Adjust diagnostics to report copy savings (optional lightweight counter)
-	- Acceptance: Zero functional differences; GPU copies reduced (all copy-backs removed); architecture ready for multi-impulse
-
-### Phase 4: Multi-Impulse Velocity Injection (COMPLETED)
-	- [x] Define `GpuImpulse` struct & max count constant
-	- [x] Add storage buffer + count uniform (allocated & written each frame)
-	- [x] Extend extraction: pack impulses -> mapped buffer write each frame
-	- [x] Update bind group layout with impulse storage binding
-	- [x] WGSL: Replace `add_force` with `apply_impulses` looping impulses
-	- [x] Implement radial velocity injection (falloff: (1 - r/R)^n)
-	- [x] Clamp & track overflow (warn if overflowed) via `ImpulseStats` resource & throttled logging
-	- [x] Externalize impulse tuning parameters to config (impulse_min_speed_factor, impulse_radius_scale, impulse_radius_world_min/max, impulse_strength_scale, impulse_falloff_exponent, impulse_dye_scale (deprecated))
-	- [x] Add unit test: `GpuImpulse` size/alignment stable (preliminary test in `fluid_impulses.rs`)
-	- Acceptance: Multiple simultaneous impulses modify velocity; legacy impulse dye disabled.
-
-### Phase 4B: Ball Color Dye Deposition (PENDING)	
-	- [ ] Add `BallDyeConfig` to `GameConfig` + RON defaults
-	- [ ] Define `GpuBallDye` struct & capacity constant
-	- [ ] CPU gather system builds `BallDyeBuffer` each frame
-	- [ ] Extraction system uploads buffer + count
-	- [ ] WGSL: `deposit_ball_dye` compute entry & structs
-	- [ ] Insert `DepositBallDye` pass into graph (after projection, before advection)
-	- [ ] Overlay metrics (enabled, count, avg radius, clamp hits)
-	- [ ] Tests: layout, single-ball deposit, speed influence
-	- [ ] Docs: update Audit & instructions; mark legacy config deprecated
-	- Acceptance: Ball trails reflect palette color independent of impulses; disabling feature halts new dye.
-
-### Phase 5: Bind Group Cache & Velocity Format Shrink
-	- [ ] Convert velocity textures to `Rg16Float`
-	- [ ] Update WGSL texture declarations & sampling
-	- [ ] Implement small bind group cache (HashMap or fixed array keyed by pass + front bits)
-	- [ ] Remove per-pass bind group recreation path
-	- [ ] Add test ensuring SimUniform unaffected & pipeline count same
-	- Acceptance: Reduced VRAM & CPU allocations (informal log / perf snapshot)
-
-### Phase 6: Obstacle Mask (opt)
-	- [ ] Allocate R8 obstacle texture
-	- [ ] Rasterize balls each frame (CPU upload or compute)
-	- [ ] Modify divergence & projection to treat obstacles as solid (zero normal velocity)
-	- Acceptance: Flow diverts around ball regions (visual inspection)
-
-### Phase 8: Diagnostics & Residuals
-	- [ ] Optional GPU timestamp queries (feature gated)
-	- [ ] Compute divergence residual after projection (L1 or L2 metric)
-	- [ ] Overlay: display workgroups, residual, impulse count, overflow
-	- Acceptance: Residual decreases frame-over-frame; metrics visible when enabled
-
-### Phase 9: Tests & Docs Finalization
-	- [ ] Divergence reduction test (tiny grid)
-	- [ ] Dye mass conservation (low dissipation scenario)
-	- [ ] Impulse application locality test
-	- [ ] Pass graph order test (config variant)
-	- [ ] README / instructions update for new API (impulse enqueue snippet)
-	- Acceptance: All tests green; documented usage path < 5 lines for adding an impulse
-
-Each phase should leave the system buildable, visually stable (except intended new effects), and documented.
-
----
-## 12. Risk & Mitigation Snapshot
-| Risk | Mitigation |
-|------|------------|
-| Shader/host mismatch | Add unit test enumerating entry points & checking uniform sizes |
-| Performance regression post-refactor | A/B frame time sampling before/after each phase |
-| Complexity creep in pass graph | Keep enum simple; avoid DAG until needed |
-| GPU buffer overflow for impulses | Clamp count; overflow counter & periodic warning |
-| Legacy impulse dye config lingering | Mark deprecated; remove after Phase 4B stabilization |
-| Async mapping stalls (drag sampling) | Use downsampled texture & double-buffer result |
-
----
-## 13. Future Enhancements (Post Roadmap)
-- Vorticity confinement pass for higher visual energy.
-- Dye blur/bloom compute pass for stylistic trails.
-- Configurable viscosity (diffusion) & pressure iteration auto-tuning (stop when residual < epsilon).
-- Multi-resolution (coarse grid for pressure solve, fine for dye) to trade quality vs perf.
-
----
-## 14. Summary
-The current fluid system provides a solid baseline but centralizes too many responsibilities and lacks a formal extension surface. A measured sequence of low-to-medium risk refactors will: (1) establish a clean API for external influences, (2) reduce redundant GPU work, and (3) enable two-way coupling with ball physics. Executing the outlined roadmap yields a lean, testable, and extensible simulation core ready for richer gameplay interactions.
-
----
-*End of Audit*
+Prepared automatically; review & adjust before implementation.
