@@ -1,0 +1,26 @@
+[package]
+name = "integration_tests"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+bevy_rapier2d = { workspace = true }
+bm_core = { path = "../core" }
+bm_physics = { path = "../physics" }
+bm_rendering = { path = "../rendering" }
+bm_gameplay = { path = "../gameplay" }
+bm_metaballs = { path = "../metaballs", optional = true }
+bm_debug_tools = { path = "../debug_tools", optional = true }
+bm_hot_reload = { path = "../hot_reload", optional = true }
+bm_config = { path = "../config" }
+
+[features]
+default = []
+# Enable all optional systems for exhaustive integration coverage later
+full = ["bm_metaballs", "bm_debug_tools", "bm_hot_reload/native-watch"]
+
+[package.metadata]
+purpose = "Black-box style integration tests across published plugin APIs."
