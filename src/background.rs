@@ -11,21 +11,31 @@ static BG_WORLDGRID_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static BG_FLUID_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
+#[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug)]
 struct BgData {
-    // 32-byte aligned uniform block (WebGPU / wgpu downlevel requires multiple of 16 bytes)
-    // Layout (std140-like rules Bevy follows for ShaderType): Vec2 (8) + 3*f32 (12) + 3*f32 padding = 32 total.
-    window_size: Vec2,    // 8
-    cell_size: f32,       // 12
-    line_thickness: f32,  // 16
-    dark_factor: f32,     // 20
-    _pad0: f32,           // 24
-    _pad1: f32,           // 28
-    _pad2: f32,           // 32
+    // Packed into two Vec4 for simpler GPU-friendly editing & guaranteed 32-byte size.
+    // v0: (window_size.x, window_size.y, cell_size, line_thickness)
+    // v1: (dark_factor, reserved1, reserved2, reserved3)
+    v0: Vec4,
+    v1: Vec4,
 }
 
 impl Default for BgData {
-    fn default() -> Self { Self { window_size: Vec2::ZERO, cell_size: 128.0, line_thickness: 0.015, dark_factor: 0.15, _pad0: 0.0, _pad1: 0.0, _pad2: 0.0 } }
+    fn default() -> Self {
+        Self {
+            v0: Vec4::new(0.0, 0.0, 128.0, 0.015),
+            v1: Vec4::new(0.15, 0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl BgData {
+    fn window_size(&self) -> Vec2 { Vec2::new(self.v0.x, self.v0.y) }
+    fn set_window_size(&mut self, size: Vec2) { self.v0.x = size.x; self.v0.y = size.y; }
+    fn cell_size(&self) -> f32 { self.v0.z }
+    fn line_thickness(&self) -> f32 { self.v0.w }
+    fn dark_factor(&self) -> f32 { self.v1.x }
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
@@ -56,20 +66,26 @@ struct FluidBackgroundQuad;
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveBackground { Grid, Fluid, #[default] FluidSim }
 
+#[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug)]
 struct FluidData {
-    // Also pad to 32 bytes (was 24)
-    window_size: Vec2, // 8
-    time: f32,         // 12
-    scale: f32,        // 16
-    intensity: f32,    // 20
-    _pad0: f32,        // 24
-    _pad1: f32,        // 28
-    _pad2: f32,        // 32
+    // v0: (window_size.x, window_size.y, time, scale)
+    // v1: (intensity, reserved1, reserved2, reserved3)
+    v0: Vec4,
+    v1: Vec4,
 }
 
 impl Default for FluidData {
-    fn default() -> Self { Self { window_size: Vec2::ZERO, time: 0.0, scale: 1.25, intensity: 0.9, _pad0: 0.0, _pad1: 0.0, _pad2: 0.0 } }
+    fn default() -> Self { Self { v0: Vec4::new(0.0,0.0,0.0,1.25), v1: Vec4::new(0.9,0.0,0.0,0.0) } }
+}
+
+impl FluidData {
+    fn window_size(&self) -> Vec2 { Vec2::new(self.v0.x, self.v0.y) }
+    fn set_window_size(&mut self, size: Vec2) { self.v0.x = size.x; self.v0.y = size.y; }
+    fn time(&self) -> f32 { self.v0.z }
+    fn increment_time(&mut self, dt: f32) { self.v0.z += dt; }
+    fn scale(&self) -> f32 { self.v0.w }
+    fn intensity(&self) -> f32 { self.v1.x }
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
@@ -119,11 +135,11 @@ fn setup_backgrounds(
 ) {
     let (w,h) = if let Ok(win) = windows.single() {(win.width(), win.height())} else {(800.0,600.0)};
     let mut grid_mat = BgMaterial::default();
-    grid_mat.data.window_size = Vec2::new(w,h);
+    grid_mat.data.set_window_size(Vec2::new(w,h));
     let grid_handle = grid_mats.add(grid_mat);
 
     let mut fluid_mat = FluidMaterial::default();
-    fluid_mat.data.window_size = Vec2::new(w,h);
+    fluid_mat.data.set_window_size(Vec2::new(w,h));
     let fluid_handle = fluid_mats.add(fluid_mat);
 
     let mesh = meshes.add(Mesh::from(Rectangle::new(2.0,2.0)));
@@ -152,7 +168,7 @@ fn resize_bg_uniform(
 ) {
     let Ok(win) = windows.single() else { return; };
     let Ok(handle) = q_mat.single() else { return; };
-    if let Some(mat) = materials.get_mut(&handle.0) { if mat.data.window_size.x != win.width() || mat.data.window_size.y != win.height() { mat.data.window_size = Vec2::new(win.width(), win.height()); }}
+    if let Some(mat) = materials.get_mut(&handle.0) { let ws = mat.data.window_size(); if ws.x != win.width() || ws.y != win.height() { mat.data.set_window_size(Vec2::new(win.width(), win.height())); }}
 }
 
 fn resize_fluid_uniform(
@@ -162,7 +178,7 @@ fn resize_fluid_uniform(
 ) {
     let Ok(win) = windows.single() else { return; };
     let Ok(handle) = q_mat.single() else { return; };
-    if let Some(mat) = materials.get_mut(&handle.0) { if mat.data.window_size.x != win.width() || mat.data.window_size.y != win.height() { mat.data.window_size = Vec2::new(win.width(), win.height()); }}
+    if let Some(mat) = materials.get_mut(&handle.0) { let ws = mat.data.window_size(); if ws.x != win.width() || ws.y != win.height() { mat.data.set_window_size(Vec2::new(win.width(), win.height())); }}
 }
 
 fn update_fluid_time(
@@ -171,7 +187,7 @@ fn update_fluid_time(
     mut materials: ResMut<Assets<FluidMaterial>>,
 ) {
     let Ok(handle) = q_mat.single() else { return; };
-    if let Some(mat) = materials.get_mut(&handle.0) { mat.data.time += time.delta_secs(); }
+    if let Some(mat) = materials.get_mut(&handle.0) { mat.data.increment_time(time.delta_secs()); }
 }
 
 fn toggle_background(

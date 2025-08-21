@@ -22,45 +22,25 @@ use crate::palette::color_for_index; // added
 pub const MAX_BALLS: usize = 1024; // each uses one Vec4
 pub const MAX_CLUSTERS: usize = 256; // color table size
 
+#[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug)]
 pub(crate) struct MetaballsUniform {
-    // Counts
-    ball_count: u32,
-    cluster_color_count: u32,
-    // Tunable scaling so iso surface roughly matches BallRadius.
-    radius_scale: f32, // multiplies each stored ball radius
-    _pad1: u32,
-    // Window (for vertex pass-through scaling)
-    window_size: Vec2,
-    iso: f32,            // isosurface threshold
-    normal_z_scale: f32, // for pseudo-3D lighting (2D path)
-    // Blending exponent (>=1 tightens color locality). 1.0 = linear weighting by field value.
-    color_blend_exponent: f32,
-    // User-configured visual expansion multiplier of physical radii (before iso-derived radius_scale)
-    radius_multiplier: f32,
-    // Debug view variant selector retained for optional overlays (0=Normal,1=Heightfield,2=ColorInfo)
-    debug_view: u32,
-    _pad2: Vec2,
-    // Per-ball packed data: (x, y, radius, cluster_index as float)
+    // v0: (ball_count, cluster_color_count, radius_scale, iso)
+    v0: Vec4,
+    // v1: (normal_z_scale, color_blend_exponent, radius_multiplier, debug_view as f32)
+    v1: Vec4,
+    // v2: (window_size.x, window_size.y, reserved2, reserved3)
+    v2: Vec4,
     balls: [Vec4; MAX_BALLS],
-    // Cluster colors as linear RGB in xyz, w unused (or could store pre-mult factor)
     cluster_colors: [Vec4; MAX_CLUSTERS],
 }
 
 impl Default for MetaballsUniform {
     fn default() -> Self {
         Self {
-            ball_count: 0,
-            cluster_color_count: 0,
-            radius_scale: 1.0,
-            _pad1: 0,
-            window_size: Vec2::ZERO,
-            iso: 0.6,
-            normal_z_scale: 1.0,
-            color_blend_exponent: 1.0,
-            radius_multiplier: 1.0,
-            debug_view: 0,
-            _pad2: Vec2::ZERO,
+            v0: Vec4::new(0.0, 0.0, 1.0, 0.6),
+            v1: Vec4::new(1.0, 1.0, 1.0, 0.0),
+            v2: Vec4::new(0.0, 0.0, 0.0, 0.0),
             balls: [Vec4::ZERO; MAX_BALLS],
             cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
         }
@@ -75,7 +55,7 @@ pub struct MetaballsMaterial {
 
 impl MetaballsMaterial {
     #[cfg(feature = "debug")]
-    pub fn set_debug_view(&mut self, view: u32) { self.data.debug_view = view; }
+    pub fn set_debug_view(&mut self, view: u32) { self.data.v1.w = view as f32; }
 }
 
 impl Material2d for MetaballsMaterial {
@@ -168,7 +148,8 @@ fn setup_metaballs(
     let mesh_handle = meshes.add(Mesh::from(Rectangle::new(2.0, 2.0)));
 
     let mut mat = MetaballsMaterial::default();
-    mat.data.window_size = Vec2::new(w, h);
+    mat.data.v2.x = w;
+    mat.data.v2.y = h;
     let material_handle = materials.add(mat);
 
     // Bevy 0.16 migration note: Replaced deprecated MaterialMesh2dBundle usage with explicit
@@ -206,21 +187,20 @@ fn update_metaballs_material(
     };
 
     // Update params
-    mat.data.iso = params.iso;
-    mat.data.normal_z_scale = params.normal_z_scale;
-    // Keep a fixed exponent for now (could expose via params/config later)
-    mat.data.color_blend_exponent = 1.0;
-    mat.data.radius_multiplier = params.radius_multiplier.max(0.0001);
+    mat.data.v0.w = params.iso; // iso
+    mat.data.v1.x = params.normal_z_scale;
+    mat.data.v1.y = 1.0; // color_blend_exponent constant
+    mat.data.v1.z = params.radius_multiplier.max(0.0001);
     // Apply debug view (only when debug feature compiled). Falls back to 0 (Normal).
     #[cfg(feature = "debug")]
     {
         if let Some(overrides) = debug_overrides {
             use crate::debug::MetaballsViewVariant;
-            mat.data.debug_view = match overrides.metaballs_view_variant {
+            mat.data.v1.w = match overrides.metaballs_view_variant {
                 MetaballsViewVariant::Normal => 0,
                 MetaballsViewVariant::Heightfield => 1,
                 MetaballsViewVariant::ColorInfo => 2,
-            } as u32;
+            } as f32;
         }
     }
     // Derive radius_scale so that field at boundary ~ iso.
@@ -231,7 +211,7 @@ fn update_metaballs_material(
     // radius_scale = 1 / k.
     let iso = params.iso.clamp(1e-4, 0.9999);
     let k = (1.0 - iso.powf(1.0 / 3.0)).max(1e-4).sqrt();
-    mat.data.radius_scale = 1.0 / k;
+    mat.data.v0.z = 1.0 / k; // radius_scale
 
     // Build cluster color table (stable order up to MAX_CLUSTERS)
     let mut color_count = 0usize;
@@ -245,7 +225,7 @@ fn update_metaballs_material(
         mat.data.cluster_colors[color_count] = Vec4::new(srgb.red, srgb.green, srgb.blue, 1.0);
         color_count += 1;
     }
-    mat.data.cluster_color_count = color_count as u32;
+    mat.data.v0.y = color_count as f32;
 
     // Pack per-ball data; assign cluster index based on first matching cluster entry with same color_index (fallback 0)
     let mut ball_count = 0usize;
@@ -265,7 +245,7 @@ fn update_metaballs_material(
         mat.data.balls[ball_count] = Vec4::new(pos.x, pos.y, radius.0, cluster_slot as f32);
         ball_count += 1;
     }
-    mat.data.ball_count = ball_count as u32;
+    mat.data.v0.x = ball_count as f32;
 }
 
 fn resize_fullscreen_quad(
@@ -280,8 +260,9 @@ fn resize_fullscreen_quad(
         return;
     };
     if let Some(mat) = materials.get_mut(&handle_comp.0) {
-        if mat.data.window_size.x != window.width() || mat.data.window_size.y != window.height() {
-            mat.data.window_size = Vec2::new(window.width(), window.height());
+        if mat.data.v2.x != window.width() || mat.data.v2.y != window.height() {
+            mat.data.v2.x = window.width();
+            mat.data.v2.y = window.height();
         }
     }
 }

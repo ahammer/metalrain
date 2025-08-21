@@ -5,19 +5,14 @@
 const MAX_BALLS : u32 = 1024u;
 const MAX_CLUSTERS : u32 = 256u;
 
-// Mirrors the Rust `MetaballsUniform` layout exactly. Remove fields cautiously & in lockstep.
+// Mirrors the packed Rust `MetaballsUniform` layout:
+// v0: (ball_count, cluster_color_count, radius_scale, iso)
+// v1: (normal_z_scale, color_blend_exponent, radius_multiplier, debug_view)
+// v2: (window_size.x, window_size.y, reserved2, reserved3)
 struct MetaballsData {
-    ball_count: u32,
-    cluster_color_count: u32,
-    radius_scale: f32,
-    _pad1: u32,
-    window_size: vec2<f32>,
-    iso: f32,
-    normal_z_scale: f32,
-    color_blend_exponent: f32,
-    radius_multiplier: f32, // user visual expansion factor (applied before radius_scale)
-    debug_view: u32,        // 0=Normal,1=Heightfield,2=ColorInfo
-    _pad2: vec2<f32>,       // matches Rust padding
+    v0: vec4<f32>,
+    v1: vec4<f32>,
+    v2: vec4<f32>,
     balls: array<vec4<f32>, MAX_BALLS>,             // (x, y, radius, cluster_index as float)
     cluster_colors: array<vec4<f32>, MAX_CLUSTERS>, // (r,g,b,_)
 };
@@ -35,7 +30,7 @@ struct VertexOutput {
 fn vertex(@location(0) position: vec3<f32>) -> VertexOutput {
     var out: VertexOutput;
     out.position = vec4<f32>(position.xy, 0.0, 1.0);
-    let half_size = metaballs.window_size * 0.5;
+    let half_size = metaballs.v2.xy * 0.5;
     out.world_pos = position.xy * half_size;
     return out;
 }
@@ -47,7 +42,13 @@ fn vertex(@location(0) position: vec3<f32>) -> VertexOutput {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // If there are no balls at all, we don't want this material to draw anything.
-    if (metaballs.ball_count == 0u) { discard; }
+    let ball_count = u32(metaballs.v0.x + 0.5);
+    let cluster_color_count = u32(metaballs.v0.y + 0.5);
+    let radius_scale = metaballs.v0.z;
+    let iso = metaballs.v0.w;
+    let radius_multiplier = metaballs.v1.z;
+    let debug_view = u32(metaballs.v1.w + 0.5);
+    if (ball_count == 0u) { discard; }
     let p = in.world_pos;
 
     // Sparse per-pixel cluster accumulation (top-K style). K kept small for ALU efficiency.
@@ -57,14 +58,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var k_grad: array<vec2<f32>, 12>;
     var used: u32 = 0u;
 
-    for (var i: u32 = 0u; i < metaballs.ball_count; i = i + 1u) {
+    for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
         let b = metaballs.balls[i];
         let center = b.xy;
-        let radius = b.z * metaballs.radius_multiplier;
+    let radius = b.z * radius_multiplier;
         if (radius <= 0.0) { continue; }
         let d = p - center;
         let d2 = dot(d, d);
-        let scaled_r = radius * metaballs.radius_scale;
+    let scaled_r = radius * radius_scale;
         let r2 = scaled_r * scaled_r;
         if (d2 < r2) {
             let x = 1.0 - d2 / r2; // [0,1]
@@ -72,7 +73,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             let fi = x2 * x; // field contribution
             let g = (-6.0 / r2) * d * x2; // gradient contribution (2D)
             let cluster = u32(b.w + 0.5);
-            if (cluster >= metaballs.cluster_color_count) { continue; }
+            if (cluster >= cluster_color_count) { continue; }
             // Find existing slot
             var found: i32 = -1;
             for (var k: u32 = 0u; k < used; k = k + 1u) {
@@ -112,8 +113,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if (k_field[k] > best_field) { best_field = k_field[k]; best_i = k; }
     }
     // Heightfield (debug_view==1): show only the dominant cluster's scalar field normalized.
-    if (metaballs.debug_view == 1u) {
-        let gray = clamp(best_field / metaballs.iso, 0.0, 1.0);
+    if (debug_view == 1u) {
+        let gray = clamp(best_field / iso, 0.0, 1.0);
         return vec4<f32>(vec3<f32>(gray, gray, gray), 1.0);
     }
     // Base color comes from dominant cluster (ColorInfo identical in this mode now).
@@ -122,7 +123,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // We still keep a micro AA band (one pixel) to avoid harsh stair-steps at the iso contour.
     let grad = k_grad[best_i];
     let grad_len = max(length(grad), 1e-5);
-    let field_delta = best_field - metaballs.iso;
+    let field_delta = best_field - iso;
     // Pixel size in world units (approx) for adaptive AA width.
     let px_world = length(vec2<f32>(dpdx(in.world_pos.x), dpdy(in.world_pos.y)));
     // Width of smoothing band in field units -> tune multiplier for softer/harder edge.

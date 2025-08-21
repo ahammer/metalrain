@@ -2,11 +2,8 @@
 // Creates a swirling color field using layered sin/cos waves advected over time.
 
 struct FluidData {
-    window_size: vec2<f32>,
-    time: f32,
-    scale: f32,
-    intensity: f32,
-    _pad: f32,
+    v0: vec4<f32>, // (window_size.x, window_size.y, time, scale)
+    v1: vec4<f32> // (intensity, reserved1, reserved2, reserved3)
 };
 
 @group(2) @binding(0)
@@ -21,7 +18,8 @@ struct VOut {
 fn vertex(@location(0) position: vec3<f32>) -> VOut {
     var o: VOut;
     o.pos = vec4<f32>(position.xy, 0.0, 1.0);
-    let half_size = fluid.window_size * 0.5;
+    let window_size = fluid.v0.xy;
+    let half_size = window_size * 0.5;
     o.world = position.xy * half_size; // match world scaling similar to grid
     return o;
 }
@@ -45,8 +43,9 @@ fn noise(p: vec2<f32>) -> f32 {
 
 @fragment
 fn fragment(in: VOut) -> @location(0) vec4<f32> {
-    let t = fluid.time * 0.15;
-    let uv = in.world / max(fluid.window_size.x, fluid.window_size.y) * fluid.scale;
+    let t = fluid.v0.z * 0.15;
+    let window_size = fluid.v0.xy;
+    let uv = in.world / max(window_size.x, window_size.y) * fluid.v0.w;
     // Curl-ish layers
     var v = vec2<f32>(uv.x + sin(uv.y*2.0 + t), uv.y + cos(uv.x*2.0 - t));
     var accum: f32 = 0.0;
@@ -63,6 +62,6 @@ fn fragment(in: VOut) -> @location(0) vec4<f32> {
     let g = sin(base*6.283 + 2.094 + t*1.5)*0.5+0.5;
     let b = sin(base*6.283 + 4.188 + t)*0.5+0.5;
     let col = vec3<f32>(r,g,b);
-    let finalc = mix(vec3<f32>(0.02,0.02,0.03), col, fluid.intensity);
+    let finalc = mix(vec3<f32>(0.02,0.02,0.03), col, fluid.v1.x);
     return vec4<f32>(finalc, 1.0);
 }
