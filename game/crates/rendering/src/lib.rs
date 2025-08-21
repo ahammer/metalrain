@@ -1,64 +1,86 @@
- // Phase 3 (in progress): Rendering crate basics.
- // Adds: RenderingPlugin that spawns a 2D camera, sets a clear color, and defines a simple placeholder palette.
- // Future: background mesh/shader, materials, palette integration, camera controls.
+// Phase 3 (in progress): Rendering crate basics.
+// Adds: RenderingPlugin spawning a 2D camera (no clear), background grid (Material2d full‑screen quad), palette module.
+// Future: circle mesh/material pipeline for balls, golden frame hash harness, camera controls & resizing logic refactor.
 
- use bevy::prelude::*;
+use bevy::prelude::*;
 
- pub struct RenderingPlugin;
+mod palette;
+pub use palette::{Palette, BASE_COLORS, color_for_index};
 
- #[derive(Component)]
- pub struct GameCamera;
+pub mod background;
+pub use background::{BackgroundPlugin, BgMaterial, BackgroundQuad};
 
- /// Placeholder palette (will be expanded with material and UI colors later).
- pub struct Palette;
- impl Palette {
-     pub const BG: Color = Color::srgb(0.02, 0.02, 0.05);
-     pub const BALL: Color = Color::srgb(0.95, 0.95, 1.0);
-     pub const HIGHLIGHT: Color = Color::srgb(0.3, 0.6, 1.0);
- }
+mod circles;
+pub use circles::CirclesPlugin;
 
- fn setup_camera(mut commands: Commands) {
-     // Minimal placeholder camera (will be upgraded to proper 2D camera bundle later).
-     commands.spawn((
-         Camera::default(),
-         GameCamera,
-     ));
- }
+pub struct RenderingPlugin;
 
+#[derive(Component)]
+pub struct GameCamera;
 
- impl Plugin for RenderingPlugin {
-     fn build(&self, app: &mut App) {
-         app.insert_resource(ClearColor(Palette::BG));
-         app.add_systems(Startup, setup_camera);
-     }
- }
+fn setup_camera(mut commands: Commands) {
+    // Primary 2D camera. We disable automatic clear so background material draws first.
+    commands.spawn((
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        GameCamera,
+    ));
+}
 
- #[cfg(test)]
- mod tests {
-     use super::*;
+impl Plugin for RenderingPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((
+            BackgroundPlugin,                                // background grid first
+            CirclesPlugin,                                   // circle visuals for Balls
+        ))
+            .add_systems(Startup, setup_camera)
+            .insert_resource(ClearColor(Palette::BG)); // Fallback if background disabled later
+    }
+}
 
-     #[test]
-     fn plugin_adds_and_spawns_camera() {
-         let mut app = App::new();
-         app.add_plugins(MinimalPlugins);
-         app.add_plugins(RenderingPlugin);
-         // Run startup
-         app.update();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-         // Count GameCamera components
-         let world = app.world_mut();
-         let mut query = world.query::<&GameCamera>();
-         let count = query.iter(&world).count();
-         assert_eq!(count, 1, "expected exactly one GameCamera, found {count}");
-     }
+    #[test]
+    fn plugin_spawns_camera_and_background() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(RenderingPlugin);
+        app.update();
 
-     #[test]
-     fn clear_color_applied() {
-         let mut app = App::new();
-         app.add_plugins(MinimalPlugins);
-         app.add_plugins(RenderingPlugin);
-         app.update();
-         let cc = app.world().resource::<ClearColor>();
-         assert_eq!(cc.0, Palette::BG, "clear color mismatch");
-     }
- }
+        // Camera present
+        let world = app.world_mut();
+        let mut q_cam = world.query::<&GameCamera>();
+        assert_eq!(q_cam.iter(world).count(), 1, "expected exactly one GameCamera");
+
+        // Background present
+        let mut q_bg = world.query::<&background::BackgroundQuad>();
+        assert_eq!(q_bg.iter(world).count(), 1, "expected background quad");
+    }
+
+    #[test]
+    fn palette_wrap_and_constants() {
+        assert_eq!(color_for_index(4), BASE_COLORS[0]);
+        assert_eq!(Palette::BG, Color::srgb(0.02, 0.02, 0.05));
+    }
+
+    #[test]
+    fn rendering_plugin_spawns_circle_for_ball() {
+        use bm_core::{Ball, BallRadius, BallCircleVisual, CorePlugin};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(RenderingPlugin);
+        app.add_plugins(CorePlugin);
+        // Spawn a ball AFTER plugins so Added<Ball> triggers circle spawn
+        app.world_mut().spawn((Ball, BallRadius(3.0)));
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<&BallCircleVisual>();
+        assert_eq!(q.iter(world).count(), 1, "expected one BallCircleVisual via RenderingPlugin");
+    }
+}

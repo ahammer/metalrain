@@ -12,7 +12,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = "1"
 bm_core = { path = "../core" }
 bm_physics = { path = "../physics" }
-bm_rendering = { path = "../rendering" }
+bm_rendering = { path = "../rendering", features = ["headless"] }
 bm_gameplay = { path = "../gameplay" }
 bm_metaballs = { path = "../metaballs", optional = true }
 bm_debug_tools = { path = "../debug_tools", optional = true }
@@ -23,6 +23,10 @@ bm_config = { path = "../config" }
 default = []
 # Enable all optional systems for exhaustive integration coverage later
 full = ["bm_metaballs", "bm_debug_tools", "bm_hot_reload/native-watch"]
+
+[dev-dependencies]
+# Legacy reference crate (outside game/ tree) for parity tests
+ball_matcher = { path = "../../../legacy" }
 
 [package.metadata]
 purpose = "Black-box style integration tests across published plugin APIs."
