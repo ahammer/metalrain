@@ -3,11 +3,11 @@ use bevy::prelude::*;
 #[cfg(feature = "debug")]
 use super::modes::{DebugStats, DebugState};
 #[cfg(feature = "debug")]
-use crate::components::Ball;
+use crate::core::components::Ball;
 #[cfg(feature = "debug")]
-use crate::cluster::Clusters;
+use crate::physics::clustering::cluster::Clusters;
 #[cfg(feature = "debug")]
-use crate::metaballs::MAX_BALLS;
+use crate::rendering::metaballs::metaballs::MAX_BALLS;
 
 #[cfg(feature = "debug")]
 pub fn debug_stats_collect_system(time: Res<Time>, mut state: ResMut<DebugState>, mut stats: ResMut<DebugStats>, q_balls: Query<&Ball>, clusters: Res<Clusters>) {
