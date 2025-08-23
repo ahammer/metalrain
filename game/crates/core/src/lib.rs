@@ -11,29 +11,23 @@ pub struct Ball;
 #[derive(Component, Debug, Deref, DerefMut, Copy, Clone)]
 pub struct BallRadius(pub f32);
 
+/// Color palette index assigned to a Ball for rendering (wraps into BASE_COLORS).
+#[derive(Component, Debug, Deref, DerefMut, Copy, Clone)]
+pub struct BallColorIndex(pub u8);
+
 /// Tag component for the circle mesh child used in flat rendering modes.
 #[derive(Component, Debug)]
 pub struct BallCircleVisual;
 
 /// Deterministic RNG seed resource (set once at startup / tests for reproducible spawning & logic).
-#[derive(Resource, Debug, Copy, Clone)]
+#[derive(Resource, Debug, Copy, Clone, Default)]
 pub struct RngSeed(pub u64);
 
 // Wrapper Bevy resource for the pure-data GameConfig (keeps bm_config free of bevy dependency).
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct GameConfigRes(pub bm_config::GameConfig);
 
-impl Default for GameConfigRes {
-    fn default() -> Self {
-        Self(bm_config::GameConfig::default())
-    }
-}
 
-impl Default for RngSeed {
-    fn default() -> Self {
-        Self(0)
-    }
-}
 
 // System set labels (ported from legacy/system_order.rs)
 #[derive(SystemSet, Debug, Hash, Eq, PartialEq, Clone)]

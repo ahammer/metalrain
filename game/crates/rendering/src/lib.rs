@@ -13,6 +13,16 @@ pub use background::{BackgroundPlugin, BgMaterial, BackgroundQuad};
 mod circles;
 pub use circles::CirclesPlugin;
 
+#[cfg(feature = "instancing")]
+mod instancing;
+#[cfg(feature = "instancing")]
+pub use instancing::{InstancingPlugin, InstancingState};
+
+#[cfg(feature = "golden")]
+mod golden;
+#[cfg(feature = "golden")]
+pub use golden::{GoldenHashPlugin, GoldenState, GoldenPreimage, GoldenCaptureSet};
+
 pub struct RenderingPlugin;
 
 #[derive(Component)]
@@ -33,10 +43,21 @@ fn setup_camera(mut commands: Commands) {
 impl Plugin for RenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            BackgroundPlugin,                                // background grid first
-            CirclesPlugin,                                   // circle visuals for Balls
-        ))
-            .add_systems(Startup, setup_camera)
+            BackgroundPlugin, // background grid first
+            CirclesPlugin,    // circle visuals for Balls
+        ));
+
+        #[cfg(feature = "instancing")]
+        {
+            app.add_plugins(InstancingPlugin);
+        }
+
+        #[cfg(feature = "golden")]
+        {
+            app.add_plugins(GoldenHashPlugin);
+        }
+
+        app.add_systems(Startup, setup_camera)
             .insert_resource(ClearColor(Palette::BG)); // Fallback if background disabled later
     }
 }

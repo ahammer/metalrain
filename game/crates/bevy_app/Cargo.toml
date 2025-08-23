@@ -1,0 +1,29 @@
+[package]
+name = "bm_bevy_app"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[features]
+default = []
+metaballs = ["dep:bm_metaballs"]
+debug = ["dep:bm_debug_tools"]
+hot-reload = ["dep:bm_hot_reload"]
+golden = ["bm_rendering/golden"]            # pass-through to enable golden hash harness
+instancing = ["bm_rendering/instancing"]    # pass-through for future instancing optimization
+background-light = ["bm_rendering/background_light"] # lightweight background for headless/golden tests
+
+[dependencies]
+bevy = { workspace = true }
+
+bm_core = { path = "../core" }
+bm_config = { path = "../config" }
+bm_physics = { path = "../physics" }
+bm_rendering = { path = "../rendering" }
+bm_gameplay = { path = "../gameplay" }
+
+# Optional feature crates
+bm_metaballs = { path = "../metaballs", optional = true }
+bm_debug_tools = { path = "../debug_tools", optional = true }
+bm_hot_reload = { path = "../hot_reload", optional = true }

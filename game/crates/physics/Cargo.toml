@@ -1,0 +1,15 @@
+[package]
+name = "bm_physics"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+bevy_rapier2d = { workspace = true }
+bm_core = { path = "../core" }
+bm_config = { path = "../config" }
+
+[features]
+default = []

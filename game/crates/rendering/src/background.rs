@@ -14,7 +14,9 @@
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
+#[allow(unused_imports)]
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
+#[cfg(not(any(test, feature = "headless", feature = "background_light")))]
 use bevy::prelude::Mesh2d;
 
 #[cfg(target_arch = "wasm32")]
@@ -40,6 +42,7 @@ impl Default for BgData {
     }
 }
 
+#[allow(dead_code)]
 impl BgData {
     pub fn window_size(&self) -> Vec2 { Vec2::new(self.v0.x, self.v0.y) }
     pub fn set_window_size(&mut self, size: Vec2) { self.v0.x = size.x; self.v0.y = size.y; }
@@ -81,14 +84,14 @@ impl Material2d for BgMaterial {
 pub struct BackgroundQuad;
 
 /// Public plugin that sets up the material pipeline and spawns the quad (normal / non-test build).
-#[cfg(not(any(test, feature = "headless")))]
+#[cfg(not(any(test, feature = "headless", feature = "background_light")))]
 pub struct BackgroundPlugin;
 
-/// Lightweight test variant (no render / winit).
-#[cfg(any(test, feature = "headless"))]
+/// Lightweight test / headless / light variant (no render / winit).
+#[cfg(any(test, feature = "headless", feature = "background_light"))]
 pub struct BackgroundPlugin;
 
-#[cfg(not(any(test, feature = "headless")))]
+#[cfg(not(any(test, feature = "headless", feature = "background_light")))]
 impl Plugin for BackgroundPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(target_arch = "wasm32")]
@@ -109,7 +112,7 @@ impl Plugin for BackgroundPlugin {
     }
 }
 
-#[cfg(any(test, feature = "headless"))]
+#[cfg(any(test, feature = "headless", feature = "background_light"))]
 impl Plugin for BackgroundPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, |mut commands: Commands| {
@@ -119,7 +122,7 @@ impl Plugin for BackgroundPlugin {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "headless", feature = "background_light")))]
 fn setup_background(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -145,7 +148,7 @@ fn setup_background(
     ));
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "headless", feature = "background_light")))]
 fn resize_bg_uniform(
     windows: Query<&Window>,
     q_mat: Query<&MeshMaterial2d<BgMaterial>, With<BackgroundQuad>>,

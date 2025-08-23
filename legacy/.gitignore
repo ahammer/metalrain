@@ -33,6 +33,3 @@ logs/
 # Backup files
 *~
 *.swp
-
-# Leave Cargo.lock for binaries (keep) - do NOT ignore
-# If this were a library crate you could ignore it.

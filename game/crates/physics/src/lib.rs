@@ -13,8 +13,8 @@ pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        // Rapier with pixel scaling; disable global gravity in startup system.
-        app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
+        // Rapier setup (match legacy: default scaling of 1.0; scaling previously 100.0 caused parity drift).
+        app.add_plugins(RapierPhysicsPlugin::<NoUserData>::default());
 
         app.add_systems(Startup, configure_gravity);
         app.add_systems(

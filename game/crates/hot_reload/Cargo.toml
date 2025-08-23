@@ -1,0 +1,19 @@
+[package]
+name = "bm_hot_reload"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+bm_config = { path = "../config" }
+notify = { version = "6", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# No file watching on wasm; keep crate lightweight.
+
+[features]
+default = []
+# Native file watching support (will be enabled by bevy_app feature "hot-reload")
+native-watch = ["notify"]

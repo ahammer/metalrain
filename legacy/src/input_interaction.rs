@@ -38,10 +38,7 @@ fn cursor_world_pos(
     screen_pos: Vec2,
 ) -> Option<Vec2> {
     let (camera, cam_tf) = camera_q.iter().next()?; // single camera assumption
-    match camera.viewport_to_world_2d(cam_tf, screen_pos) {
-        Ok(world) => Some(world),
-        Err(_) => None,
-    }
+    camera.viewport_to_world_2d(cam_tf, screen_pos).ok()
 }
 
 /// Unified pointer (mouse or first touch) world position.

@@ -1,0 +1,23 @@
+[package]
+name = "bevy_app"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+bm_config = { path = "../crates/config" }
+bm_core = { path = "../crates/core" }
+bm_physics = { path = "../crates/physics" }
+bm_rendering = { path = "../crates/rendering" }
+bm_gameplay = { path = "../crates/gameplay" }
+bm_metaballs = { path = "../crates/metaballs", optional = true }
+bm_debug_tools = { path = "../crates/debug_tools", optional = true }
+bm_hot_reload = { path = "../crates/hot_reload", optional = true }
+
+[features]
+default = []
+debug = ["bm_debug_tools"]
+metaballs = ["bm_metaballs"]
+hot-reload = ["bm_hot_reload/native-watch"]

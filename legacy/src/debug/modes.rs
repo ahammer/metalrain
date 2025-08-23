@@ -38,6 +38,7 @@ pub struct DebugStats { pub fps: f32, pub frame_time_ms: f32, pub ball_count: us
 
 #[cfg(feature = "debug")]
 #[derive(Resource, Debug, Clone)]
+#[allow(dead_code)]
 pub struct DebugVisualOverrides { pub draw_circles: Option<bool>, pub draw_cluster_bounds: Option<bool>, pub rapier_debug_enabled: Option<bool>, pub metaballs_enabled: Option<bool>, pub metaballs_view_variant: MetaballsViewVariant }
 
 #[cfg(feature = "debug")]

@@ -186,6 +186,28 @@ impl Default for MetaballsRenderConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(default)]
+pub struct EmitterConfig {
+    pub enabled: bool,
+    /// Approximate spawn rate per second (interpreted relative to a nominal 60 fps in deterministic tests).
+    pub rate_per_sec: f32,
+    /// Upper bound on total concurrently live balls spawned by the emitter (including initial ring).
+    pub max_live: usize,
+    /// Optional burst size spawned immediately on startup (0 = none).
+    pub burst: usize,
+}
+impl Default for EmitterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            rate_per_sec: 30.0,
+            max_live: 5_000,
+            burst: 0,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(default)]
 pub struct GameConfig {
     pub window: WindowConfig,
     pub gravity: GravityConfig,
@@ -196,6 +218,7 @@ pub struct GameConfig {
     pub draw_circles: bool,
     pub metaballs_enabled: bool,
     pub metaballs: MetaballsRenderConfig,
+    pub emitter: EmitterConfig,
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
 }
@@ -211,6 +234,7 @@ impl Default for GameConfig {
             draw_circles: false,
             metaballs_enabled: true,
             metaballs: Default::default(),
+            emitter: Default::default(),
             draw_cluster_bounds: false,
             interactions: Default::default(),
         }
@@ -441,6 +465,23 @@ impl GameConfig {
                 self.metaballs.radius_multiplier
             ));
         }
+        if self.emitter.enabled {
+            if self.emitter.rate_per_sec <= 0.0 {
+                w.push("emitter.rate_per_sec must be > 0 when enabled".into());
+            }
+            if self.emitter.max_live == 0 {
+                w.push("emitter.max_live is 0; no entities can spawn".into());
+            }
+            if self.emitter.burst > self.emitter.max_live {
+                w.push("emitter.burst exceeds emitter.max_live; burst capped at max_live".into());
+            }
+            if self.emitter.rate_per_sec > 10_000.0 {
+                w.push(format!(
+                    "emitter.rate_per_sec {} extremely high; performance risk",
+                    self.emitter.rate_per_sec
+                ));
+            }
+        }
         w
     }
 }
@@ -527,6 +568,7 @@ mod tests {
                 normal_z_scale: 1.0,
                 radius_multiplier: 1.0,
             },
+            emitter: EmitterConfig::default(),
             draw_cluster_bounds: false,
             interactions: InteractionConfig {
                 explosion: ExplosionConfig {

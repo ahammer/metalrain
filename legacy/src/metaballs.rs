@@ -284,3 +284,79 @@ fn tweak_metaballs_params(mut params: ResMut<MetaballsParams>, keys: Res<ButtonI
         );
     }
 }
+
+#[cfg(test)]
+mod perf_tests {
+    use super::*;
+    use std::time::Instant;
+
+    // Ignored perf smoke test mirroring new architecture harness for comparative baseline.
+    // Measures 300 update frames with 200 balls (no clusters logic dependency here).
+    #[test]
+    #[ignore]
+    fn legacy_perf_smoke_metaballs_300_frames() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        // Provide assets & input similar to new harness
+        app.insert_resource(Assets::<Mesh>::default());
+        // Legacy metaballs update system requires Clusters resource; for perf smoke we supply empty set
+        app.init_resource::<Clusters>();
+        app.insert_resource(Assets::<MetaballsMaterial>::default());
+        app.add_plugins((
+            bevy::asset::AssetPlugin::default(),
+            bevy::input::InputPlugin,
+        ));
+        // Insert GameConfig enabling metaballs
+        let mut cfg = crate::config::GameConfig::default();
+        cfg.metaballs_enabled = true;
+        app.insert_resource(cfg);
+        app.add_plugins(MetaballsPlugin);
+        app.update(); // startup
+
+        // Seed balls
+        let ball_count = 200usize.min(MAX_BALLS);
+        for i in 0..ball_count {
+            let angle = i as f32 * 0.0314;
+            let r = 150.0;
+            let x = r * angle.cos();
+            let y = r * angle.sin();
+            app.world_mut().spawn((
+                Ball,
+                BallRadius(4.0),
+                BallMaterialIndex(i % 8),
+                Transform::from_xyz(x, y, 0.0),
+                GlobalTransform::default(),
+            ));
+        }
+
+        // Warmup
+        for _ in 0..10 { app.update(); }
+
+        const SAMPLE_FRAMES: usize = 300;
+        let mut durations = Vec::with_capacity(SAMPLE_FRAMES);
+        for _ in 0..SAMPLE_FRAMES {
+            let start = Instant::now();
+            app.update();
+            durations.push(start.elapsed());
+        }
+
+        let mut nanos: Vec<f64> = durations.iter().map(|d| d.as_secs_f64() * 1e9).collect();
+        nanos.sort_by(|a,b| a.partial_cmp(b).unwrap());
+        let mean = nanos.iter().sum::<f64>() / nanos.len() as f64;
+        let p95_idx = ((nanos.len() as f64) * 0.95).ceil() as usize - 1;
+        let p95 = nanos[p95_idx];
+
+        let json = format!(
+            r#"{{"frames":{},"mean_ns":{},"p95_ns":{},"ball_count":{}}}"#,
+            nanos.len(), mean as u64, p95 as u64, ball_count
+        );
+        println!("[legacy_perf_smoke] {}", json);
+
+        // Optional output path
+        if let Ok(path) = std::env::var("PERF_SMOKE_OUT_LEGACY") {
+            if let Err(e) = std::fs::write(&path, &json) {
+                eprintln!("Failed to write PERF_SMOKE_OUT_LEGACY {}: {}", path, e);
+            }
+        }
+    }
+}

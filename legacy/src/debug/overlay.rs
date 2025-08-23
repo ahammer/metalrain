@@ -15,6 +15,7 @@ pub(crate) struct DebugOverlayText;
 pub(crate) struct DebugConfigOverlayText;
 
 #[cfg(feature = "debug")]
+#[allow(dead_code)]
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Top-left anchored UI text node.
     let font_path = "fonts/FiraSans-Bold.ttf";
@@ -46,6 +47,7 @@ pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer
 }
 
 #[cfg(feature = "debug")]
+#[allow(dead_code)]
 pub(crate) fn debug_overlay_update(state: Res<DebugState>, stats: Res<DebugStats>, mut q_text: Query<&mut Text, With<DebugOverlayText>>) {
     if let Ok(mut text) = q_text.single_mut() {
         if !state.overlay_visible { text.0.clear(); return; }
@@ -72,6 +74,7 @@ pub(crate) fn debug_overlay_update(state: Res<DebugState>, stats: Res<DebugStats
 }
 
 #[cfg(feature = "debug")]
+#[allow(dead_code)]
 pub(crate) fn debug_config_overlay_update(
     state: Res<DebugState>,
     cfg: Res<GameConfig>,
@@ -80,7 +83,7 @@ pub(crate) fn debug_config_overlay_update(
     if let Ok(mut text) = q_text.single_mut() {
         if !state.overlay_visible { text.0.clear(); return; }
     // Regenerate when state visibility toggled OR config changed OR first run.
-    if !(state.is_changed() || cfg.is_changed()) && !text.0.is_empty() { return; }
+    if !(state.is_changed() || cfg.is_changed() || text.0.is_empty()) { return; }
         // Compact multi-line representation; keep within ~120 cols.
         let b = &cfg.balls;
         let sep = &cfg.separation;

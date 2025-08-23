@@ -1,0 +1,20 @@
+[package]
+name = "bm_debug_tools"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+bm_core = { path = "../core" }
+bm_rendering = { path = "../rendering" }
+bm_physics = { path = "../physics" }
+bm_gameplay = { path = "../gameplay" }
+# Metaballs is optional; actual linkage will be gated in bevy_app via a workspace feature
+bm_metaballs = { path = "../metaballs", optional = true }
+
+[features]
+default = []
+# Forward feature to include metaballs-specific debug overlays later
+metaballs = ["bm_metaballs"]

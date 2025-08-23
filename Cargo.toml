@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "legacy",
+    "game/crates/core",
+    "game/crates/physics",
+    "game/crates/rendering",
+    "game/crates/gameplay",
+    "game/crates/metaballs",
+    "game/crates/debug_tools",
+    "game/crates/hot_reload",
+    "game/crates/config",
+    "game/crates/bevy_app",
+    "game/crates/integration_tests",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[workspace.dependencies]
+bevy = "0.16"
+bevy_rapier2d = { version = "0.31", features = ["simd-stable"] }
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.8"

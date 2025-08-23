@@ -9,7 +9,13 @@ publish = false
 bevy = { workspace = true }
 bm_core = { path = "../core" }
 bm_config = { path = "../config" }
+blake3 = { version = "1", optional = true }
+wgpu = { version = "24", optional = true } # explicit for GPU copy/map types (TBD_GOLDEN_GPU_WGPU_DEP)
 
 [features]
 default = []
 headless = []
+golden = ["blake3"] # enables golden frame hash harness (off by default)
+instancing = [] # future instancing-specific code paths / optimizations
+background_light = [] # lightweight background (no material / asset server) for tests/headless
+gpu_capture = ["wgpu"] # gpu capture & forthcoming readback path (Phase 7 incremental) (TBD_GOLDEN_GPU_WGPU_DEP)

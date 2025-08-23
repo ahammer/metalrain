@@ -30,9 +30,6 @@ impl Default for BgData {
 impl BgData {
     fn window_size(&self) -> Vec2 { Vec2::new(self.v0.x, self.v0.y) }
     fn set_window_size(&mut self, size: Vec2) { self.v0.x = size.x; self.v0.y = size.y; }
-    fn cell_size(&self) -> f32 { self.v0.z }
-    fn line_thickness(&self) -> f32 { self.v0.w }
-    fn dark_factor(&self) -> f32 { self.v1.x }
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]

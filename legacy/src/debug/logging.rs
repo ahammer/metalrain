@@ -35,14 +35,16 @@ pub fn debug_logging_system(time: Res<Time>, mut state: ResMut<DebugState>, stat
     let ft_ms = stats.frame_time_ms;
     // Baseline approximation from fps (avoid div by zero)
     let baseline_ft_ms = if stats.fps > 0.1 { 1000.0 / stats.fps } else { ft_ms };
-    if state.frame_counter.saturating_sub(state.last_frame_time_alert_frame) > cooldown {
-        if ft_ms > baseline_ft_ms * 1.5 && ft_ms > 20.0 { // only alert if meaningful
-            info!(
-                "ALERT frame_time_spike frame={} ft_ms={:.2} baseline_ms={:.2} fps={:.1}",
-                state.frame_counter, ft_ms, baseline_ft_ms, stats.fps
-            );
-            state.last_frame_time_alert_frame = state.frame_counter;
-        }
+    if state.frame_counter.saturating_sub(state.last_frame_time_alert_frame) > cooldown
+        && ft_ms > baseline_ft_ms * 1.5
+        && ft_ms > 20.0
+    {
+        // only alert if meaningful
+        info!(
+            "ALERT frame_time_spike frame={} ft_ms={:.2} baseline_ms={:.2} fps={:.1}",
+            state.frame_counter, ft_ms, baseline_ft_ms, stats.fps
+        );
+        state.last_frame_time_alert_frame = state.frame_counter;
     }
 
     // Ball count spike
