@@ -63,6 +63,9 @@ pub struct InputMap {
     pub gesture_cfg: GestureConfig,
     pub gesture_rt: GestureRuntime,
     pub frame_counter: u64,
+    // Per-frame raw deltas for mouse / wheel (updated in collection system)
+    pub mouse_delta: Vec2,
+    pub wheel_delta: Vec2,
 }
 
 impl InputMap {

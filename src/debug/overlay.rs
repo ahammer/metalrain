@@ -5,6 +5,8 @@ use bevy::prelude::*;
 use super::modes::{DebugStats, DebugState, MetaballsViewVariant};
 #[cfg(feature = "debug")]
 use crate::core::config::GameConfig;
+#[cfg(feature = "debug")]
+use crate::interaction::inputmap::types::{InputMap, ActionDynamicState};
 
 #[cfg(feature = "debug")]
 #[derive(Component)]
@@ -46,17 +48,17 @@ pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer
 }
 
 #[cfg(feature = "debug")]
-pub(crate) fn debug_overlay_update(state: Res<DebugState>, stats: Res<DebugStats>, mut q_text: Query<&mut Text, With<DebugOverlayText>>) {
+pub(crate) fn debug_overlay_update(state: Res<DebugState>, stats: Res<DebugStats>, input_map: Option<Res<InputMap>>, mut q_text: Query<&mut Text, With<DebugOverlayText>>) {
     if let Ok(mut text) = q_text.single_mut() {
         if !state.overlay_visible { text.0.clear(); return; }
-        if !(state.is_changed() || stats.is_changed()) { return; }
+        if !(state.is_changed() || stats.is_changed() || input_map.as_ref().map(|im| im.is_changed()).unwrap_or(false)) { return; }
         let metaballs_variant = match state.mode {
             super::modes::DebugRenderMode::Metaballs => MetaballsViewVariant::Normal,
             super::modes::DebugRenderMode::MetaballHeightfield => MetaballsViewVariant::Heightfield,
             super::modes::DebugRenderMode::MetaballColorInfo => MetaballsViewVariant::ColorInfo,
             _ => MetaballsViewVariant::Normal,
         };
-        text.0 = format!(
+        let mut base = format!(
             "FPS {:.1} ft {:.1}ms balls {} enc {}/{} trunc {} clusters {} mode {:?} view {:?}",
             stats.fps,
             stats.frame_time_ms,
@@ -68,6 +70,33 @@ pub(crate) fn debug_overlay_update(state: Res<DebugState>, stats: Res<DebugStats
             state.mode,
             metaballs_variant
         );
+        if let Some(im) = input_map {
+            let mut active_actions: Vec<String> = Vec::new();
+            for meta in &im.actions {
+                if let Some(st) = im.dynamic_states.get(meta.id.0 as usize) {
+                    match st {
+                        ActionDynamicState::Binary(b) | ActionDynamicState::Gesture(b) => {
+                            if b.pressed { active_actions.push(meta.name.clone()); }
+                        }
+                        ActionDynamicState::Axis1(a) => {
+                            if a.active { active_actions.push(format!("{}={:.2}", meta.name, a.value)); }
+                        }
+                        ActionDynamicState::Axis2(a) => {
+                            if a.active { active_actions.push(format!("{}=({}, {:.1},{:.1})", meta.name, a.value.length(), a.value.x, a.value.y)); }
+                        }
+                    }
+                }
+            }
+            if !im.virtual_axes.is_empty() {
+                let mut vaxes = Vec::new();
+                for (i, va) in im.virtual_axes.iter().enumerate() {
+                    if let Some(val) = im.virtual_axis_values.get(i) { if val.abs() > 0.01 { vaxes.push(format!("{}={:.2}", va.name, val)); } }
+                }
+                if !vaxes.is_empty() { active_actions.push(format!("[{}]", vaxes.join(" "))); }
+            }
+            if !active_actions.is_empty() { base.push_str("\nINPUT: "); base.push_str(&active_actions.join(" ")); }
+        }
+        text.0 = base;
     }
 }
 

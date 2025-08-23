@@ -6,7 +6,8 @@ use super::modes::{DebugRenderMode, DebugState};
 use crate::interaction::inputmap::types::InputMap;
 
 #[cfg(feature = "debug")]
-pub fn debug_key_input_system(input_map: Res<InputMap>, mut state: ResMut<DebugState>) {
+pub fn debug_key_input_system(input_map: Option<Res<InputMap>>, mut state: ResMut<DebugState>) {
+    let Some(input_map) = input_map else { return; };
     let mut new_mode = None;
     if input_map.just_pressed("DebugMode1") { new_mode = Some(DebugRenderMode::Metaballs); }
     if input_map.just_pressed("DebugMode2") { new_mode = Some(DebugRenderMode::RapierWireframe); }

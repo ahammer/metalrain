@@ -19,6 +19,8 @@ use crate::debug::DebugPlugin;
 use crate::interaction::session::config_hot_reload::ConfigHotReloadPlugin;
 use crate::interaction::session::auto_close::AutoClosePlugin;
 use crate::interaction::inputmap::plugin::InputActionsPlugin;
+#[cfg(feature = "debug")]
+use crate::interaction::inputmap::hot_reload::InputMapHotReloadPlugin;
 
 pub struct GamePlugin;
 
@@ -44,6 +46,8 @@ impl Plugin for GamePlugin {
                 DebugPlugin,
                 ConfigHotReloadPlugin,
                 AutoClosePlugin,
+                #[cfg(feature = "debug")]
+                InputMapHotReloadPlugin,
             ));
     }
 }
