@@ -18,7 +18,7 @@ pub use modes::*;
 #[cfg(feature = "debug")]
 use bevy::prelude::*;
 #[cfg(feature = "debug")]
-use crate::system_order::PostPhysicsAdjustSet;
+use crate::core::system::system_order::PostPhysicsAdjustSet;
 
 #[cfg(feature = "debug")]
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]

@@ -46,6 +46,7 @@ pub fn parse_input_toml(raw: &str, debug_layer: bool) -> ParsedInputConfig {
 
     // Virtual axes
     if let Some(vas) = root.virtual_axes { for va in vas { match (parse_single_token(&va.pos), parse_single_token(&va.neg)) { (Ok(p), Ok(n)) => { input_map.virtual_axes.push(VirtualAxis { name: va.name, pos: p, neg: n, scale: va.scale.unwrap_or(1.0) }); }, (Err(e), _) => result.errors.push(format!("VirtualAxis pos error '{}': {e}", va.name)), (_, Err(e)) => result.errors.push(format!("VirtualAxis neg error '{}': {e}", va.name)), } } }
+    input_map.virtual_axis_values = vec![0.0; input_map.virtual_axes.len()];
 
     // Gesture config
     if let Some(g) = root.gesture { input_map.gesture_cfg = GestureConfig { tap_max_time: g.tap_max_time.unwrap_or(0.25), tap_max_move: g.tap_max_move.unwrap_or(12.0), drag_min_move: g.drag_min_move.unwrap_or(4.0), drag_smoothing: g.drag_smoothing.unwrap_or(0.15) }; }

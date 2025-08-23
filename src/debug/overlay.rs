@@ -4,7 +4,7 @@ use bevy::prelude::*;
 #[cfg(feature = "debug")]
 use super::modes::{DebugStats, DebugState, MetaballsViewVariant};
 #[cfg(feature = "debug")]
-use crate::config::GameConfig;
+use crate::core::config::GameConfig;
 
 #[cfg(feature = "debug")]
 #[derive(Component)]

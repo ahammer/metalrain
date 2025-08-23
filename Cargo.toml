@@ -37,7 +37,7 @@ strip = true
 opt-level = "z"
 
 [features]
-default = []
+default = ["debug"]
 # Enable with: cargo run --features debug
 debug = []
 # Verbose fluid simulation pass logging

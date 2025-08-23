@@ -59,6 +59,7 @@ pub struct InputMap {
     pub chord_map: HashMap<SmallVec<[RawBindingToken; 2]>, u32>,
     pub dynamic_states: Vec<ActionDynamicState>,
     pub virtual_axes: Vec<VirtualAxis>,
+    pub virtual_axis_values: Vec<f32>,
     pub gesture_cfg: GestureConfig,
     pub gesture_rt: GestureRuntime,
     pub frame_counter: u64,
@@ -73,4 +74,5 @@ impl InputMap {
     pub fn axis1(&self, name: &str) -> f32 { match self.get_state(name) { Some(ActionDynamicState::Axis1(a)) => a.value, _ => 0.0 } }
     pub fn axis2(&self, name: &str) -> Vec2 { match self.get_state(name) { Some(ActionDynamicState::Axis2(a)) => a.value, _ => Vec2::ZERO } }
     pub fn axis2_mut(&mut self, name: &str) -> Option<&mut ActionStateAxis2> { self.get_state_mut(name).and_then(|s| s.as_axis2_mut()) }
+    pub fn virtual_axis(&self, name: &str) -> f32 { if let Some((i,_)) = self.virtual_axes.iter().enumerate().find(|(_,va)| va.name==name) { self.virtual_axis_values.get(i).copied().unwrap_or(0.0) } else { 0.0 } }
 }

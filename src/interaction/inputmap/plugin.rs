@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use super::types::InputMap;
 use super::parse::parse_input_toml;
-use super::systems::system_collect_inputs;
+use super::systems::{system_collect_inputs, system_evaluate_bindings};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub struct InputActionUpdateSet;
@@ -12,7 +12,7 @@ impl Plugin for InputActionsPlugin { fn build(&self, app: &mut App) { app
         .init_resource::<InputMap>()
         .configure_sets(PreUpdate, InputActionUpdateSet)
         .add_systems(PreStartup, load_initial_input_map)
-        .add_systems(PreUpdate, system_collect_inputs.in_set(InputActionUpdateSet)); } }
+        .add_systems(PreUpdate, (system_collect_inputs, system_evaluate_bindings).chain().in_set(InputActionUpdateSet)); } }
 
 fn load_initial_input_map(mut commands: Commands) {
     let path = std::env::var("INPUT_CONFIG_PATH").unwrap_or_else(|_| "assets/config/input.toml".into());
