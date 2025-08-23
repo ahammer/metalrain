@@ -18,6 +18,7 @@ use crate::core::system::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
 use crate::debug::DebugPlugin;
 use crate::interaction::session::config_hot_reload::ConfigHotReloadPlugin;
 use crate::interaction::session::auto_close::AutoClosePlugin;
+use crate::interaction::inputmap::plugin::InputActionsPlugin;
 
 pub struct GamePlugin;
 
@@ -38,6 +39,7 @@ impl Plugin for GamePlugin {
                 SeparationPlugin,
                 ClusterPlugin,
                 MetaballsPlugin,
+                InputActionsPlugin,
                 InputInteractionPlugin,
                 DebugPlugin,
                 ConfigHotReloadPlugin,
