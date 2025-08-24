@@ -44,8 +44,8 @@ impl Plugin for DebugPlugin {
 
         fn toggle_circle_visibility(
             state: Res<modes::DebugState>,
-            mut q_circles: Query<&mut Visibility, (With<BallCircleVisual>, Without<crate::rendering::metaballs::metaballs::MetaballsQuad>)>,
-            mut q_metaballs_quad: Query<&mut Visibility, With<crate::rendering::metaballs::metaballs::MetaballsQuad>>,
+            mut q_circles: Query<&mut Visibility, (With<BallCircleVisual>, Without<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>)>,
+            mut q_metaballs_quad: Query<&mut Visibility, With<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>>,
         ) {
             use modes::DebugRenderMode::*;
             // Circles only shown for rapier wireframe mode now
