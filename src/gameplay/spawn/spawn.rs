@@ -2,13 +2,13 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
-use crate::core::components::{Ball, BallRadius, BallCircleVisual};
+use crate::core::components::{Ball, BallCircleVisual, BallRadius};
 use crate::core::config::GameConfig;
 use crate::rendering::materials::materials::{
     BallDisplayMaterials, BallMaterialIndex, BallMaterialsInitSet, BallPhysicsMaterials,
 };
-use bevy::sprite::MeshMaterial2d;
-use bevy::prelude::Mesh2d; // Mesh2d public import
+use bevy::prelude::Mesh2d;
+use bevy::sprite::MeshMaterial2d; // Mesh2d public import
 
 pub struct BallSpawnPlugin;
 
@@ -62,7 +62,7 @@ fn spawn_balls(
         let vx_ext = c.vel_x_range.max.abs().max(c.vel_x_range.min.abs());
         let vy_ext = c.vel_y_range.max.abs().max(c.vel_y_range.min.abs());
         let max_speed = vx_ext.max(vy_ext).max(1.0); // ensure > 0
-        // Sample a base speed between 30% and 100% of that max for variety
+                                                     // Sample a base speed between 30% and 100% of that max for variety
         let base_speed = rng.gen_range(0.30 * max_speed..max_speed);
 
         // Chaos: add tangential component + random scalar jitter so motion not perfectly radial.

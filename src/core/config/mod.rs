@@ -1,3 +1,6 @@
 pub mod config;
 
-pub use config::{GameConfig, WindowConfig, GravityConfig, BounceConfig, BallSpawnConfig, SpawnRange, CollisionSeparationConfig, ExplosionConfig, DragConfig, InteractionConfig, MetaballsRenderConfig};
+pub use config::{
+    BallSpawnConfig, BounceConfig, CollisionSeparationConfig, DragConfig, ExplosionConfig,
+    GameConfig, GravityConfig, InteractionConfig, MetaballsRenderConfig, SpawnRange, WindowConfig,
+};

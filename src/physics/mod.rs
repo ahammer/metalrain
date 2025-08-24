@@ -1,4 +1,4 @@
-pub mod gravity;
-pub mod separation;
-pub mod rapier;
 pub mod clustering;
+pub mod gravity;
+pub mod rapier;
+pub mod separation;

@@ -2,25 +2,25 @@
 //! Built only when compiled with `--features debug`.
 
 #[cfg(feature = "debug")]
-mod modes;
-#[cfg(feature = "debug")]
 pub mod keys; // pub for testing
-#[cfg(feature = "debug")]
-mod stats;
 #[cfg(feature = "debug")]
 mod logging;
 #[cfg(feature = "debug")]
+mod modes;
+#[cfg(feature = "debug")]
 mod overlay;
+#[cfg(feature = "debug")]
+mod stats;
 
 #[cfg(feature = "debug")]
 pub use modes::*;
 
 #[cfg(feature = "debug")]
-use bevy::prelude::*;
-#[cfg(feature = "debug")]
 use crate::core::system::system_order::PostPhysicsAdjustSet;
 #[cfg(feature = "debug")]
 use crate::interaction::inputmap::types::InputMap;
+#[cfg(feature = "debug")]
+use bevy::prelude::*;
 
 #[cfg(feature = "debug")]
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -31,41 +31,66 @@ pub struct DebugPlugin;
 #[cfg(feature = "debug")]
 impl Plugin for DebugPlugin {
     fn build(&self, app: &mut App) {
+        use crate::core::components::BallCircleVisual;
+        #[cfg(feature = "debug")]
+        use bevy_rapier2d::render::DebugRenderContext;
         use keys::debug_key_input_system;
         use logging::debug_logging_system;
-    use overlay::{debug_overlay_spawn, debug_overlay_update, debug_config_overlay_update};
-        use stats::debug_stats_collect_system;
         use modes::apply_mode_visual_overrides_system;
-    use modes::propagate_metaballs_view_system;
-        use crate::core::components::BallCircleVisual;
-    #[cfg(feature = "debug")]
-    use bevy_rapier2d::render::DebugRenderContext;
-
+        use modes::propagate_metaballs_view_system;
+        #[cfg(not(test))]
+        use overlay::{debug_config_overlay_update, debug_overlay_spawn, debug_overlay_update};
+        use stats::debug_stats_collect_system;
 
         fn toggle_circle_visibility(
             state: Res<modes::DebugState>,
-            mut q_circles: Query<&mut Visibility, (With<BallCircleVisual>, Without<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>)>,
-            mut q_metaballs_quad: Query<&mut Visibility, With<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>>,
+            mut q_circles: Query<
+                &mut Visibility,
+                (
+                    With<BallCircleVisual>,
+                    Without<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>,
+                ),
+            >,
+            mut q_metaballs_quad: Query<
+                &mut Visibility,
+                With<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>,
+            >,
         ) {
             use modes::DebugRenderMode::*;
             // Circles only shown for rapier wireframe mode now
             let show_circles = matches!(state.mode, RapierWireframe);
             for mut vis in q_circles.iter_mut() {
-                vis.set_if_neq(if show_circles { Visibility::Visible } else { Visibility::Hidden });
+                vis.set_if_neq(if show_circles {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                });
             }
             // Metaballs quad only visible for metaball-based modes
-            let show_metaballs = matches!(state.mode, Metaballs | MetaballHeightfield | MetaballColorInfo);
+            let show_metaballs = matches!(
+                state.mode,
+                Metaballs | MetaballHeightfield | MetaballColorInfo
+            );
             if let Ok(mut vis) = q_metaballs_quad.single_mut() {
-                vis.set_if_neq(if show_metaballs { Visibility::Visible } else { Visibility::Hidden });
+                vis.set_if_neq(if show_metaballs {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                });
             }
         }
 
         #[cfg(feature = "debug")]
-        fn toggle_rapier_debug(state: Res<modes::DebugState>, ctx: Option<ResMut<DebugRenderContext>>) {
+        fn toggle_rapier_debug(
+            state: Res<modes::DebugState>,
+            ctx: Option<ResMut<DebugRenderContext>>,
+        ) {
             if let Some(mut c) = ctx {
                 use modes::DebugRenderMode::*;
                 let enable = matches!(state.mode, RapierWireframe);
-                if c.enabled != enable { c.enabled = enable; }
+                if c.enabled != enable {
+                    c.enabled = enable;
+                }
             }
         }
 
@@ -74,8 +99,10 @@ impl Plugin for DebugPlugin {
             let rt = &input_map.gesture_rt;
             if rt.pointer_down {
                 let p = rt.pointer_last;
-                gizmos.circle_2d(p, 8.0, Color::srgb(1.0,1.0,0.2));
-                if rt.dragging { gizmos.line_2d(rt.pointer_start, p, Color::srgb(1.0,0.5,0.0)); }
+                gizmos.circle_2d(p, 8.0, Color::srgb(1.0, 1.0, 0.2));
+                if rt.dragging {
+                    gizmos.line_2d(rt.pointer_start, p, Color::srgb(1.0, 0.5, 0.0));
+                }
             }
         }
 
@@ -85,26 +112,26 @@ impl Plugin for DebugPlugin {
             .init_resource::<modes::LastAppliedMetaballsView>()
             .configure_sets(Update, DebugPreRenderSet.after(PostPhysicsAdjustSet));
         // In tests, skip overlay spawn (AssetServer not present with MinimalPlugins)
-    #[cfg(all(not(test)))]
-    app.add_systems(Startup, debug_overlay_spawn);
-    app.add_systems(
-                Update,
-                (
-                    debug_key_input_system,
-                    debug_stats_collect_system,
-                    apply_mode_visual_overrides_system,
-            propagate_metaballs_view_system,
-                    toggle_circle_visibility,
-                    toggle_rapier_debug,
-            debug_logging_system,
-            debug_input_gizmos,
         #[cfg(not(test))]
-        debug_config_overlay_update,
-            #[cfg(not(test))]
-            debug_overlay_update,
-                )
-                    .in_set(DebugPreRenderSet),
-            );
+        app.add_systems(Startup, debug_overlay_spawn);
+        app.add_systems(
+            Update,
+            (
+                debug_key_input_system,
+                debug_stats_collect_system,
+                apply_mode_visual_overrides_system,
+                propagate_metaballs_view_system,
+                toggle_circle_visibility,
+                toggle_rapier_debug,
+                debug_logging_system,
+                debug_input_gizmos,
+                #[cfg(not(test))]
+                debug_config_overlay_update,
+                #[cfg(not(test))]
+                debug_overlay_update,
+            )
+                .in_set(DebugPreRenderSet),
+        );
     }
 }
 
@@ -112,5 +139,5 @@ impl Plugin for DebugPlugin {
 pub struct DebugPlugin;
 #[cfg(not(feature = "debug"))]
 impl bevy::prelude::Plugin for DebugPlugin {
-    fn build(&self, _app: &mut bevy::prelude::App) { }
+    fn build(&self, _app: &mut bevy::prelude::App) {}
 }

@@ -3,8 +3,8 @@ use rand::Rng;
 
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
-use crate::rendering::materials::materials::{BallDisplayMaterials, BallPhysicsMaterials};
 use crate::gameplay::spawn::spawn::{spawn_ball_entity, CircleMesh};
+use crate::rendering::materials::materials::{BallDisplayMaterials, BallPhysicsMaterials};
 
 pub struct BallEmitterPlugin;
 
@@ -20,7 +20,9 @@ impl Plugin for BallEmitterPlugin {
 struct EmitterTimer(Timer);
 
 #[derive(Resource)]
-struct EmitterControl { enabled: bool }
+struct EmitterControl {
+    enabled: bool,
+}
 
 fn emit_balls(
     mut commands: Commands,
@@ -36,26 +38,78 @@ fn emit_balls(
     display_palette: Option<Res<BallDisplayMaterials>>,
     physics_palette: Option<Res<BallPhysicsMaterials>>,
 ) {
-    if !control.enabled { return; }
-    let Ok(window) = windows.single() else { return; };
-    let circle_handle = if let Some(circle) = circle { circle.0.clone() } else { let handle = meshes.add(Mesh::from(Circle { radius: 0.5 })); commands.insert_resource(CircleMesh(handle.clone())); handle };
-    let total_ball_area: f32 = q_balls.iter().map(|r| std::f32::consts::PI * r.0 * r.0).sum();
+    if !control.enabled {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let circle_handle = if let Some(circle) = circle {
+        circle.0.clone()
+    } else {
+        let handle = meshes.add(Mesh::from(Circle { radius: 0.5 }));
+        commands.insert_resource(CircleMesh(handle.clone()));
+        handle
+    };
+    let total_ball_area: f32 = q_balls
+        .iter()
+        .map(|r| std::f32::consts::PI * r.0 * r.0)
+        .sum();
     let field_area = window.width() * window.height();
-    if total_ball_area / field_area >= 0.80 { control.enabled = false; return; }
+    if total_ball_area / field_area >= 0.80 {
+        control.enabled = false;
+        return;
+    }
     timer.tick(time.delta());
-    if !timer.finished() { return; }
+    if !timer.finished() {
+        return;
+    }
     let mut rng = rand::thread_rng();
     let radius = rng.gen_range(cfg.balls.radius_range.min..cfg.balls.radius_range.max);
-    let half_w = window.width() * 0.5; let half_h = window.height() * 0.5; let edge = rng.gen_range(0..4);
-    let (x,y) = match edge { 0 => (-half_w - radius, rng.gen_range(-half_h..half_h)), 1 => (half_w + radius, rng.gen_range(-half_h..half_h)), 2 => (rng.gen_range(-half_w..half_w), -half_h - radius), _ => (rng.gen_range(-half_w..half_w), half_h + radius), };
-    let pos = Vec2::new(x,y); let to_center = (-pos).normalize_or_zero();
-    let base_speed = rng.gen_range(cfg.balls.vel_x_range.min..cfg.balls.vel_x_range.max).abs();
+    let half_w = window.width() * 0.5;
+    let half_h = window.height() * 0.5;
+    let edge = rng.gen_range(0..4);
+    let (x, y) = match edge {
+        0 => (-half_w - radius, rng.gen_range(-half_h..half_h)),
+        1 => (half_w + radius, rng.gen_range(-half_h..half_h)),
+        2 => (rng.gen_range(-half_w..half_w), -half_h - radius),
+        _ => (rng.gen_range(-half_w..half_w), half_h + radius),
+    };
+    let pos = Vec2::new(x, y);
+    let to_center = (-pos).normalize_or_zero();
+    let base_speed = rng
+        .gen_range(cfg.balls.vel_x_range.min..cfg.balls.vel_x_range.max)
+        .abs();
     let jitter = Vec2::new(
         rng.gen_range(cfg.balls.vel_x_range.min..cfg.balls.vel_x_range.max),
         rng.gen_range(cfg.balls.vel_y_range.min..cfg.balls.vel_y_range.max),
     );
     let vel = to_center * base_speed + jitter * 0.2;
-    let variant_idx = if let Some(p) = &display_palette { rng.gen_range(0..p.0.len()) } else { 0 };
-    let (material, restitution) = if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) { (disp.0[variant_idx].clone(), phys.0[variant_idx].restitution) } else { let color = Color::srgb(rng.gen::<f32>() * 0.9 + 0.1, rng.gen::<f32>() * 0.9 + 0.1, rng.gen::<f32>() * 0.9 + 0.1); (materials.add(color), cfg.bounce.restitution) };
-    spawn_ball_entity(&mut commands, &circle_handle, Vec3::new(x,y,0.0), vel, radius, material, restitution, variant_idx, cfg.draw_circles);
+    let variant_idx = if let Some(p) = &display_palette {
+        rng.gen_range(0..p.0.len())
+    } else {
+        0
+    };
+    let (material, restitution) =
+        if let (Some(disp), Some(phys)) = (&display_palette, &physics_palette) {
+            (disp.0[variant_idx].clone(), phys.0[variant_idx].restitution)
+        } else {
+            let color = Color::srgb(
+                rng.gen::<f32>() * 0.9 + 0.1,
+                rng.gen::<f32>() * 0.9 + 0.1,
+                rng.gen::<f32>() * 0.9 + 0.1,
+            );
+            (materials.add(color), cfg.bounce.restitution)
+        };
+    spawn_ball_entity(
+        &mut commands,
+        &circle_handle,
+        Vec3::new(x, y, 0.0),
+        vel,
+        radius,
+        material,
+        restitution,
+        variant_idx,
+        cfg.draw_circles,
+    );
 }

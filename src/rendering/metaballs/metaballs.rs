@@ -1,18 +1,18 @@
+use bevy::input::keyboard::KeyCode;
+use bevy::input::ButtonInput;
+use bevy::prelude::Mesh2d;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
-use bevy::prelude::Mesh2d;
-use bevy::input::ButtonInput;
-use bevy::input::keyboard::KeyCode;
 
 #[cfg(target_arch = "wasm32")]
 use std::sync::OnceLock;
 #[cfg(target_arch = "wasm32")]
 static METABALLS_UNIFIED_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
-use crate::physics::clustering::cluster::Clusters;
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
+use crate::physics::clustering::cluster::Clusters;
 use crate::rendering::materials::materials::BallMaterialIndex;
 use crate::rendering::palette::palette::color_for_index;
 
@@ -108,11 +108,7 @@ pub enum MetaballForegroundMode {
     OutlineGlow, // (initially can behave like Classic; kept for future expansion)
 }
 impl MetaballForegroundMode {
-    pub const ALL: [Self; 3] = [
-        Self::ClassicBlend,
-        Self::Bevel,
-        Self::OutlineGlow,
-    ];
+    pub const ALL: [Self; 3] = [Self::ClassicBlend, Self::Bevel, Self::OutlineGlow];
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,9 +191,7 @@ impl Plugin for MetaballsPlugin {
             .init_resource::<MetaballsParams>()
             .init_resource::<MetaballForeground>()
             .init_resource::<MetaballBackground>()
-            .add_plugins((
-                Material2dPlugin::<MetaballsUnifiedMaterial>::default(),
-            ))
+            .add_plugins((Material2dPlugin::<MetaballsUnifiedMaterial>::default(),))
             .add_systems(
                 Startup,
                 (
@@ -262,10 +256,7 @@ fn setup_metaballs(
     ));
 }
 
-fn log_initial_modes(
-    fg: Res<MetaballForeground>,
-    bg: Res<MetaballBackground>,
-) {
+fn log_initial_modes(fg: Res<MetaballForeground>, bg: Res<MetaballBackground>) {
     info!(
         target: "metaballs",
         "Initial modes: Foreground={:?} Background={:?}",
@@ -280,10 +271,7 @@ fn log_initial_modes(
 // PageDown / PageUp : background (PageDown=prev, PageUp=next)
 // =====================================================================================
 
-fn cycle_foreground_mode(
-    mut fg: ResMut<MetaballForeground>,
-    keys: Res<ButtonInput<KeyCode>>,
-) {
+fn cycle_foreground_mode(mut fg: ResMut<MetaballForeground>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::End) {
         fg.idx = (fg.idx + 1) % MetaballForegroundMode::ALL.len();
         info!(
@@ -293,8 +281,8 @@ fn cycle_foreground_mode(
         );
     }
     if keys.just_pressed(KeyCode::Home) {
-        fg.idx = (fg.idx + MetaballForegroundMode::ALL.len() - 1)
-            % MetaballForegroundMode::ALL.len();
+        fg.idx =
+            (fg.idx + MetaballForegroundMode::ALL.len() - 1) % MetaballForegroundMode::ALL.len();
         info!(
             target: "metaballs",
             "Foreground mode -> {:?}",
@@ -303,10 +291,7 @@ fn cycle_foreground_mode(
     }
 }
 
-fn cycle_background_mode(
-    mut bg: ResMut<MetaballBackground>,
-    keys: Res<ButtonInput<KeyCode>>,
-) {
+fn cycle_background_mode(mut bg: ResMut<MetaballBackground>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::PageUp) {
         bg.idx = (bg.idx + 1) % MetaballBackgroundMode::ALL.len();
         info!(
@@ -316,8 +301,8 @@ fn cycle_background_mode(
         );
     }
     if keys.just_pressed(KeyCode::PageDown) {
-        bg.idx = (bg.idx + MetaballBackgroundMode::ALL.len() - 1)
-            % MetaballBackgroundMode::ALL.len();
+        bg.idx =
+            (bg.idx + MetaballBackgroundMode::ALL.len() - 1) % MetaballBackgroundMode::ALL.len();
         info!(
             target: "metaballs",
             "Background mode -> {:?}",
@@ -333,7 +318,10 @@ fn cycle_background_mode(
 
 fn apply_modes(
     bg: Res<MetaballBackground>,
-    mut q_bg: Query<&mut Visibility, With<crate::rendering::background::background::BackgroundQuad>>,
+    mut q_bg: Query<
+        &mut Visibility,
+        With<crate::rendering::background::background::BackgroundQuad>,
+    >,
 ) {
     let show_external = matches!(bg.current(), MetaballBackgroundMode::ExternalBackground);
     for mut v in q_bg.iter_mut() {
@@ -378,7 +366,7 @@ fn update_metaballs_unified_material(
     mat.data.v1.z = (bg.current() as u32) as f32; // background_mode index
     mat.data.v2.z = time.elapsed_secs(); // animated time (noise / future reactive bg)
     mat.data.v2.w = params.radius_multiplier.max(0.0001); // radius_multiplier relocated (was v1.z)
-    // Derived radius scale maintaining legacy behavior (inverse from iso shaping)
+                                                          // Derived radius scale maintaining legacy behavior (inverse from iso shaping)
     let iso = params.iso.clamp(1e-4, 0.9999);
     let k = (1.0 - iso.powf(1.0 / 3.0)).max(1e-4).sqrt();
     mat.data.v0.z = 1.0 / k;
@@ -391,8 +379,7 @@ fn update_metaballs_unified_material(
         }
         let color = color_for_index(cl.color_index);
         let srgb = color.to_srgba();
-        mat.data.cluster_colors[color_count] =
-            Vec4::new(srgb.red, srgb.green, srgb.blue, 1.0);
+        mat.data.cluster_colors[color_count] = Vec4::new(srgb.red, srgb.green, srgb.blue, 1.0);
         color_count += 1;
     }
     mat.data.v0.y = color_count as f32;
@@ -411,8 +398,7 @@ fn update_metaballs_unified_material(
                 break;
             }
         }
-        mat.data.balls[ball_count] =
-            Vec4::new(pos.x, pos.y, radius.0, cluster_slot as f32);
+        mat.data.balls[ball_count] = Vec4::new(pos.x, pos.y, radius.0, cluster_slot as f32);
         ball_count += 1;
     }
     mat.data.v0.x = ball_count as f32;
