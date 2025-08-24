@@ -18,7 +18,9 @@ pub use modes::*;
 #[cfg(feature = "debug")]
 use bevy::prelude::*;
 #[cfg(feature = "debug")]
-use crate::system_order::PostPhysicsAdjustSet;
+use crate::core::system::system_order::PostPhysicsAdjustSet;
+#[cfg(feature = "debug")]
+use crate::interaction::inputmap::types::InputMap;
 
 #[cfg(feature = "debug")]
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -35,15 +37,15 @@ impl Plugin for DebugPlugin {
         use stats::debug_stats_collect_system;
         use modes::apply_mode_visual_overrides_system;
     use modes::propagate_metaballs_view_system;
-        use crate::components::BallCircleVisual;
+        use crate::core::components::BallCircleVisual;
     #[cfg(feature = "debug")]
     use bevy_rapier2d::render::DebugRenderContext;
 
 
         fn toggle_circle_visibility(
             state: Res<modes::DebugState>,
-            mut q_circles: Query<&mut Visibility, (With<BallCircleVisual>, Without<crate::metaballs::MetaballsQuad>)>,
-            mut q_metaballs_quad: Query<&mut Visibility, With<crate::metaballs::MetaballsQuad>>,
+            mut q_circles: Query<&mut Visibility, (With<BallCircleVisual>, Without<crate::rendering::metaballs::metaballs::MetaballsQuad>)>,
+            mut q_metaballs_quad: Query<&mut Visibility, With<crate::rendering::metaballs::metaballs::MetaballsQuad>>,
         ) {
             use modes::DebugRenderMode::*;
             // Circles only shown for rapier wireframe mode now
@@ -67,6 +69,16 @@ impl Plugin for DebugPlugin {
             }
         }
 
+        #[cfg(feature = "debug")]
+        fn debug_input_gizmos(input_map: Res<InputMap>, mut gizmos: Gizmos) {
+            let rt = &input_map.gesture_rt;
+            if rt.pointer_down {
+                let p = rt.pointer_last;
+                gizmos.circle_2d(p, 8.0, Color::srgb(1.0,1.0,0.2));
+                if rt.dragging { gizmos.line_2d(rt.pointer_start, p, Color::srgb(1.0,0.5,0.0)); }
+            }
+        }
+
         app.init_resource::<modes::DebugState>()
             .init_resource::<modes::DebugStats>()
             .init_resource::<modes::DebugVisualOverrides>()
@@ -85,6 +97,7 @@ impl Plugin for DebugPlugin {
                     toggle_circle_visibility,
                     toggle_rapier_debug,
             debug_logging_system,
+            debug_input_gizmos,
         #[cfg(not(test))]
         debug_config_overlay_update,
             #[cfg(not(test))]

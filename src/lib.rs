@@ -1,19 +1,12 @@
+pub mod app;
+pub mod core;
 pub mod debug;
-pub mod game;
-pub mod camera;
-pub mod background;
-pub mod cluster;
-pub mod components;
-pub mod config;
-pub mod emitter;
-pub mod input_interaction;
-pub mod materials;
-pub mod metaballs;
-pub mod palette;
-pub mod radial_gravity;
-pub mod rapier_physics;
-pub mod separation;
-pub mod spawn;
-pub mod system_order;
-pub mod config_hot_reload;
-pub mod auto_close;
+pub mod gameplay;
+pub mod interaction;
+pub mod physics;
+pub mod rendering;
+
+// Curated re-exports
+pub use core::config::{config::GameConfig, config::WindowConfig};
+pub use core::components::{Ball, BallRadius, BallCircleVisual};
+pub use app::game::GamePlugin;
