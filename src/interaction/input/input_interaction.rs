@@ -7,6 +7,7 @@ use crate::core::config::{
     GameConfig,
 };
 use crate::core::system::system_order::PrePhysicsSet;
+use crate::interaction::cluster_pop::TapConsumed;
 
 pub struct InputInteractionPlugin;
 
@@ -16,7 +17,7 @@ impl Plugin for InputInteractionPlugin {
             Update,
             (
                 begin_or_end_drag,
-                handle_tap_explosion.in_set(PrePhysicsSet),
+                handle_tap_explosion.in_set(PrePhysicsSet).in_set(TapExplosionSet),
                 apply_drag_force.in_set(PrePhysicsSet),
             ),
         );
@@ -24,11 +25,14 @@ impl Plugin for InputInteractionPlugin {
 }
 
 #[derive(Resource, Default, Debug)]
-struct ActiveDrag {
-    entity: Option<Entity>,
-    started: bool,
-    last_pos: Option<Vec2>,
+pub struct ActiveDrag {
+    pub entity: Option<Entity>,
+    pub started: bool,
+    pub last_pos: Option<Vec2>,
 }
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub struct TapExplosionSet;
 
 fn cursor_world_pos(
     _window: &Window,
@@ -59,6 +63,7 @@ fn handle_tap_explosion(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     mut q: Query<(&Transform, &BallRadius, &mut Velocity), With<Ball>>,
     mut active_drag: ResMut<ActiveDrag>,
+    tap_consumed: Res<TapConsumed>,
     cfg: Res<GameConfig>,
 ) {
     let ExplosionConfig {
@@ -67,6 +72,9 @@ fn handle_tap_explosion(
         radius,
         falloff_exp,
     } = cfg.interactions.explosion;
+    if tap_consumed.0 {
+        return;
+    }
     if !enabled {
         return;
     }

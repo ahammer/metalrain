@@ -151,11 +151,39 @@ impl Default for DragConfig {
         }
     }
 }
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct ClusterPopConfig {
+    pub enabled: bool,
+    pub min_ball_count: usize,
+    pub min_total_area: f32,
+    pub impulse_scale: f32,
+    pub outward_bonus: f32,
+    pub despawn_delay: f32,
+    pub aabb_pad: f32,
+    pub tap_radius: f32,
+}
+impl Default for ClusterPopConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_ball_count: 4,
+            min_total_area: 1200.0,
+            impulse_scale: 1.0,
+            outward_bonus: 0.6,
+            despawn_delay: 0.0,
+            aabb_pad: 4.0,
+            tap_radius: 32.0,
+        }
+    }
+}
 #[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct InteractionConfig {
     pub explosion: ExplosionConfig,
     pub drag: DragConfig,
+    pub cluster_pop: ClusterPopConfig,
 }
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
@@ -498,6 +526,57 @@ impl GameConfig {
                     "drag.max_speed {} may be too low relative to pull_strength {} -> jerky motion",
                     dr.max_speed, dr.pull_strength
                 ));
+            }
+        }
+        if self.interactions.cluster_pop.enabled {
+            let cp = &self.interactions.cluster_pop;
+            if cp.min_ball_count < 1 {
+                w.push(format!(
+                    "cluster_pop.min_ball_count {} < 1; clamped logically to 1",
+                    cp.min_ball_count
+                ));
+            }
+            if cp.min_total_area < 0.0 {
+                w.push(format!(
+                    "cluster_pop.min_total_area {} negative -> treated as 0",
+                    cp.min_total_area
+                ));
+            }
+            if cp.impulse_scale < 0.0 {
+                w.push(format!(
+                    "cluster_pop.impulse_scale {} negative -> treated as 0",
+                    cp.impulse_scale
+                ));
+            }
+            if cp.outward_bonus < 0.0 {
+                w.push(format!(
+                    "cluster_pop.outward_bonus {} negative -> treated as 0",
+                    cp.outward_bonus
+                ));
+            }
+            if cp.aabb_pad < 0.0 {
+                w.push(format!(
+                    "cluster_pop.aabb_pad {} negative -> treated as 0",
+                    cp.aabb_pad
+                ));
+            }
+            if cp.tap_radius < 0.0 {
+                w.push(format!(
+                    "cluster_pop.tap_radius {} negative -> treated as 0",
+                    cp.tap_radius
+                ));
+            }
+            if cp.despawn_delay < 0.0 {
+                w.push(format!(
+                    "cluster_pop.despawn_delay {} negative -> treated as 0",
+                    cp.despawn_delay
+                ));
+            }
+            if cp.impulse_scale == 0.0 && cp.outward_bonus == 0.0 {
+                w.push(
+                    "cluster_pop both impulse_scale and outward_bonus are 0 -> no outward motion"
+                        .into(),
+                );
             }
         }
         if self.metaballs.radius_multiplier <= 0.0 {

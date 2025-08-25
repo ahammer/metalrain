@@ -8,6 +8,7 @@ use crate::core::system::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
 use crate::debug::DebugPlugin;
 use crate::gameplay::spawn::spawn::BallSpawnPlugin;
 use crate::interaction::input::input_interaction::InputInteractionPlugin;
+use crate::interaction::cluster_pop::ClusterPopPlugin;
 #[cfg(feature = "debug")]
 use crate::interaction::inputmap::hot_reload::InputMapHotReloadPlugin;
 use crate::interaction::inputmap::plugin::InputActionsPlugin;
@@ -39,6 +40,7 @@ impl Plugin for GamePlugin {
             ClusterPlugin,
             MetaballsPlugin,
             InputActionsPlugin,
+            ClusterPopPlugin,
             InputInteractionPlugin,
             DebugPlugin,
             ConfigHotReloadPlugin,

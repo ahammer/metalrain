@@ -69,6 +69,16 @@
     interactions: (
         explosion: (enabled: true, impulse: 500.0, radius: 250.0, falloff_exp: 1.2),
         drag: (enabled: true, grab_radius: 35.0, pull_strength: 1000.0, max_speed: 1500.0),
+        cluster_pop: (
+            enabled: true,
+            min_ball_count: 4,
+            min_total_area: 1200.0,
+            impulse_scale: 1.0,
+            outward_bonus: 0.6,
+            despawn_delay: 0.0,
+            aabb_pad: 4.0,
+            tap_radius: 32.0,
+        ),
     ),
 
 )
