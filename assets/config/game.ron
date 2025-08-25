@@ -30,9 +30,9 @@
     draw_circles: false,
     metaballs_enabled: true,
     metaballs: (
-        iso: 0.925,
+        iso: 0.405,
         normal_z_scale: 0.5,
-        radius_multiplier: 0.4,
+        radius_multiplier: 1.0,
     ),
     metaballs_shader: (
         fg_mode: 1,
@@ -53,7 +53,7 @@
     surface_noise: (
         enabled: true,
         mode: 0,
-        amp: 0.2,
+        amp: 0.0,
         base_scale: 0.05,
         warp_amp: 0.005,
         warp_freq: 1.5,
@@ -67,8 +67,8 @@
     ),
     draw_cluster_bounds: false,
     interactions: (
-        explosion: (enabled: true, impulse: 500.0, radius: 250.0, falloff_exp: 1.2),
-        drag: (enabled: true, grab_radius: 35.0, pull_strength: 1000.0, max_speed: 1500.0),
+        explosion: (enabled: false, impulse: 500.0, radius: 250.0, falloff_exp: 1.2),
+        drag: (enabled: false, grab_radius: 35.0, pull_strength: 1000.0, max_speed: 1500.0),
         cluster_pop: (
             enabled: true,
             min_ball_count: 4,
@@ -78,6 +78,15 @@
             despawn_delay: 0.0,
             aabb_pad: 4.0,
             tap_radius: 32.0,
+            fade_enabled: true,
+            fade_duration: 1.0,
+            fade_scale_end: 0.0,
+            fade_alpha: true,
+            exclude_from_new_clusters: true,
+            collider_shrink: false,
+            collider_min_scale: 0.25,
+            velocity_damping: 0.0,
+            spin_jitter: 0.0,
         ),
     ),
 

@@ -163,6 +163,16 @@ pub struct ClusterPopConfig {
     pub despawn_delay: f32,
     pub aabb_pad: f32,
     pub tap_radius: f32,
+    // Fade / extended pop behavior
+    pub fade_enabled: bool,
+    pub fade_duration: f32,
+    pub fade_scale_end: f32,
+    pub fade_alpha: bool,
+    pub exclude_from_new_clusters: bool,
+    pub collider_shrink: bool,
+    pub collider_min_scale: f32,
+    pub velocity_damping: f32,
+    pub spin_jitter: f32,
 }
 impl Default for ClusterPopConfig {
     fn default() -> Self {
@@ -175,6 +185,15 @@ impl Default for ClusterPopConfig {
             despawn_delay: 0.0,
             aabb_pad: 4.0,
             tap_radius: 32.0,
+            fade_enabled: true,
+            fade_duration: 1.0,
+            fade_scale_end: 0.0,
+            fade_alpha: true,
+            exclude_from_new_clusters: true,
+            collider_shrink: false,
+            collider_min_scale: 0.25,
+            velocity_damping: 0.0,
+            spin_jitter: 0.0,
         }
     }
 }
@@ -575,6 +594,59 @@ impl GameConfig {
             if cp.impulse_scale == 0.0 && cp.outward_bonus == 0.0 {
                 w.push(
                     "cluster_pop both impulse_scale and outward_bonus are 0 -> no outward motion"
+                        .into(),
+                );
+            }
+            if cp.fade_duration < 0.0 {
+                w.push(format!(
+                    "cluster_pop.fade_duration {} negative -> treated as 0.05",
+                    cp.fade_duration
+                ));
+            } else if cp.fade_enabled && cp.fade_duration < 0.05 {
+                w.push(format!(
+                    "cluster_pop.fade_duration {} < 0.05; will act as minimal (0.05).",
+                    cp.fade_duration
+                ));
+            }
+            if !(0.0..=1.0).contains(&cp.fade_scale_end) {
+                w.push(format!(
+                    "cluster_pop.fade_scale_end {} outside 0..1 (clamped).",
+                    cp.fade_scale_end
+                ));
+            }
+            if cp.collider_min_scale < 0.0 {
+                w.push(format!(
+                    "cluster_pop.collider_min_scale {} negative -> treated as 0",
+                    cp.collider_min_scale
+                ));
+            } else if cp.collider_min_scale > 1.0 {
+                w.push(format!(
+                    "cluster_pop.collider_min_scale {} > 1 -> clamped to 1",
+                    cp.collider_min_scale
+                ));
+            }
+            if cp.velocity_damping < 0.0 {
+                w.push(format!(
+                    "cluster_pop.velocity_damping {} negative -> treated as 0",
+                    cp.velocity_damping
+                ));
+            }
+            if cp.spin_jitter < 0.0 {
+                w.push(format!(
+                    "cluster_pop.spin_jitter {} negative -> treated as 0",
+                    cp.spin_jitter
+                ));
+            }
+            if !cp.fade_enabled
+                && (cp.fade_duration != 1.0
+                    || cp.fade_scale_end != 0.0
+                    || cp.fade_alpha != true
+                    || cp.collider_shrink
+                    || cp.velocity_damping != 0.0
+                    || cp.spin_jitter != 0.0)
+            {
+                w.push(
+                    "cluster_pop fade disabled but fade-related fields customized -> ignored."
                         .into(),
                 );
             }

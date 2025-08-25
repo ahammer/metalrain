@@ -3,6 +3,7 @@ use crate::core::system::system_order::PostPhysicsAdjustSet;
 use crate::rendering::materials::materials::{BallDisplayMaterials, BallMaterialIndex};
 use crate::rendering::palette::palette::color_for_index;
 use bevy::prelude::*;
+use crate::interaction::cluster_pop::PoppingBall;
 
 #[derive(Debug, Clone)]
 pub struct Cluster {
@@ -54,20 +55,27 @@ fn compute_clusters(
     mut clusters: ResMut<Clusters>,
     mut persistence: ResMut<ClusterPersistence>,
     time: Res<Time>,
-    q: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex), With<Ball>>,
+    q: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex, Option<&PoppingBall>), With<Ball>>,
+    cfg: Option<Res<crate::core::config::GameConfig>>,
 ) {
-    let count = q.iter().count();
     clusters.0.clear();
-    if count == 0 {
-        persistence.map.clear();
-        return;
-    }
-    let mut entities = Vec::with_capacity(count);
-    let mut positions = Vec::with_capacity(count);
-    let mut radii = Vec::with_capacity(count);
-    let mut colors = Vec::with_capacity(count);
+
+    let exclude_popping = cfg
+        .as_ref()
+        .map(|g| g.interactions.cluster_pop.exclude_from_new_clusters)
+        .unwrap_or(true);
+
+    // Collect only included (non-popping when excluded) balls
+    let mut entities: Vec<Entity> = Vec::new();
+    let mut positions: Vec<Vec2> = Vec::new();
+    let mut radii: Vec<f32> = Vec::new();
+    let mut colors: Vec<usize> = Vec::new();
     let mut max_radius = 0.0f32;
-    for (e, t, r, c) in q.iter() {
+
+    for (e, t, r, c, popping) in q.iter() {
+        if exclude_popping && popping.is_some() {
+            continue;
+        }
         entities.push(e);
         let p = t.translation.truncate();
         positions.push(p);
@@ -77,6 +85,15 @@ fn compute_clusters(
             max_radius = r.0;
         }
     }
+
+    let count = entities.len();
+    if count == 0 {
+        // No included balls this frame; clear persistence of removed entities
+        persistence.map.clear();
+        return;
+    }
+
+    // Union-find buffers sized to included count ONLY (bug fix: previously sized to total query count incl. excluded)
     let mut parent: Vec<usize> = (0..count).collect();
     let mut rank: Vec<u8> = vec![0; count];
     fn find(parent: &mut [usize], i: usize) -> usize {
