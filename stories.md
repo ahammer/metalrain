@@ -2,7 +2,7 @@ Here’s a prioritized backlog of player-facing user stories (non-technical). To
 
 1. As a player, I can immediately see balls drifting toward a center so I understand the arena’s basic behavior. [DONE]
 2. As a player, I can see balls of the same color stick together so I grasp clustering. [DONE]
-3. As a player, I can pop a same-color cluster once it’s big enough so clearing feels obvious.
+3. As a player, I can pop a same-color cluster once it’s big enough so clearing feels obvious. [DONE]
 4. As a player, I have a visible timer that resets on each pop so play never stalls.
 5. As a player, I lose if I don’t cause a pop before the timer expires so there’s tension.
 6. As a player, I win the level by clearing all balls so the goal is crystal clear.

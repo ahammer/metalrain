@@ -239,7 +239,7 @@ fn update_paddle_lifecycle(
     mut q: Query<(
         Entity,
         &mut PaddleLifecycle,
-        &BallRadius,
+        &mut BallRadius,
         Option<&Children>,
         &mut Velocity,
         &mut Collider,
@@ -251,7 +251,7 @@ fn update_paddle_lifecycle(
     }
     let dt = time.delta_secs();
 
-    for (entity, mut plc, _radius_comp, children_opt, mut vel, mut collider) in q.iter_mut() {
+    for (entity, mut plc, mut radius_comp, children_opt, mut vel, mut collider) in q.iter_mut() {
         let prev_elapsed = plc.elapsed;
         plc.elapsed += dt;
         let total = plc.total();
@@ -282,9 +282,10 @@ fn update_paddle_lifecycle(
         vel.linvel = Vec2::ZERO;
         vel.angvel = 0.0;
 
-        // Update collider radius only if changed enough (epsilon)
+        // Update collider & logical BallRadius (metaball rendering reads BallRadius)
         let new_r = plc.base_radius * factor;
         if new_r.is_finite() {
+            radius_comp.0 = new_r;
             *collider = Collider::ball(new_r);
         }
 
@@ -330,6 +331,8 @@ fn update_paddle_lifecycle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_rapier2d::prelude::{Collider, Velocity};
+
     #[test]
     fn scale_progress_basic() {
         let plc = PaddleLifecycle {
@@ -353,5 +356,47 @@ mod tests {
             1.0 + (plc.peak_scale - 1.0) * curve
         };
         assert!(half_grow_factor > 1.3);
+    }
+
+    #[test]
+    fn ball_radius_updates_during_lifecycle() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        // Provide required resources for system params
+        app.init_resource::<Assets<ColorMaterial>>();
+        // Insert system under test
+        app.add_systems(Update, update_paddle_lifecycle);
+
+        // Spawn a ball mid-grow (elapsed = 50% of grow)
+        let base_radius = 10.0;
+        let grow_duration = 0.2;
+        app.world_mut().spawn((
+            Ball,
+            PaddleLifecycle {
+                elapsed: grow_duration * 0.5, // 50% through grow phase
+                grow_duration,
+                hold_duration: 0.0,
+                shrink_duration: 0.2,
+                peak_scale: 1.8,
+                freeze_mode: FreezeMode::ZeroVelEachFrame,
+                base_radius,
+                fade_alpha: true,
+                fade_curve: 1,
+                collider_scale_curve: 1,
+                alpha_base: -1.0,
+            },
+            BallRadius(base_radius),
+            Velocity::zero(),
+            Collider::ball(base_radius),
+        ));
+
+        app.update(); // run one frame (dt defaults to 0, system applies factor based on existing elapsed)
+
+        // Verify BallRadius increased (metaball renderer will now see enlarged radius)
+        let mut query = app.world_mut().query::<(&PaddleLifecycle, &BallRadius)>();
+        for (plc, r) in query.iter(app.world()) {
+            // Expected factor at 50% grow with smoothstep(0.5)=0.5: 1 + (1.8-1)*0.5 = 1.4
+            assert!(r.0 > base_radius * 1.1 && r.0 <= plc.base_radius * plc.peak_scale + 0.01);
+        }
     }
 }
