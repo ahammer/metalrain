@@ -38,6 +38,18 @@
         fg_mode: 1,
         bg_mode: 1,
     ),
+    noise: (
+        base_scale: 0.004,
+        warp_amp: 0.6,
+        warp_freq: 0.5,
+        speed_x: 0.03,
+        speed_y: 0.02,
+        gain: 0.5,
+        lacunarity: 2.0,
+        contrast_pow: 1.25,
+        octaves: 5,
+        ridged: false,
+    ),
     draw_cluster_bounds: false,
     interactions: (
         explosion: (enabled: true, impulse: 500.0, radius: 250.0, falloff_exp: 1.2),

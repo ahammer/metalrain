@@ -52,10 +52,48 @@ impl Default for MetaballsUniform {
     }
 }
 
+// NEW: Mirror of WGSL NoiseParams (group(2) binding(1))
+#[repr(C, align(16))]
+#[derive(Clone, Copy, ShaderType, Debug)]
+pub struct NoiseParamsUniform {
+    pub base_scale: f32,
+    pub warp_amp: f32,
+    pub warp_freq: f32,
+    pub speed_x: f32,
+    pub speed_y: f32,
+    pub gain: f32,
+    pub lacunarity: f32,
+    pub contrast_pow: f32,
+    pub octaves: u32,
+    pub ridged: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+}
+impl Default for NoiseParamsUniform {
+    fn default() -> Self {
+        Self {
+            base_scale: 0.004,
+            warp_amp: 0.6,
+            warp_freq: 0.5,
+            speed_x: 0.03,
+            speed_y: 0.02,
+            gain: 0.5,
+            lacunarity: 2.0,
+            contrast_pow: 1.25,
+            octaves: 5,
+            ridged: 0,
+            _pad0: 0,
+            _pad1: 0,
+        }
+    }
+}
+
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
 pub struct MetaballsUnifiedMaterial {
     #[uniform(0)]
     data: MetaballsUniform,
+    #[uniform(1)]
+    noise: NoiseParamsUniform, // NEW binding(1)
 }
 
 impl MetaballsUnifiedMaterial {
@@ -247,6 +285,7 @@ fn setup_metaballs(
     mut meshes: ResMut<Assets<Mesh>>,
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
     windows: Query<&Window>,
+    cfg: Res<GameConfig>,
 ) {
     let (w, h) = if let Ok(window) = windows.single() {
         (window.width(), window.height())
@@ -258,6 +297,17 @@ fn setup_metaballs(
     let mut umat = MetaballsUnifiedMaterial::default();
     umat.data.v2.x = w;
     umat.data.v2.y = h;
+    // Initialize noise uniform from config (will also be updated per-frame)
+    umat.noise.base_scale = cfg.noise.base_scale;
+    umat.noise.warp_amp = cfg.noise.warp_amp;
+    umat.noise.warp_freq = cfg.noise.warp_freq;
+    umat.noise.speed_x = cfg.noise.speed_x;
+    umat.noise.speed_y = cfg.noise.speed_y;
+    umat.noise.gain = cfg.noise.gain;
+    umat.noise.lacunarity = cfg.noise.lacunarity;
+    umat.noise.contrast_pow = cfg.noise.contrast_pow;
+    umat.noise.octaves = cfg.noise.octaves;
+    umat.noise.ridged = if cfg.noise.ridged { 1 } else { 0 };
     let unified_handle = unified_mats.add(umat);
 
     commands.spawn((
@@ -340,6 +390,7 @@ fn update_metaballs_unified_material(
     q_mat: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
     toggle: Res<MetaballsToggle>,
     params: Res<MetaballsParams>,
+    cfg: Res<GameConfig>, // access noise config
 ) {
     if !toggle.0 {
         return;
@@ -362,6 +413,19 @@ fn update_metaballs_unified_material(
     let iso = params.iso.clamp(1e-4, 0.9999);
     let k = (1.0 - iso.powf(1.0 / 3.0)).max(1e-4).sqrt();
     mat.data.v0.z = 1.0 / k;
+
+    // Update noise uniform every frame (allows hot-reload of config or dynamic edits)
+    let noise_cfg = &cfg.noise;
+    mat.noise.base_scale = noise_cfg.base_scale;
+    mat.noise.warp_amp = noise_cfg.warp_amp;
+    mat.noise.warp_freq = noise_cfg.warp_freq;
+    mat.noise.speed_x = noise_cfg.speed_x;
+    mat.noise.speed_y = noise_cfg.speed_y;
+    mat.noise.gain = noise_cfg.gain;
+    mat.noise.lacunarity = noise_cfg.lacunarity;
+    mat.noise.contrast_pow = noise_cfg.contrast_pow;
+    mat.noise.octaves = noise_cfg.octaves;
+    mat.noise.ridged = if noise_cfg.ridged { 1 } else { 0 };
 
     // Cluster colors
     let mut color_count = 0usize;

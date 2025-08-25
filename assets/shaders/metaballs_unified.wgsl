@@ -42,6 +42,26 @@ struct MetaballsData {
 @group(2) @binding(0)
 var<uniform> metaballs: MetaballsData;
 
+// Procedural background noise parameters (NEW; separate UBO to avoid touching MetaballsData)
+// Layout: 3 * vec4 slots (48 bytes). Octaves==0 => legacy 2-octave fallback.
+struct NoiseParams {
+    base_scale: f32,    // domain scale (inverse size)
+    warp_amp: f32,      // 0 disables warp
+    warp_freq: f32,     // warp noise frequency
+    speed_x: f32,       // animation velocity x
+    speed_y: f32,       // animation velocity y
+    gain: f32,          // fBm gain
+    lacunarity: f32,    // frequency multiplier
+    contrast_pow: f32,  // post curve exponent
+    octaves: u32,       // [0 => fallback, 1..6] default 5
+    ridged: u32,        // 0|1
+    _pad0: u32,
+    _pad1: u32,
+};
+
+@group(2) @binding(1)
+var<uniform> noise_params: NoiseParams;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world_pos: vec2<f32>,
@@ -78,18 +98,76 @@ fn value_noise(p: vec2<f32>) -> f32 {
     return mix(mix(a,b,w.x), mix(c,d,w.x), w.y);
 }
 fn noise_color(p: vec2<f32>, time: f32) -> vec3<f32> {
-    // Domain scale chosen for subtle broad features (WHY: 0.004 keeps pattern large-scale)
-    let q = p * 0.004 + vec2<f32>(time * 0.03, time * 0.02);
-    let n1 = value_noise(q);
-    let n2 = value_noise(q * 2.15 + 7.3);
-    let n = clamp(0.65 * n1 + 0.35 * n2, 0.0, 1.0);
-    let c1 = vec3<f32>(0.05, 0.08, 0.15);
-    let c2 = vec3<f32>(0.04, 0.35, 0.45);
-    let c3 = vec3<f32>(0.85, 0.65, 0.30);
-    let mid = smoothstep(0.0, 0.6, n);
-    let hi = smoothstep(0.55, 1.0, n);
-    let base = mix(c1, c2, mid);
-    return mix(base, c3, hi * 0.35) * 0.9;
+    // Fallback path for safety (octaves==0 => legacy 2-oct blend; keeps binary compat if UBO misconfigured)
+    if (noise_params.octaves == 0u) {
+        let q = p * 0.004 + vec2<f32>(time * 0.03, time * 0.02);
+        let n1 = value_noise(q);
+        let n2 = value_noise(q * 2.15 + 7.3);
+        let n_legacy = clamp(0.65 * n1 + 0.35 * n2, 0.0, 1.0);
+        let c1L = vec3<f32>(0.05, 0.08, 0.15);
+        let c2L = vec3<f32>(0.04, 0.35, 0.45);
+        let c3L = vec3<f32>(0.85, 0.65, 0.30);
+        let midL = smoothstep(0.0, 0.6, n_legacy);
+        let hiL = smoothstep(0.55, 1.0, n_legacy);
+        let baseL = mix(c1L, c2L, midL);
+        return mix(baseL, c3L, hiL * 0.35) * 0.9;
+    }
+
+    // Base coordinate & animation
+    var pw = p * noise_params.base_scale +
+             vec2<f32>(time * noise_params.speed_x, time * noise_params.speed_y);
+
+    // Single-pass domain warp (adds structure, cheap: 2 noise evals)
+    if (noise_params.warp_amp > 0.0) {
+        let wp = pw * noise_params.warp_freq;
+        let w1 = value_noise(wp + vec2<f32>(37.2, 17.9));
+        let w2 = value_noise(wp * 1.7 + vec2<f32>(11.7, 93.1));
+        let warp = vec2<f32>(w1, w2) - 0.5;
+        pw += warp * noise_params.warp_amp; // early skip if amp==0
+    }
+
+    // fBm (max 6 fixed loop with break => predictable)
+    let is_ridged = (noise_params.ridged != 0u);
+    var n: f32 = 0.0;
+    var amp: f32 = 1.0;
+    var freq: f32 = 1.0;
+    var weight_sum: f32 = 0.0;
+
+    for (var i: u32 = 0u; i < 6u; i = i + 1u) {
+        if (i >= noise_params.octaves) { break; }
+        var s = value_noise(pw * freq);
+        if (is_ridged) {
+            // Ridged shaping: invert & sharpen; emphasize first octave
+            s = 1.0 - abs(s * 2.0 - 1.0);
+            let ridge_boost = select(1.0, 1.25, i == 0u);
+            n += s * amp * ridge_boost;
+            weight_sum += amp * ridge_boost;
+        } else {
+            n += s * amp;
+            weight_sum += amp;
+        }
+        freq *= noise_params.lacunarity;
+        amp *= noise_params.gain;
+    }
+
+    n = n / max(weight_sum, 1e-5);
+
+    // Contrast shaping: gamma-like + mid sharpening
+    n = clamp(n, 0.0, 1.0);
+    n = pow(n, noise_params.contrast_pow);
+    let mid_sharp = smoothstep(0.30, 0.70, n);      // tuned window
+    let hi = smoothstep(0.55, 0.95, n);             // highlights sooner for crisp sparks
+    // Slight remap blend to enhance microcontrast while preserving range
+    n = mix(n, mid_sharp, 0.15);
+
+    // Palette (cool -> teal -> warm accent)
+    let cA = vec3<f32>(0.05, 0.08, 0.15);
+    let cB = vec3<f32>(0.04, 0.35, 0.45);
+    let cHi = vec3<f32>(0.85, 0.65, 0.30);
+    let base = mix(cA, cB, mid_sharp);
+    let out_col = mix(base, cHi, hi * 0.35);
+
+    return out_col * 0.95;
 }
 
 // ---------------------------------------------
@@ -203,7 +281,10 @@ fn fg_outline_glow(base_col: vec3<f32>, best_field: f32, iso: f32, mask: f32, gr
 // Background Helpers
 // ---------------------------------------------
 fn bg_solid_gray() -> vec4<f32> { let g = 0.42; return vec4<f32>(vec3<f32>(g,g,g), 1.0); }
-fn bg_noise(p: vec2<f32>, time: f32) -> vec4<f32> { return vec4<f32>(noise_color(p, time), 1.0); }
+fn bg_noise(p: vec2<f32>, time: f32) -> vec4<f32> {
+    // Wrapper to keep background mode call-site unchanged
+    return vec4<f32>(noise_color(p, time), 1.0);
+}
 fn bg_vertical(p: vec2<f32>, viewport_h: f32) -> vec4<f32> {
     // Normalize y into [-1,1] then map to [0,1]
     let t_raw = (p.y / max(viewport_h, 1.0)) * 2.0;

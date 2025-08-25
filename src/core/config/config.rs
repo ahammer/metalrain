@@ -170,6 +170,7 @@ pub struct GameConfig {
     pub metaballs_enabled: bool,
     pub metaballs: MetaballsRenderConfig,
     pub metaballs_shader: MetaballsShaderConfig,
+    pub noise: NoiseConfig, // NEW: procedural background noise params
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
 }
@@ -186,6 +187,7 @@ impl Default for GameConfig {
             metaballs_enabled: true,
             metaballs: Default::default(),
             metaballs_shader: Default::default(),
+            noise: Default::default(),
             draw_cluster_bounds: false,
             interactions: Default::default(),
         }
@@ -217,6 +219,38 @@ pub struct MetaballsShaderConfig {
 impl Default for MetaballsShaderConfig {
     fn default() -> Self {
         Self { fg_mode: 0, bg_mode: 0 }
+    }
+}
+
+// NEW: Noise configuration mapped to shader NoiseParams UBO
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
+#[serde(default)]
+pub struct NoiseConfig {
+    pub base_scale: f32,
+    pub warp_amp: f32,
+    pub warp_freq: f32,
+    pub speed_x: f32,
+    pub speed_y: f32,
+    pub gain: f32,
+    pub lacunarity: f32,
+    pub contrast_pow: f32,
+    pub octaves: u32,
+    pub ridged: bool,
+}
+impl Default for NoiseConfig {
+    fn default() -> Self {
+        Self {
+            base_scale: 0.004,
+            warp_amp: 0.6,
+            warp_freq: 0.5,
+            speed_x: 0.03,
+            speed_y: 0.02,
+            gain: 0.5,
+            lacunarity: 2.0,
+            contrast_pow: 1.25,
+            octaves: 5,
+            ridged: false,
+        }
     }
 }
 impl GameConfig {
