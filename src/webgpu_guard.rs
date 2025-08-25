@@ -2,7 +2,6 @@
 // We intentionally DO NOT offer a WebGL (webgl) fallback: build requires navigator.gpu.
 #[cfg(target_arch = "wasm32")]
 pub fn assert_webgpu_available() {
-    use wasm_bindgen::JsCast;
     let win = web_sys::window().expect("no window");
     let nav = win.navigator();
     let has_gpu = js_sys::Reflect::get(&nav, &wasm_bindgen::JsValue::from_str("gpu"))
