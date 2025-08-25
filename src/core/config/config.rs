@@ -169,6 +169,7 @@ pub struct GameConfig {
     pub draw_circles: bool,
     pub metaballs_enabled: bool,
     pub metaballs: MetaballsRenderConfig,
+    pub metaballs_shader: MetaballsShaderConfig,
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
 }
@@ -184,6 +185,7 @@ impl Default for GameConfig {
             draw_circles: false,
             metaballs_enabled: true,
             metaballs: Default::default(),
+            metaballs_shader: Default::default(),
             draw_cluster_bounds: false,
             interactions: Default::default(),
         }
@@ -203,6 +205,18 @@ impl Default for MetaballsRenderConfig {
             normal_z_scale: 1.0,
             radius_multiplier: 1.0,
         }
+    }
+}
+
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
+#[serde(default)]
+pub struct MetaballsShaderConfig {
+    pub fg_mode: usize,
+    pub bg_mode: usize,
+}
+impl Default for MetaballsShaderConfig {
+    fn default() -> Self {
+        Self { fg_mode: 0, bg_mode: 0 }
     }
 }
 impl GameConfig {

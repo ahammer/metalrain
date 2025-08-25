@@ -195,6 +195,7 @@ impl Plugin for MetaballsPlugin {
                 (
                     initialize_toggle_from_config,
                     apply_config_to_params,
+                    apply_shader_modes_from_config,
                     setup_metaballs,
                     log_initial_modes,
                 ),
@@ -224,6 +225,21 @@ fn apply_config_to_params(mut params: ResMut<MetaballsParams>, cfg: Res<GameConf
     params.iso = cfg.metaballs.iso;
     params.normal_z_scale = cfg.metaballs.normal_z_scale;
     params.radius_multiplier = cfg.metaballs.radius_multiplier.max(0.0001);
+}
+
+fn apply_shader_modes_from_config(
+    mut fg: ResMut<MetaballForeground>,
+    mut bg: ResMut<MetaballBackground>,
+    cfg: Res<GameConfig>,
+) {
+    fg.idx = cfg
+        .metaballs_shader
+        .fg_mode
+        .min(MetaballForegroundMode::ALL.len() - 1);
+    bg.idx = cfg
+        .metaballs_shader
+        .bg_mode
+        .min(MetaballBackgroundMode::ALL.len() - 1);
 }
 
 fn setup_metaballs(

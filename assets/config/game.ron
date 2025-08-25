@@ -34,20 +34,14 @@
         normal_z_scale: 0.5,
         radius_multiplier: 0.4,
     ),
+    metaballs_shader: (
+        fg_mode: 1,
+        bg_mode: 2,
+    ),
     draw_cluster_bounds: false,
     interactions: (
         explosion: (enabled: true, impulse: 500.0, radius: 250.0, falloff_exp: 1.2),
         drag: (enabled: true, grab_radius: 35.0, pull_strength: 1000.0, max_speed: 1500.0),
     ),
-    fluid_sim: (
-        width: 256,
-        height: 256,
-        jacobi_iterations: 40,
-        time_step: 0.016666667,
-        dissipation: 0.999,
-        velocity_dissipation: 0.999,
-        force_strength: 5.0,
-        enabled: true,
-    seed_initial_dye: false,
-    ),
+
 )
