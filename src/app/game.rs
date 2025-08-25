@@ -7,7 +7,6 @@ use bevy::prelude::*;
 use crate::core::system::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
 use crate::debug::DebugPlugin;
 use crate::gameplay::spawn::spawn::BallSpawnPlugin;
-use crate::interaction::input::input_interaction::InputInteractionPlugin;
 use crate::interaction::cluster_pop::ClusterPopPlugin;
 #[cfg(feature = "debug")]
 use crate::interaction::inputmap::hot_reload::InputMapHotReloadPlugin;
@@ -41,7 +40,7 @@ impl Plugin for GamePlugin {
             MetaballsPlugin,
             InputActionsPlugin,
             ClusterPopPlugin,
-            InputInteractionPlugin,
+
             DebugPlugin,
             ConfigHotReloadPlugin,
             AutoClosePlugin,

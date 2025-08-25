@@ -115,42 +115,6 @@ impl Default for CollisionSeparationConfig {
         }
     }
 }
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(default)]
-pub struct ExplosionConfig {
-    pub enabled: bool,
-    pub impulse: f32,
-    pub radius: f32,
-    pub falloff_exp: f32,
-}
-impl Default for ExplosionConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            impulse: 500.0,
-            radius: 250.0,
-            falloff_exp: 1.2,
-        }
-    }
-}
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(default)]
-pub struct DragConfig {
-    pub enabled: bool,
-    pub grab_radius: f32,
-    pub pull_strength: f32,
-    pub max_speed: f32,
-}
-impl Default for DragConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            grab_radius: 35.0,
-            pull_strength: 1000.0,
-            max_speed: 1500.0,
-        }
-    }
-}
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
@@ -158,7 +122,7 @@ pub struct ClusterPopConfig {
     pub enabled: bool,
     pub min_ball_count: usize,
     pub min_total_area: f32,
-    pub impulse_scale: f32,
+    pub impulse: f32,
     pub outward_bonus: f32,
     pub despawn_delay: f32,
     pub aabb_pad: f32,
@@ -180,7 +144,7 @@ impl Default for ClusterPopConfig {
             enabled: true,
             min_ball_count: 4,
             min_total_area: 1200.0,
-            impulse_scale: 1.0,
+            impulse: 500.0,
             outward_bonus: 0.6,
             despawn_delay: 0.0,
             aabb_pad: 4.0,
@@ -200,8 +164,6 @@ impl Default for ClusterPopConfig {
 #[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct InteractionConfig {
-    pub explosion: ExplosionConfig,
-    pub drag: DragConfig,
     pub cluster_pop: ClusterPopConfig,
 }
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
@@ -259,16 +221,11 @@ impl Default for MetaballsRenderConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq, Default)]
 #[serde(default)]
 pub struct MetaballsShaderConfig {
     pub fg_mode: usize,
     pub bg_mode: usize,
-}
-impl Default for MetaballsShaderConfig {
-    fn default() -> Self {
-        Self { fg_mode: 0, bg_mode: 0 }
-    }
 }
 
 // NEW: Noise configuration mapped to shader NoiseParams UBO
@@ -403,6 +360,40 @@ impl GameConfig {
             }
         }
         if let Some(val) = merged {
+            // Legacy key detection for removed interactions.explosion / interactions.drag
+            {
+                use ron::value::Value;
+                fn scan_legacy(value: &Value, found: &mut Vec<&'static str>) {
+                    if let Value::Map(m) = value {
+                        for (k, v) in m.iter() {
+                            if let Value::String(s) = k {
+                                if s == "interactions" {
+                                    if let Value::Map(im) = v {
+                                        for (ik, _iv) in im.iter() {
+                                            if let Value::String(is) = ik {
+                                                if is == "explosion" && !found.contains(&"explosion") {
+                                                    found.push("explosion");
+                                                } else if is == "drag" && !found.contains(&"drag") {
+                                                    found.push("drag");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            scan_legacy(v, found);
+                        }
+                    }
+                }
+                let mut legacy = Vec::new();
+                scan_legacy(&val, &mut legacy);
+                if !legacy.is_empty() {
+                    errors.push(format!(
+                        "Ignoring legacy interactions keys removed: {}",
+                        legacy.join(", ")
+                    ));
+                }
+            }
             match val.clone().into_rust::<GameConfig>() {
                 Ok(cfg) => (cfg, used, errors),
                 Err(e) => (GameConfig::default(), used, {
@@ -511,42 +502,6 @@ impl GameConfig {
                 ));
             }
         }
-        if self.interactions.explosion.enabled {
-            let ex = &self.interactions.explosion;
-            if ex.impulse <= 0.0 {
-                w.push("explosion.impulse must be > 0 when enabled".into());
-            }
-            if ex.radius <= 0.0 {
-                w.push("explosion.radius must be > 0".into());
-            }
-            if ex.falloff_exp < 0.0 {
-                w.push("explosion.falloff_exp negative -> increasing force with distance".into());
-            }
-            if ex.falloff_exp > 8.0 {
-                w.push(format!(
-                    "explosion.falloff_exp {} very high (force extremely localized)",
-                    ex.falloff_exp
-                ));
-            }
-        }
-        if self.interactions.drag.enabled {
-            let dr = &self.interactions.drag;
-            if dr.grab_radius <= 0.0 {
-                w.push("drag.grab_radius must be > 0".into());
-            }
-            if dr.pull_strength <= 0.0 {
-                w.push("drag.pull_strength must be > 0".into());
-            }
-            if dr.max_speed < 0.0 {
-                w.push("drag.max_speed negative -> treated as cap?".into());
-            }
-            if dr.max_speed != 0.0 && dr.max_speed < dr.pull_strength * 0.1 {
-                w.push(format!(
-                    "drag.max_speed {} may be too low relative to pull_strength {} -> jerky motion",
-                    dr.max_speed, dr.pull_strength
-                ));
-            }
-        }
         if self.interactions.cluster_pop.enabled {
             let cp = &self.interactions.cluster_pop;
             if cp.min_ball_count < 1 {
@@ -561,10 +516,10 @@ impl GameConfig {
                     cp.min_total_area
                 ));
             }
-            if cp.impulse_scale < 0.0 {
+            if cp.impulse <= 0.0 {
                 w.push(format!(
-                    "cluster_pop.impulse_scale {} negative -> treated as 0",
-                    cp.impulse_scale
+                    "cluster_pop.impulse {} <= 0 -> no outward motion",
+                    cp.impulse
                 ));
             }
             if cp.outward_bonus < 0.0 {
@@ -590,12 +545,6 @@ impl GameConfig {
                     "cluster_pop.despawn_delay {} negative -> treated as 0",
                     cp.despawn_delay
                 ));
-            }
-            if cp.impulse_scale == 0.0 && cp.outward_bonus == 0.0 {
-                w.push(
-                    "cluster_pop both impulse_scale and outward_bonus are 0 -> no outward motion"
-                        .into(),
-                );
             }
             if cp.fade_duration < 0.0 {
                 w.push(format!(
@@ -640,7 +589,7 @@ impl GameConfig {
             if !cp.fade_enabled
                 && (cp.fade_duration != 1.0
                     || cp.fade_scale_end != 0.0
-                    || cp.fade_alpha != true
+                    || !cp.fade_alpha
                     || cp.collider_shrink
                     || cp.velocity_damping != 0.0
                     || cp.spin_jitter != 0.0)

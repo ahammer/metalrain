@@ -4,10 +4,15 @@ use bevy::sprite::MeshMaterial2d;
 
 use rand::Rng;
 
+type ChildVisualTuple<'a> = (
+    &'a mut Transform,
+    Option<&'a MeshMaterial2d<ColorMaterial>>,
+    Option<&'a BallCircleVisual>,
+);
+
 use crate::core::components::{Ball, BallCircleVisual, BallRadius};
 use crate::core::config::GameConfig;
 use crate::core::system::system_order::PrePhysicsSet;
-use crate::interaction::input::input_interaction::{ActiveDrag, TapExplosionSet};
 use crate::physics::clustering::cluster::Clusters;
 
 /// Event emitted when a qualifying cluster is popped (cleared)
@@ -19,9 +24,6 @@ pub struct ClusterPopped {
     pub centroid: Vec2,
 }
 
-/// Transient flag (per-frame) to suppress the generic tap explosion when a cluster pop occurred.
-#[derive(Resource, Default, Debug)]
-pub struct TapConsumed(pub bool);
 
 /// Component representing a ball that is currently in the popping fade-out phase.
 #[derive(Component, Debug)]
@@ -41,18 +43,15 @@ pub struct ClusterPopPlugin;
 
 impl Plugin for ClusterPopPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<TapConsumed>()
-            .add_event::<ClusterPopped>()
+        app.add_event::<ClusterPopped>()
             .add_systems(
                 Update,
                 handle_tap_cluster_pop
-                    .in_set(PrePhysicsSet)
-                    .before(TapExplosionSet),
+                    .in_set(PrePhysicsSet),
             )
             // Run after impulses applied but still in Update; does not need to be before physics since
             // scaling is purely visual unless collider shrinking is enabled (then we do it early each frame).
-            .add_systems(Update, update_popping_balls.after(PrePhysicsSet))
-            .add_systems(PostUpdate, reset_tap_consumed);
+            .add_systems(Update, update_popping_balls.after(PrePhysicsSet));
     }
 }
 
@@ -84,8 +83,6 @@ fn handle_tap_cluster_pop(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     clusters: Res<Clusters>,
     mut q: Query<(&Transform, &BallRadius, &mut Velocity, Option<&mut Damping>), With<Ball>>,
-    mut tap_consumed: ResMut<TapConsumed>,
-    active_drag: Res<ActiveDrag>,
     mut ew: EventWriter<ClusterPopped>,
     mut commands: Commands,
     cfg: Res<GameConfig>,
@@ -98,10 +95,6 @@ fn handle_tap_cluster_pop(
     let released =
         buttons.just_released(MouseButton::Left) || touches.iter_just_released().next().is_some();
     if !released {
-        return;
-    }
-    // Do not trigger on drag release
-    if active_drag.started {
         return;
     }
     let Ok(window) = windows_q.single() else {
@@ -127,15 +120,9 @@ fn handle_tap_cluster_pop(
             if let Some(bi) = best {
                 let bcl = &clusters.0[bi];
                 // Prefer largest ball count; tie-break by smaller centroid distance
-                let better = if cl.entities.len() > bcl.entities.len() {
-                    true
-                } else if cl.entities.len() == bcl.entities.len()
-                    && dist_centroid < bcl.centroid.distance(world_pos)
-                {
-                    true
-                } else {
-                    false
-                };
+                let better = cl.entities.len() > bcl.entities.len()
+                    || (cl.entities.len() == bcl.entities.len()
+                        && dist_centroid < bcl.centroid.distance(world_pos));
                 if better {
                     best = Some(i);
                 }
@@ -145,7 +132,7 @@ fn handle_tap_cluster_pop(
         }
     }
     let Some(idx) = best else {
-        // No candidate cluster; allow normal explosion
+        // No candidate cluster
         return;
     };
     let cluster = &clusters.0[idx];
@@ -161,9 +148,8 @@ fn handle_tap_cluster_pop(
     }
 
     // Apply outward impulse and configure fade / popping component
-    let base_impulse = cfg.interactions.explosion.impulse;
-    let magnitude_base =
-        base_impulse * cp.impulse_scale.max(0.0) * (1.0 + cp.outward_bonus.max(0.0));
+    let base_impulse = cp.impulse;
+    let magnitude_base = base_impulse * (1.0 + cp.outward_bonus.max(0.0));
     let mut r = rand::thread_rng();
 
     for e in cluster.entities.iter() {
@@ -246,7 +232,6 @@ fn handle_tap_cluster_pop(
         centroid: cluster.centroid,
     });
 
-    tap_consumed.0 = true;
 
     #[cfg(feature = "debug")]
     {
@@ -267,11 +252,7 @@ fn update_popping_balls(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
     mut q: Query<(Entity, &mut PoppingBall, &BallRadius, Option<&Children>)>,
-    mut q_child_vis: Query<(
-        &mut Transform,
-        Option<&MeshMaterial2d<ColorMaterial>>,
-        Option<&BallCircleVisual>,
-    )>,
+    mut q_child_vis: Query<ChildVisualTuple>,
     mut q_collider: Query<&mut Collider>,
 ) {
     if q.is_empty() {
@@ -331,8 +312,4 @@ fn update_popping_balls(
             commands.entity(entity).despawn();
         }
     }
-}
-
-fn reset_tap_consumed(mut tap: ResMut<TapConsumed>) {
-    tap.0 = false;
 }

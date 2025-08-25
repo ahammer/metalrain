@@ -19,7 +19,7 @@ Here’s a prioritized backlog of player-facing user stories (non-technical). To
 17. As a player, I can restart a level instantly so I’m not punished for experimenting.
 18. As a player, I can tap anywhere to pause and view a simple recap of goals and controls so I never feel lost.
 19. As a player, I see clear “why you failed” messaging (e.g., “Timer expired”) so I know what to fix next attempt.
-20. As a player, I can play with taps and drags on mobile and with mouse on desktop so controls feel natural.
+20. As a player, I can play with taps on mobile and with mouse on desktop so controls feel natural.
 21. As a player, I get a simple 1–3 star rating at level end based on score and speed so there’s replay value.
 22. As a player, I unlock the next level on a basic clear, but higher stars require better combos so mastery matters.
 23. As a player, I encounter levels with different goals (clear all, reach score, survive X seconds) so the game stays fresh.

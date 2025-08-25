@@ -5,6 +5,14 @@ use crate::rendering::palette::palette::color_for_index;
 use bevy::prelude::*;
 use crate::interaction::cluster_pop::PoppingBall;
 
+type ClusterQueryItem<'a> = (
+    Entity,
+    &'a Transform,
+    &'a BallRadius,
+    &'a BallMaterialIndex,
+    Option<&'a PoppingBall>,
+);
+
 #[derive(Debug, Clone)]
 pub struct Cluster {
     pub color_index: usize,
@@ -55,7 +63,7 @@ fn compute_clusters(
     mut clusters: ResMut<Clusters>,
     mut persistence: ResMut<ClusterPersistence>,
     time: Res<Time>,
-    q: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex, Option<&PoppingBall>), With<Ball>>,
+    q: Query<ClusterQueryItem<'_>, With<Ball>>,
     cfg: Option<Res<crate::core::config::GameConfig>>,
 ) {
     clusters.0.clear();

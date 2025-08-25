@@ -1,8 +1,5 @@
 [actions]
 PrimaryTap = { description = "Primary tap/click", kind = "Binary" }
-Drag = { description = "Drag active", kind = "Binary" }
-DragAxis = { description = "Drag delta axis", kind = "Axis2" }
-Explosion = { description = "Trigger explosion", kind = "Binary" }
 MetaballIsoDec = { description = "Decrease metaball iso", kind = "Binary" }
 MetaballIsoInc = { description = "Increase metaball iso", kind = "Binary" }
 ToggleOverlay = { description = "Toggle overlay", kind = "Binary" }
@@ -13,10 +10,8 @@ DebugMode4 = { description = "Debug mode 4", kind = "Binary" }
 
 [bindings]
 PrimaryTap = ["Mouse:Left", "Touch:Tap"]
-Drag = ["Touch:Drag"]
 MetaballIsoDec = ["Key:BracketLeft"]
 MetaballIsoInc = ["Key:BracketRight"]
-Explosion = ["hold>0.2:Mouse:Left"]
 
 [debug.bindings]
 ToggleOverlay = ["Key:F1"]
@@ -34,5 +29,6 @@ scale = 1.0
 [gesture]
 tap_max_time = 0.25
 tap_max_move = 12.0
+# Drag-related gesture settings retained for now (can be pruned later if unused)
 drag_min_move = 4.0
 drag_smoothing = 0.15
