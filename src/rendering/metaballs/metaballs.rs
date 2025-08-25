@@ -113,14 +113,12 @@ impl MetaballForegroundMode {
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaballBackgroundMode {
-    ExternalBackground,
     SolidGray,
     ProceduralNoise,
     VerticalGradient,
 }
 impl MetaballBackgroundMode {
-    pub const ALL: [Self; 4] = [
-        Self::ExternalBackground,
+    pub const ALL: [Self; 3] = [
         Self::SolidGray,
         Self::ProceduralNoise,
         Self::VerticalGradient,
@@ -207,7 +205,6 @@ impl Plugin for MetaballsPlugin {
                     update_metaballs_unified_material,
                     cycle_foreground_mode,
                     cycle_background_mode,
-                    apply_modes,
                     resize_fullscreen_quad,
                     tweak_metaballs_params,
                 ),
@@ -311,27 +308,6 @@ fn cycle_background_mode(mut bg: ResMut<MetaballBackground>, keys: Res<ButtonInp
     }
 }
 
-// =====================================================================================
-// Apply modes to scene graph (background quad visibility)
-// ExternalBackground requires background quad visible; all others hidden
-// =====================================================================================
-
-fn apply_modes(
-    bg: Res<MetaballBackground>,
-    mut q_bg: Query<
-        &mut Visibility,
-        With<crate::rendering::background::background::BackgroundQuad>,
-    >,
-) {
-    let show_external = matches!(bg.current(), MetaballBackgroundMode::ExternalBackground);
-    for mut v in q_bg.iter_mut() {
-        *v = if show_external {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
-    }
-}
 
 // =====================================================================================
 // Uniform Update
@@ -363,7 +339,7 @@ fn update_metaballs_unified_material(
     mat.data.v0.w = params.iso; // iso
     mat.data.v1.x = params.normal_z_scale; // normal z scale
     mat.data.v1.y = (fg.current() as u32) as f32; // foreground_mode index
-    mat.data.v1.z = (bg.current() as u32) as f32; // background_mode index
+    mat.data.v1.z = (bg.current() as u32) as f32; // background_mode index: 0=SolidGray,1=ProceduralNoise,2=VerticalGradient
     mat.data.v2.z = time.elapsed_secs(); // animated time (noise / future reactive bg)
     mat.data.v2.w = params.radius_multiplier.max(0.0001); // radius_multiplier relocated (was v1.z)
                                                           // Derived radius scale maintaining legacy behavior (inverse from iso shaping)

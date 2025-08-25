@@ -6,22 +6,16 @@
 // v2: (viewport_w, viewport_h, time_seconds, radius_multiplier)
 // Arrays: balls[MAX_BALLS] (x,y,radius,cluster_index), cluster_colors[MAX_CLUSTERS] (rgb,_)
 //
-// Foreground modes (v1.y):
-// 0 = ClassicBlend     (alpha = mask; only transparent outside when bg = External)
-// 1 = Bevel            (bevel lighting; opaque over any opaque bg)
-// 2 = OutlineGlow      (currently aliased to Classic logic or simple glow)
+ // Foreground modes (v1.y):
+ // 0 = ClassicBlend     (alpha = mask; transparent only within metaball interior over opaque bg)
+ // 1 = Bevel            (bevel lighting; opaque blend inside mask)
+ // 2 = OutlineGlow      (currently simple glow / classic hybrid)
 //
-// Background modes (v1.z):
-// 0 = ExternalBackground (transparent; shown only when paired with ClassicBlend for outside transparency)
-// 1 = SolidGray          (neutral 0.42)
-// 2 = ProceduralNoise    (animated 2-octave value noise)
-// 3 = VerticalGradient   (y-based gradient)
-//
-// REQUIREMENT ENFORCEMENT (spec success criterion #6):
-// Transparent output outside blobs ONLY when (fg=ClassicBlend AND bg=ExternalBackground).
-// For any other foreground with ExternalBackground selected, we promote background
-// to an implicit opaque neutral gray (visual fallback) to avoid unintended full-scene
-// transparency. (Future: could allow Bevel over external with alpha outside by relaxing rule.)
+ // Background modes (v1.z) (reindexed after removal of legacy external background quad):
+ // 0 = SolidGray        (neutral 0.42)
+ // 1 = ProceduralNoise  (animated 2-octave value noise)
+ // 2 = VerticalGradient (y-based gradient)
+ // NOTE: Legacy external background mode removed; all backgrounds now internally shader-driven & opaque.
 //
 // Heavy accumulation path left intact; new compositing only happens after field evaluation.
 // Pointer-based helper functions avoided to preserve prior Naga/SPIR-V stability.
@@ -208,7 +202,6 @@ fn fg_outline_glow(base_col: vec3<f32>, best_field: f32, iso: f32, mask: f32, gr
 // ---------------------------------------------
 // Background Helpers
 // ---------------------------------------------
-fn bg_external() -> vec4<f32> { return vec4<f32>(0.0,0.0,0.0, 0.0); }
 fn bg_solid_gray() -> vec4<f32> { let g = 0.42; return vec4<f32>(vec3<f32>(g,g,g), 1.0); }
 fn bg_noise(p: vec2<f32>, time: f32) -> vec4<f32> { return vec4<f32>(noise_color(p, time), 1.0); }
 fn bg_vertical(p: vec2<f32>, viewport_h: f32) -> vec4<f32> {
@@ -245,46 +238,32 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let iso = metaballs.v0.w;
     let normal_z_scale = metaballs.v1.x;
     let fg_mode = u32(metaballs.v1.y + 0.5);
-    let bg_mode_raw = u32(metaballs.v1.z + 0.5);
+    let bg_mode = u32(metaballs.v1.z + 0.5); // already reindexed (0..=2)
     let debug_view = u32(metaballs.v1.w + 0.5);
     let time_seconds = metaballs.v2.z;
     let radius_multiplier = metaballs.v2.w;
 
-    // Enforce success criterion #6:
-    // If background selected is External (0) BUT foreground not Classic (0), treat as SolidGray (1).
-    // WGSL does not support inline if-expression like Rust; expand to statement form.
-    var bg_mode: u32 = bg_mode_raw;
-    if (bg_mode_raw == 0u && fg_mode != 0u) {
-        bg_mode = 1u;
-    }
-
     let p = in.world_pos;
 
-    // Early out when no balls: show background (or discard for the one allowed transparent combo)
+    // Early out when no balls: just draw background (always opaque now)
     if (ball_count == 0u) {
-        if (fg_mode == 0u && bg_mode == 0u) { discard; }
         var bg_col: vec4<f32>;
         switch (bg_mode) {
-            case 0u: { bg_col = bg_external(); }
-            case 1u: { bg_col = bg_solid_gray(); }
-            case 2u: { bg_col = bg_noise(p, time_seconds); }
+            case 0u: { bg_col = bg_solid_gray(); }
+            case 1u: { bg_col = bg_noise(p, time_seconds); }
             default: { bg_col = bg_vertical(p, metaballs.v2.y); }
         }
-        if (bg_col.a == 0.0) { discard; }
         return bg_col;
     }
 
     var acc = accumulate_clusters(p, ball_count, cluster_color_count, radius_scale, radius_multiplier);
     if (acc.used == 0u) {
-        if (fg_mode == 0u && bg_mode == 0u) { discard; }
         var bg_col2: vec4<f32>;
         switch (bg_mode) {
-            case 0u: { bg_col2 = bg_external(); }
-            case 1u: { bg_col2 = bg_solid_gray(); }
-            case 2u: { bg_col2 = bg_noise(p, time_seconds); }
+            case 0u: { bg_col2 = bg_solid_gray(); }
+            case 1u: { bg_col2 = bg_noise(p, time_seconds); }
             default: { bg_col2 = bg_vertical(p, metaballs.v2.y); }
         }
-        if (bg_col2.a == 0.0) { discard; }
         return bg_col2;
     }
 
@@ -314,9 +293,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Background first
     var bg_col: vec4<f32>;
     switch (bg_mode) {
-        case 0u: { bg_col = bg_external(); }
-        case 1u: { bg_col = bg_solid_gray(); }
-        case 2u: { bg_col = bg_noise(p, time_seconds); }
+        case 0u: { bg_col = bg_solid_gray(); }
+        case 1u: { bg_col = bg_noise(p, time_seconds); }
         default: { bg_col = bg_vertical(p, metaballs.v2.y); }
     }
 
@@ -325,8 +303,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     switch (fg_mode) {
         case 0u: { // Classic
             if (fg_ctx.mask <= 0.0) {
-                // Only allow outside transparency if bg is External (spec) else keep alpha 0 -> composite yields bg
-                if (bg_mode == 0u) { discard; }
+                // Outside iso: no foreground contribution (alpha 0); background already opaque
                 fg_col = vec4<f32>(fg_ctx.cluster_color, 0.0);
             } else {
                 fg_col = fg_classic(fg_ctx.cluster_color, fg_ctx.mask);
@@ -346,14 +323,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // For Classic+External we used discard outside iso, so composition here handles inside region.
     var out_col: vec3<f32>;
     var out_a: f32;
-    if (bg_col.a == 0.0) {
-        // External background path (only allowed with Classic)
-        out_col = fg_col.rgb;
-        out_a = fg_col.a;
-    } else {
-        out_col = mix(bg_col.rgb, fg_col.rgb, fg_col.a);
-        out_a = max(bg_col.a, fg_col.a);
-    }
+    out_col = mix(bg_col.rgb, fg_col.rgb, fg_col.a);
+    out_a = max(bg_col.a, fg_col.a);
 
     return vec4<f32>(out_col, out_a);
 }

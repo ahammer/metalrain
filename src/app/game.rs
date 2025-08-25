@@ -17,7 +17,6 @@ use crate::physics::clustering::cluster::ClusterPlugin;
 use crate::physics::gravity::radial_gravity::RadialGravityPlugin;
 use crate::physics::rapier::rapier_physics::PhysicsSetupPlugin;
 use crate::physics::separation::separation::SeparationPlugin;
-use crate::rendering::background::background::BackgroundPlugin;
 use crate::rendering::camera::camera::CameraPlugin;
 use crate::rendering::materials::materials::MaterialsPlugin;
 use crate::rendering::metaballs::metaballs::MetaballsPlugin;
@@ -31,7 +30,6 @@ impl Plugin for GamePlugin {
             (PrePhysicsSet, PostPhysicsAdjustSet.after(PrePhysicsSet)),
         )
         .add_plugins((
-            BackgroundPlugin,
             CameraPlugin,
             MaterialsPlugin,
             PhysicsSetupPlugin,
