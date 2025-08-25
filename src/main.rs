@@ -43,6 +43,7 @@ fn main() {
     }
     let mut app = App::new();
     app.insert_resource(cfg.clone())
+
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: cfg.window.title.clone(),

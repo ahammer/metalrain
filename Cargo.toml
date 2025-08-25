@@ -12,7 +12,6 @@ serde = { version = "1.0", features = ["derive"] }
 ron = "0.8"
 bevy_rapier2d = { version = "0.31", features = ["simd-stable", "debug-render-2d"] }
 bytemuck = { version = "1.15", features = ["derive"] }
-wgpu = "24.0.5"
 half = "2"
 smallvec = "1.13"
 toml = "0.8"
@@ -22,6 +21,11 @@ wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
+
+[dependencies.wgpu]
+version = "26.0.1"
+default-features = false
+webgpu = ["bevy_internal/webgpu"]
 
 
 [dev-dependencies]
