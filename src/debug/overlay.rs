@@ -185,7 +185,7 @@ pub(crate) fn debug_config_overlay_update(
             "CFG window {w:.0}x{h:.0} gravY {gy} rest {rest:.2}\n \
 balls n={bc} r[{rmin:.0}-{rmax:.0}] vx[{vxmin:.0},{vxmax:.0}] vy[{vymin:.0},{vymax:.0}]\n \
 sep {sepen} slop {slop:.2} push {push:.2} max {maxp:.1} damp {damp:.2}\n \
-cp {cpen} imp {cpimp:.0} bonus {cpob:.2} tapR {tpr:.0} minN {minn} minA {mina:.0}\n \
+cp {cpen} peak {peak:.2} grow {grow:.2} hold {hold:.2} shrink {shrink:.2} tapR {tpr:.0} minN {minn} minA {mina:.0} curve {curve} freeze {freeze}\n \
 metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
             w = cfg.window.width, h = cfg.window.height,
             gy = cfg.gravity.y,
@@ -196,8 +196,14 @@ metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
             vymin = b.vel_y_range.min, vymax = b.vel_y_range.max,
             sepen = if sep.enabled {"on"} else {"off"},
             slop = sep.overlap_slop, push = sep.push_strength, maxp = sep.max_push, damp = sep.velocity_dampen,
-            cpen = if cp.enabled {"on"} else {"off"}, cpimp = cp.impulse, cpob = cp.outward_bonus,
+            cpen = if cp.enabled {"on"} else {"off"},
+            peak = cp.peak_scale,
+            grow = cp.grow_duration,
+            hold = cp.hold_duration,
+            shrink = cp.shrink_duration,
             tpr = cp.tap_radius, minn = cp.min_ball_count, mina = cp.min_total_area,
+            curve = cp.collider_scale_curve,
+            freeze = cp.freeze_mode,
             mben = if cfg.metaballs_enabled {"on"} else {"off"}, iso = mb.iso, nz = mb.normal_z_scale,
             rmul = mb.radius_multiplier,
         );

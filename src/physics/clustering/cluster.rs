@@ -3,14 +3,14 @@ use crate::core::system::system_order::PostPhysicsAdjustSet;
 use crate::rendering::materials::materials::{BallDisplayMaterials, BallMaterialIndex};
 use crate::rendering::palette::palette::color_for_index;
 use bevy::prelude::*;
-use crate::interaction::cluster_pop::PoppingBall;
+use crate::interaction::cluster_pop::PaddleLifecycle;
 
 type ClusterQueryItem<'a> = (
     Entity,
     &'a Transform,
     &'a BallRadius,
     &'a BallMaterialIndex,
-    Option<&'a PoppingBall>,
+    Option<&'a PaddleLifecycle>,
 );
 
 #[derive(Debug, Clone)]

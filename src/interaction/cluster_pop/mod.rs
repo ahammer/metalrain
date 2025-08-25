@@ -1,21 +1,13 @@
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::{Collider, Damping, Velocity};
 use bevy::sprite::MeshMaterial2d;
-
-use rand::Rng;
-
-type ChildVisualTuple<'a> = (
-    &'a mut Transform,
-    Option<&'a MeshMaterial2d<ColorMaterial>>,
-    Option<&'a BallCircleVisual>,
-);
+use bevy_rapier2d::prelude::{Collider, Velocity};
 
 use crate::core::components::{Ball, BallCircleVisual, BallRadius};
 use crate::core::config::GameConfig;
 use crate::core::system::system_order::PrePhysicsSet;
 use crate::physics::clustering::cluster::Clusters;
 
-/// Event emitted when a qualifying cluster is popped (cleared)
+/// Event emitted when a qualifying cluster transitions into the paddle lifecycle
 #[derive(Event, Debug, Clone)]
 pub struct ClusterPopped {
     pub color_index: usize,
@@ -24,20 +16,49 @@ pub struct ClusterPopped {
     pub centroid: Vec2,
 }
 
-
-/// Component representing a ball that is currently in the popping fade-out phase.
-#[derive(Component, Debug)]
-pub struct PoppingBall {
-    pub elapsed: f32,
-    pub duration: f32,
-    pub start_radius: f32,
-    pub end_scale: f32,
-    pub fade_alpha: bool,
-    pub collider_shrink: bool,
-    pub collider_min_scale: f32,
-    pub base_alpha: f32,
-    pub added_damping: f32,
+/// Lifecycle freeze behavior
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FreezeMode {
+    ZeroVelEachFrame,
+    Kinematic,
+    Fixed,
 }
+impl FreezeMode {
+    pub fn from_code(code: u32) -> Self {
+        match code {
+            1 => FreezeMode::Kinematic,
+            2 => FreezeMode::Fixed,
+            _ => FreezeMode::ZeroVelEachFrame,
+        }
+    }
+}
+
+#[derive(Component, Debug)]
+pub struct PaddleLifecycle {
+    pub elapsed: f32,
+    pub grow_duration: f32,
+    pub hold_duration: f32,
+    pub shrink_duration: f32,
+    pub peak_scale: f32,
+    pub freeze_mode: FreezeMode,
+    pub base_radius: f32,
+    pub fade_alpha: bool,
+    pub fade_curve: u32,
+    pub collider_scale_curve: u32,
+    pub alpha_base: f32, // sentinel < 0 until captured
+}
+impl PaddleLifecycle {
+    #[inline]
+    pub fn total(&self) -> f32 {
+        self.grow_duration + self.hold_duration + self.shrink_duration
+    }
+}
+
+type ChildVisualTuple<'a> = (
+    &'a mut Transform,
+    Option<&'a MeshMaterial2d<ColorMaterial>>,
+    Option<&'a BallCircleVisual>,
+);
 
 pub struct ClusterPopPlugin;
 
@@ -49,9 +70,14 @@ impl Plugin for ClusterPopPlugin {
                 handle_tap_cluster_pop
                     .in_set(PrePhysicsSet),
             )
-            // Run after impulses applied but still in Update; does not need to be before physics since
-            // scaling is purely visual unless collider shrinking is enabled (then we do it early each frame).
-            .add_systems(Update, update_popping_balls.after(PrePhysicsSet));
+            // Run after tap selection, still inside PrePhysicsSet so collider size & velocity freeze
+            // are applied before the physics step.
+            .add_systems(
+                Update,
+                update_paddle_lifecycle
+                    .after(handle_tap_cluster_pop)
+                    .in_set(PrePhysicsSet),
+            );
     }
 }
 
@@ -82,7 +108,7 @@ fn handle_tap_cluster_pop(
     windows_q: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
     clusters: Res<Clusters>,
-    mut q: Query<(&Transform, &BallRadius, &mut Velocity, Option<&mut Damping>), With<Ball>>,
+    mut q: Query<(Entity, &Transform, &BallRadius, &mut Velocity, Option<&PaddleLifecycle>), With<Ball>>,
     mut ew: EventWriter<ClusterPopped>,
     mut commands: Commands,
     cfg: Res<GameConfig>,
@@ -91,7 +117,7 @@ fn handle_tap_cluster_pop(
     if !cp.enabled {
         return;
     }
-    // Pointer/tap release detection
+    // Tap release detection
     let released =
         buttons.just_released(MouseButton::Left) || touches.iter_just_released().next().is_some();
     if !released {
@@ -104,12 +130,12 @@ fn handle_tap_cluster_pop(
         return;
     };
 
-    // Candidate cluster selection
+    // Cluster selection
     let mut best: Option<usize> = None;
     for (i, cl) in clusters.0.iter().enumerate() {
-        // AABB padded hit
-        let min = cl.min - Vec2::splat(cp.aabb_pad.max(0.0));
-        let max = cl.max + Vec2::splat(cp.aabb_pad.max(0.0));
+        let pad = cp.aabb_pad.max(0.0);
+        let min = cl.min - Vec2::splat(pad);
+        let max = cl.max + Vec2::splat(pad);
         let inside_aabb = world_pos.x >= min.x
             && world_pos.x <= max.x
             && world_pos.y >= min.y
@@ -117,9 +143,8 @@ fn handle_tap_cluster_pop(
         let dist_centroid = cl.centroid.distance(world_pos);
         let within_radius = dist_centroid <= cp.tap_radius.max(0.0);
         if inside_aabb || within_radius {
-            if let Some(bi) = best {
-                let bcl = &clusters.0[bi];
-                // Prefer largest ball count; tie-break by smaller centroid distance
+            if let Some(prev) = best {
+                let bcl = &clusters.0[prev];
                 let better = cl.entities.len() > bcl.entities.len()
                     || (cl.entities.len() == bcl.entities.len()
                         && dist_centroid < bcl.centroid.distance(world_pos));
@@ -132,14 +157,12 @@ fn handle_tap_cluster_pop(
         }
     }
     let Some(idx) = best else {
-        // No candidate cluster
         return;
     };
     let cluster = &clusters.0[idx];
 
     let ball_count = cluster.entities.len();
     let total_area = cluster.total_area;
-    // Threshold evaluation
     if ball_count < cp.min_ball_count {
         return;
     }
@@ -147,81 +170,27 @@ fn handle_tap_cluster_pop(
         return;
     }
 
-    // Apply outward impulse and configure fade / popping component
-    let base_impulse = cp.impulse;
-    let magnitude_base = base_impulse * (1.0 + cp.outward_bonus.max(0.0));
-    let mut r = rand::thread_rng();
-
     for e in cluster.entities.iter() {
-        if let Ok((tf, radius, mut vel, damping_opt)) = q.get_mut(*e) {
-            let pos = tf.translation.truncate();
-            let mut dir = pos - cluster.centroid;
-            let len = dir.length();
-            if len > 1e-4 {
-                dir /= len;
-            } else {
-                dir = Vec2::X; // deterministic
+        if let Ok((entity, _tf, radius, mut vel, existing)) = q.get_mut(*e) {
+            if existing.is_some() {
+                continue;
             }
-            let mag = magnitude_base * (radius.0 / 10.0).max(0.1);
-            vel.linvel += dir * mag;
-
-            // Spin jitter -> modify angular velocity field
-            if cp.spin_jitter > 0.0 {
-                let jitter = r.gen_range(-cp.spin_jitter..cp.spin_jitter);
-                vel.angvel += jitter;
-            }
-
-            let mut added_damping = 0.0;
-            if cp.fade_enabled && cp.velocity_damping > 0.0 {
-                if let Some(mut d) = damping_opt {
-                    d.linear_damping += cp.velocity_damping;
-                    added_damping = cp.velocity_damping;
-                } else {
-                    // Insert a new damping component
-                    commands
-                        .entity(*e)
-                        .insert(Damping {
-                            linear_damping: cp.velocity_damping,
-                            angular_damping: 0.0,
-                        });
-                    added_damping = cp.velocity_damping;
-                }
-            }
-
-            if cp.fade_enabled {
-                commands.entity(*e).insert(PoppingBall {
-                    elapsed: 0.0,
-                    duration: cp
-                        .fade_duration
-                        .max(0.05)
-                        .min(if cp.fade_enabled { cp.fade_duration.max(0.05) } else { 0.05 }),
-                    start_radius: radius.0,
-                    end_scale: cp.fade_scale_end.clamp(0.0, 1.0),
-                    fade_alpha: cp.fade_alpha,
-                    collider_shrink: cp.collider_shrink,
-                    collider_min_scale: cp.collider_min_scale.clamp(0.0, 1.0),
-                    base_alpha: -1.0, // sentinel; will capture original alpha on first update
-                    added_damping,
-                });
-            } else {
-                // Legacy immediate despawn path (respect existing despawn_delay if set)
-                if cp.despawn_delay <= 0.0 {
-                    commands.entity(*e).despawn();
-                } else {
-                    // Minimal timer-based fallback: reuse PoppingBall with duration=despawn_delay but no scaling if fade disabled.
-                    commands.entity(*e).insert(PoppingBall {
-                        elapsed: 0.0,
-                        duration: cp.despawn_delay,
-                        start_radius: radius.0,
-                        end_scale: 1.0,
-                        fade_alpha: false,
-                        collider_shrink: false,
-                        collider_min_scale: 1.0,
-                        base_alpha: -1.0,
-                        added_damping: 0.0,
-                    });
-                }
-            }
+            // Freeze initial motion deterministically
+            vel.linvel = Vec2::ZERO;
+            vel.angvel = 0.0;
+            commands.entity(entity).insert(PaddleLifecycle {
+                elapsed: 0.0,
+                grow_duration: cp.grow_duration.max(0.01),
+                hold_duration: cp.hold_duration.max(0.0),
+                shrink_duration: cp.shrink_duration.max(0.05),
+                peak_scale: cp.peak_scale.max(0.1),
+                freeze_mode: FreezeMode::from_code(cp.freeze_mode),
+                base_radius: radius.0,
+                fade_alpha: cp.fade_alpha,
+                fade_curve: cp.fade_curve,
+                collider_scale_curve: cp.collider_scale_curve,
+                alpha_base: -1.0,
+            });
         }
     }
 
@@ -232,60 +201,115 @@ fn handle_tap_cluster_pop(
         centroid: cluster.centroid,
     });
 
-
     #[cfg(feature = "debug")]
     {
         info!(
-            "ClusterPopped color={} count={} area={:.1} centroid=({:.1},{:.1}) fade={}",
+            "ClusterPopped color={} count={} area={:.1} centroid=({:.1},{:.1}) peak_scale={:.2}",
             cluster.color_index,
             ball_count,
             total_area,
             cluster.centroid.x,
             cluster.centroid.y,
-            cp.fade_enabled
+            cp.peak_scale
         );
     }
 }
 
-fn update_popping_balls(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LifecyclePhase {
+    Grow,
+    Hold,
+    Shrink,
+}
+
+fn apply_curve(mode: u32, x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    match mode {
+        0 => x,                                 // linear
+        1 => x * x * (3.0 - 2.0 * x),           // smoothstep
+        2 => 1.0 - (1.0 - x).powi(3),           // ease-out cubic
+        _ => x,
+    }
+}
+
+fn update_paddle_lifecycle(
     time: Res<Time>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut PoppingBall, &BallRadius, Option<&Children>)>,
+    mut q: Query<(
+        Entity,
+        &mut PaddleLifecycle,
+        &BallRadius,
+        Option<&Children>,
+        &mut Velocity,
+        &mut Collider,
+    )>,
     mut q_child_vis: Query<ChildVisualTuple>,
-    mut q_collider: Query<&mut Collider>,
 ) {
     if q.is_empty() {
         return;
     }
     let dt = time.delta_secs();
 
-    for (entity, mut popping, radius, children_opt) in q.iter_mut() {
-        popping.elapsed += dt;
-        let t_raw = (popping.elapsed / popping.duration).clamp(0.0, 1.0);
-        // Smoothstep easing
-        let t = t_raw * t_raw * (3.0 - 2.0 * t_raw);
-        let scale_factor = 1.0 + (popping.end_scale - 1.0) * t;
+    for (entity, mut plc, _radius_comp, children_opt, mut vel, mut collider) in q.iter_mut() {
+        let prev_elapsed = plc.elapsed;
+        plc.elapsed += dt;
+        let total = plc.total();
 
-        // Adjust visuals (child holding mesh & material)
+        // Determine phase & local_t
+        let (phase, local_t) = if plc.elapsed < plc.grow_duration {
+            (LifecyclePhase::Grow, plc.elapsed / plc.grow_duration.max(f32::EPSILON))
+        } else if plc.elapsed < plc.grow_duration + plc.hold_duration {
+            (LifecyclePhase::Hold, 0.0)
+        } else {
+            let base = plc.grow_duration + plc.hold_duration;
+            let shrink_elapsed = (plc.elapsed - base).max(0.0);
+            (
+                LifecyclePhase::Shrink,
+                shrink_elapsed / plc.shrink_duration.max(f32::EPSILON),
+            )
+        };
+
+        let scale_t = apply_curve(plc.collider_scale_curve, local_t);
+        let factor = match phase {
+            LifecyclePhase::Grow => 1.0 + (plc.peak_scale - 1.0) * scale_t,
+            LifecyclePhase::Hold => plc.peak_scale,
+            LifecyclePhase::Shrink => plc.peak_scale * (1.0 - scale_t),
+        }
+        .max(0.0);
+
+        // Velocity freezing (simple deterministic approach)
+        vel.linvel = Vec2::ZERO;
+        vel.angvel = 0.0;
+
+        // Update collider radius only if changed enough (epsilon)
+        let new_r = plc.base_radius * factor;
+        if new_r.is_finite() {
+            *collider = Collider::ball(new_r);
+        }
+
+        // Update visuals (child transform scale, alpha fade)
         if let Some(children) = children_opt {
             for child in children.iter() {
                 if let Ok((mut tf, maybe_mat, _marker)) = q_child_vis.get_mut(child) {
-                    // Original child scale = radius * 2 (diameter). Recompute each frame relative to base.
-                    tf.scale = Vec3::splat(radius.0 * 2.0 * scale_factor.max(0.0));
-
-                    // Alpha fade
-                    if let Some(mesh_mat) = maybe_mat {
-                        if popping.fade_alpha {
+                    tf.scale = Vec3::splat(plc.base_radius * 2.0 * factor);
+                    if plc.fade_alpha {
+                        if let Some(mesh_mat) = maybe_mat {
                             if let Some(mat) = materials.get_mut(&mesh_mat.0) {
-                                // Capture base alpha first time (assumes linear RGBA)
-                                if popping.base_alpha < 0.0 {
-                                    let s = mat.color.to_srgba();
-                                    popping.base_alpha = s.alpha;
+                                if plc.alpha_base < 0.0 {
+                                    plc.alpha_base = mat.color.to_srgba().alpha;
                                 }
-                                let new_alpha = popping.base_alpha * (1.0 - t);
-                                let s = mat.color.to_srgba();
-                                mat.color = Color::srgba(s.red, s.green, s.blue, new_alpha);
+                                if matches!(phase, LifecyclePhase::Shrink) {
+                                    let fade_t = apply_curve(plc.fade_curve, local_t);
+                                    let new_alpha = plc.alpha_base * (1.0 - fade_t);
+                                    let c = mat.color.to_srgba();
+                                    mat.color = Color::srgba(
+                                        c.red,
+                                        c.green,
+                                        c.blue,
+                                        new_alpha.clamp(0.0, plc.alpha_base),
+                                    );
+                                }
                             }
                         }
                     }
@@ -293,23 +317,41 @@ fn update_popping_balls(
             }
         }
 
-        // Collider shrink
-        if popping.collider_shrink {
-            if let Ok(mut col) = q_collider.get_mut(entity) {
-                // Determine target collider radius (clamp to collider_min_scale)
-                let phys_scale_target =
-                    (popping.end_scale.max(popping.collider_min_scale)).clamp(0.0, 1.0);
-                let phys_scale = 1.0 + (phys_scale_target - 1.0) * t;
-                let new_r = radius.0 * phys_scale.max(0.0);
-                // Replace only if significantly changed to avoid churn
-                // Collider::ball stores radius internally; simplest is to overwrite each frame
-                *col = Collider::ball(new_r);
-            }
-        }
-
-        // Completion
-        if popping.elapsed >= popping.duration {
+        // Completion (ensure at least one frame at final shrink factor)
+        if plc.elapsed >= total {
+            commands.entity(entity).despawn();
+        } else if prev_elapsed < total && plc.elapsed > total {
+            // Edge case: large dt overshoot; still despawn now.
             commands.entity(entity).despawn();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scale_progress_basic() {
+        let plc = PaddleLifecycle {
+            elapsed: 0.0,
+            grow_duration: 0.25,
+            hold_duration: 0.1,
+            shrink_duration: 0.4,
+            peak_scale: 1.8,
+            freeze_mode: FreezeMode::ZeroVelEachFrame,
+            base_radius: 10.0,
+            fade_alpha: true,
+            fade_curve: 1,
+            collider_scale_curve: 1,
+            alpha_base: -1.0,
+        };
+        assert!((plc.total() - 0.75).abs() < 1e-5);
+        // Mid grow expected > 1.0
+        let half_grow_factor = {
+            let local_t = 0.5;
+            let curve = apply_curve(plc.collider_scale_curve, local_t);
+            1.0 + (plc.peak_scale - 1.0) * curve
+        };
+        assert!(half_grow_factor > 1.3);
     }
 }

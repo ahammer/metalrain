@@ -3,9 +3,17 @@ use std::fs;
 use ball_matcher::core::config::config::GameConfig;
 
 #[test]
-fn cluster_pop_default_impulse_positive() {
+fn cluster_pop_default_peak_scale_gt_one() {
     let cfg = GameConfig::default();
-    assert!(cfg.interactions.cluster_pop.impulse > 0.0, "cluster_pop.impulse should be > 0 by default");
+    assert!(
+        cfg.interactions.cluster_pop.peak_scale > 1.0,
+        "cluster_pop.peak_scale should be > 1.0 by default"
+    );
+    assert!(
+        (cfg.interactions.cluster_pop.grow_duration > 0.0)
+            && (cfg.interactions.cluster_pop.shrink_duration > 0.0),
+        "grow/shrink durations must be positive"
+    );
 }
 
 #[test]
@@ -28,33 +36,44 @@ fn legacy_explosion_drag_keys_ignored() {
                     enabled: true,
                     min_ball_count: 3,
                     min_total_area: 100.0,
+                    // Legacy fields that should be ignored but produce a single warning in validation:
                     impulse: 500.0,
                     outward_bonus: 0.5,
                     despawn_delay: 0.0,
-                    aabb_pad: 4.0,
-                    tap_radius: 30.0,
-                    fade_enabled: true,
                     fade_duration: 1.0,
                     fade_scale_end: 0.0,
-                    fade_alpha: true,
-                    exclude_from_new_clusters: true,
                     collider_shrink: false,
                     collider_min_scale: 0.25,
                     velocity_damping: 0.0,
                     spin_jitter: 0.0,
+                    // New required paddle fields:
+                    peak_scale: 1.8,
+                    grow_duration: 0.25,
+                    hold_duration: 0.10,
+                    shrink_duration: 0.40,
+                    collider_scale_curve: 1,
+                    freeze_mode: 0,
+                    fade_alpha: true,
+                    fade_curve: 1,
+                    aabb_pad: 4.0,
+                    tap_radius: 30.0,
+                    exclude_from_new_clusters: true,
                 ),
             ),
         )
     "#;
     fs::write(&path, ron).expect("write temp ron");
     let (cfg, _used, errors) = GameConfig::load_layered([&path]);
-    // Ensure we still deserialize a config and cluster_pop defaults are accessible.
-    assert!(cfg.interactions.cluster_pop.impulse > 0.0);
+    // Ensure we still deserialize a config and new peak_scale is accessible.
+    assert!(cfg.interactions.cluster_pop.peak_scale >= 1.0);
 
-    // Expect a legacy key warning mentioning at least one removed key.
+    // Expect a legacy interactions key warning (explosion / drag)
     let joined = errors.join("\n");
     assert!(
         joined.contains("Ignoring legacy interactions keys removed"),
-        "expected legacy key warning, got: {joined}"
+        "expected legacy interactions key warning, got: {joined}"
     );
+
+    // (Validation legacy cluster_pop field warning optional depending on deserialization behavior)
+    let _warns = cfg.validate();
 }

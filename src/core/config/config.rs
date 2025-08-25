@@ -122,21 +122,27 @@ pub struct ClusterPopConfig {
     pub enabled: bool,
     pub min_ball_count: usize,
     pub min_total_area: f32,
-    pub impulse: f32,
-    pub outward_bonus: f32,
-    pub despawn_delay: f32,
+    pub peak_scale: f32,
+    pub grow_duration: f32,
+    pub hold_duration: f32,
+    pub shrink_duration: f32,
+    pub collider_scale_curve: u32, // 0=linear,1=smoothstep,2=ease-out
+    pub freeze_mode: u32,          // 0=ZeroVelEachFrame,1=Kinematic,2=Fixed
+    pub fade_alpha: bool,
+    pub fade_curve: u32,
     pub aabb_pad: f32,
     pub tap_radius: f32,
-    // Fade / extended pop behavior
-    pub fade_enabled: bool,
-    pub fade_duration: f32,
-    pub fade_scale_end: f32,
-    pub fade_alpha: bool,
     pub exclude_from_new_clusters: bool,
-    pub collider_shrink: bool,
-    pub collider_min_scale: f32,
-    pub velocity_damping: f32,
-    pub spin_jitter: f32,
+    // Legacy (ignored) fields kept optional so old configs deserialize; validation emits warning.
+    pub impulse: Option<f32>,
+    pub outward_bonus: Option<f32>,
+    pub despawn_delay: Option<f32>,
+    pub fade_duration: Option<f32>,
+    pub fade_scale_end: Option<f32>,
+    pub collider_shrink: Option<bool>,
+    pub collider_min_scale: Option<f32>,
+    pub velocity_damping: Option<f32>,
+    pub spin_jitter: Option<f32>,
 }
 impl Default for ClusterPopConfig {
     fn default() -> Self {
@@ -144,20 +150,26 @@ impl Default for ClusterPopConfig {
             enabled: true,
             min_ball_count: 4,
             min_total_area: 1200.0,
-            impulse: 500.0,
-            outward_bonus: 0.6,
-            despawn_delay: 0.0,
+            peak_scale: 1.8,
+            grow_duration: 0.25,
+            hold_duration: 0.10,
+            shrink_duration: 0.40,
+            collider_scale_curve: 1,
+            freeze_mode: 0,
+            fade_alpha: true,
+            fade_curve: 1,
             aabb_pad: 4.0,
             tap_radius: 32.0,
-            fade_enabled: true,
-            fade_duration: 1.0,
-            fade_scale_end: 0.0,
-            fade_alpha: true,
             exclude_from_new_clusters: true,
-            collider_shrink: false,
-            collider_min_scale: 0.25,
-            velocity_damping: 0.0,
-            spin_jitter: 0.0,
+            impulse: None,
+            outward_bonus: None,
+            despawn_delay: None,
+            fade_duration: None,
+            fade_scale_end: None,
+            collider_shrink: None,
+            collider_min_scale: None,
+            velocity_damping: None,
+            spin_jitter: None,
         }
     }
 }
@@ -516,18 +528,6 @@ impl GameConfig {
                     cp.min_total_area
                 ));
             }
-            if cp.impulse <= 0.0 {
-                w.push(format!(
-                    "cluster_pop.impulse {} <= 0 -> no outward motion",
-                    cp.impulse
-                ));
-            }
-            if cp.outward_bonus < 0.0 {
-                w.push(format!(
-                    "cluster_pop.outward_bonus {} negative -> treated as 0",
-                    cp.outward_bonus
-                ));
-            }
             if cp.aabb_pad < 0.0 {
                 w.push(format!(
                     "cluster_pop.aabb_pad {} negative -> treated as 0",
@@ -540,64 +540,69 @@ impl GameConfig {
                     cp.tap_radius
                 ));
             }
-            if cp.despawn_delay < 0.0 {
+            if cp.peak_scale <= 1.0 {
                 w.push(format!(
-                    "cluster_pop.despawn_delay {} negative -> treated as 0",
-                    cp.despawn_delay
+                    "cluster_pop.peak_scale {} <= 1.0 (effect subtle)",
+                    cp.peak_scale
+                ));
+            } else if cp.peak_scale > 3.0 {
+                w.push(format!(
+                    "cluster_pop.peak_scale {} > 3.0; large collider may hurt perf",
+                    cp.peak_scale
                 ));
             }
-            if cp.fade_duration < 0.0 {
+            if cp.grow_duration <= 0.0 {
                 w.push(format!(
-                    "cluster_pop.fade_duration {} negative -> treated as 0.05",
-                    cp.fade_duration
-                ));
-            } else if cp.fade_enabled && cp.fade_duration < 0.05 {
-                w.push(format!(
-                    "cluster_pop.fade_duration {} < 0.05; will act as minimal (0.05).",
-                    cp.fade_duration
+                    "cluster_pop.grow_duration {} <= 0 -> clamped to 0.01",
+                    cp.grow_duration
                 ));
             }
-            if !(0.0..=1.0).contains(&cp.fade_scale_end) {
+            if cp.shrink_duration <= 0.0 {
                 w.push(format!(
-                    "cluster_pop.fade_scale_end {} outside 0..1 (clamped).",
-                    cp.fade_scale_end
+                    "cluster_pop.shrink_duration {} <= 0 -> clamped to 0.05",
+                    cp.shrink_duration
                 ));
             }
-            if cp.collider_min_scale < 0.0 {
+            if cp.hold_duration < 0.0 {
                 w.push(format!(
-                    "cluster_pop.collider_min_scale {} negative -> treated as 0",
-                    cp.collider_min_scale
-                ));
-            } else if cp.collider_min_scale > 1.0 {
-                w.push(format!(
-                    "cluster_pop.collider_min_scale {} > 1 -> clamped to 1",
-                    cp.collider_min_scale
+                    "cluster_pop.hold_duration {} < 0 -> treated as 0",
+                    cp.hold_duration
                 ));
             }
-            if cp.velocity_damping < 0.0 {
+            if cp.collider_scale_curve > 2 {
                 w.push(format!(
-                    "cluster_pop.velocity_damping {} negative -> treated as 0",
-                    cp.velocity_damping
+                    "cluster_pop.collider_scale_curve {} unknown -> treated as 1",
+                    cp.collider_scale_curve
                 ));
             }
-            if cp.spin_jitter < 0.0 {
+            if cp.fade_curve > 2 {
                 w.push(format!(
-                    "cluster_pop.spin_jitter {} negative -> treated as 0",
-                    cp.spin_jitter
+                    "cluster_pop.fade_curve {} unknown -> treated as 1",
+                    cp.fade_curve
                 ));
             }
-            if !cp.fade_enabled
-                && (cp.fade_duration != 1.0
-                    || cp.fade_scale_end != 0.0
-                    || !cp.fade_alpha
-                    || cp.collider_shrink
-                    || cp.velocity_damping != 0.0
-                    || cp.spin_jitter != 0.0)
-            {
-                w.push(
-                    "cluster_pop fade disabled but fade-related fields customized -> ignored."
-                        .into(),
-                );
+            if cp.freeze_mode > 2 {
+                w.push(format!(
+                    "cluster_pop.freeze_mode {} unknown -> treated as 0",
+                    cp.freeze_mode
+                ));
+            }
+            // Detect legacy fields present (ignored)
+            let mut legacy = Vec::new();
+            if cp.impulse.is_some() { legacy.push("impulse"); }
+            if cp.outward_bonus.is_some() { legacy.push("outward_bonus"); }
+            if cp.despawn_delay.is_some() { legacy.push("despawn_delay"); }
+            if cp.fade_duration.is_some() { legacy.push("fade_duration"); }
+            if cp.fade_scale_end.is_some() { legacy.push("fade_scale_end"); }
+            if cp.collider_shrink.is_some() { legacy.push("collider_shrink"); }
+            if cp.collider_min_scale.is_some() { legacy.push("collider_min_scale"); }
+            if cp.velocity_damping.is_some() { legacy.push("velocity_damping"); }
+            if cp.spin_jitter.is_some() { legacy.push("spin_jitter"); }
+            if !legacy.is_empty() {
+                w.push(format!(
+                    "Ignoring legacy cluster_pop fields: {}",
+                    legacy.join(", ")
+                ));
             }
         }
         if self.metaballs.radius_multiplier <= 0.0 {
