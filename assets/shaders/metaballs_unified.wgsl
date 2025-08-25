@@ -62,6 +62,29 @@ struct NoiseParams {
 @group(2) @binding(1)
 var<uniform> noise_params: NoiseParams;
 
+// Surface (edge) noise params (independent high-frequency modulation)
+// Matches Rust SurfaceNoiseParamsUniform layout
+struct SurfaceNoiseParams {
+    amp: f32,
+    base_scale: f32,
+    speed_x: f32,
+    speed_y: f32,
+    warp_amp: f32,
+    warp_freq: f32,
+    gain: f32,
+    lacunarity: f32,
+    contrast_pow: f32,
+    octaves: u32,
+    ridged: u32,
+    mode: u32,     // 0=field add,1=iso shift
+    enabled: u32,
+    _pad0: u32,
+    _pad1: u32,
+};
+
+@group(2) @binding(2)
+var<uniform> surface_noise: SurfaceNoiseParams;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world_pos: vec2<f32>,
@@ -168,6 +191,46 @@ fn noise_color(p: vec2<f32>, time: f32) -> vec3<f32> {
     let out_col = mix(base, cHi, hi * 0.35);
 
     return out_col * 0.95;
+}
+
+// ---------------------------------------------
+// Surface Noise Scalar (edge perturbation)
+// ---------------------------------------------
+fn surface_noise_scalar(p: vec2<f32>, time: f32) -> f32 {
+    // Base coordinate & animation
+    var pw = p * surface_noise.base_scale +
+             vec2<f32>(time * surface_noise.speed_x, time * surface_noise.speed_y);
+
+    // Optional warp
+    if (surface_noise.warp_amp > 0.0) {
+        let wp = pw * surface_noise.warp_freq;
+        let w1 = value_noise(wp + vec2<f32>(13.17, 91.3));
+        let w2 = value_noise(wp * 1.73 + vec2<f32>(47.9, 5.1));
+        let warp = vec2<f32>(w1, w2) - 0.5;
+        pw += warp * surface_noise.warp_amp;
+    }
+
+    // fBm up to 6 octaves, early break
+    let is_ridged = (surface_noise.ridged != 0u);
+    var n: f32 = 0.0;
+    var amp: f32 = 1.0;
+    var freq: f32 = 1.0;
+    var weight_sum: f32 = 0.0;
+    for (var i: u32 = 0u; i < 6u; i = i + 1u) {
+        if (i >= surface_noise.octaves) { break; }
+        var s = value_noise(pw * freq);
+        if (is_ridged) {
+            s = 1.0 - abs(s * 2.0 - 1.0);
+        }
+        n += s * amp;
+        weight_sum += amp;
+        freq *= surface_noise.lacunarity;
+        amp *= surface_noise.gain;
+    }
+    n = n / max(weight_sum, 1e-5);
+    n = clamp(n, 0.0, 1.0);
+    n = pow(n, surface_noise.contrast_pow);
+    return n;
 }
 
 // ---------------------------------------------
@@ -349,7 +412,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let dom = dominant(acc);
-    let best_field = acc.field[dom];
+    var best_field = acc.field[dom];
     let grad = acc.grad[dom];
 
     if (debug_view == 1u) {
@@ -358,9 +421,21 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(vec3<f32>(gray, gray, gray), 1.0);
     }
 
+    // Surface noise modulation (edge only) - single eval guarded
+    var effective_iso = iso;
+    if (surface_noise.enabled == 1u && surface_noise.amp > 0.00001 && surface_noise.octaves > 0u) {
+        let n = surface_noise_scalar(p, time_seconds);
+        let delta = surface_noise.amp * (n - 0.5);
+        if (surface_noise.mode == 0u) {
+            best_field = best_field + delta;
+        } else {
+            effective_iso = iso + delta;
+        }
+    }
+
     let cluster_idx = acc.indices[dom];
     let base_col = metaballs.cluster_colors[cluster_idx].rgb;
-    let mask = compute_mask(best_field, iso, grad, p);
+    let mask = compute_mask(best_field, effective_iso, grad, p);
 
     let fg_ctx = ForegroundContext(
         best_field,

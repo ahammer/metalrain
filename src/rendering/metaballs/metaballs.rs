@@ -88,12 +88,35 @@ impl Default for NoiseParamsUniform {
     }
 }
 
+// NEW: SurfaceNoiseParamsUniform (group(2) binding(2))
+#[repr(C, align(16))]
+#[derive(Clone, Copy, ShaderType, Debug, Default)]
+pub struct SurfaceNoiseParamsUniform {
+    pub amp: f32,
+    pub base_scale: f32,
+    pub speed_x: f32,
+    pub speed_y: f32,
+    pub warp_amp: f32,
+    pub warp_freq: f32,
+    pub gain: f32,
+    pub lacunarity: f32,
+    pub contrast_pow: f32,
+    pub octaves: u32,
+    pub ridged: u32,
+    pub mode: u32,
+    pub enabled: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+}
+
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
 pub struct MetaballsUnifiedMaterial {
     #[uniform(0)]
     data: MetaballsUniform,
     #[uniform(1)]
-    noise: NoiseParamsUniform, // NEW binding(1)
+    noise: NoiseParamsUniform, // background noise (binding 1)
+    #[uniform(2)]
+    surface_noise: SurfaceNoiseParamsUniform, // NEW surface noise (binding 2)
 }
 
 impl MetaballsUnifiedMaterial {
@@ -308,6 +331,23 @@ fn setup_metaballs(
     umat.noise.contrast_pow = cfg.noise.contrast_pow;
     umat.noise.octaves = cfg.noise.octaves;
     umat.noise.ridged = if cfg.noise.ridged { 1 } else { 0 };
+
+    // Initialize surface noise uniform from config.surface_noise
+    let sn = &cfg.surface_noise;
+    umat.surface_noise.amp = sn.amp.clamp(0.0, 0.5);
+    umat.surface_noise.base_scale = if sn.base_scale > 0.0 { sn.base_scale } else { 0.008 };
+    umat.surface_noise.speed_x = sn.speed_x;
+    umat.surface_noise.speed_y = sn.speed_y;
+    umat.surface_noise.warp_amp = sn.warp_amp;
+    umat.surface_noise.warp_freq = sn.warp_freq;
+    umat.surface_noise.gain = sn.gain;
+    umat.surface_noise.lacunarity = sn.lacunarity;
+    umat.surface_noise.contrast_pow = sn.contrast_pow;
+    umat.surface_noise.octaves = sn.octaves.min(6);
+    umat.surface_noise.ridged = if sn.ridged { 1 } else { 0 };
+    umat.surface_noise.mode = sn.mode.min(1);
+    umat.surface_noise.enabled = if sn.enabled { 1 } else { 0 };
+
     let unified_handle = unified_mats.add(umat);
 
     commands.spawn((
@@ -426,6 +466,22 @@ fn update_metaballs_unified_material(
     mat.noise.contrast_pow = noise_cfg.contrast_pow;
     mat.noise.octaves = noise_cfg.octaves;
     mat.noise.ridged = if noise_cfg.ridged { 1 } else { 0 };
+
+    // Update surface noise uniform
+    let sn = &cfg.surface_noise;
+    mat.surface_noise.amp = sn.amp.clamp(0.0, 0.5);
+    mat.surface_noise.base_scale = if sn.base_scale > 0.0 { sn.base_scale } else { 0.008 };
+    mat.surface_noise.speed_x = sn.speed_x;
+    mat.surface_noise.speed_y = sn.speed_y;
+    mat.surface_noise.warp_amp = sn.warp_amp;
+    mat.surface_noise.warp_freq = sn.warp_freq;
+    mat.surface_noise.gain = sn.gain;
+    mat.surface_noise.lacunarity = sn.lacunarity;
+    mat.surface_noise.contrast_pow = sn.contrast_pow;
+    mat.surface_noise.octaves = sn.octaves.min(6);
+    mat.surface_noise.ridged = if sn.ridged { 1 } else { 0 };
+    mat.surface_noise.mode = sn.mode.min(1);
+    mat.surface_noise.enabled = if sn.enabled { 1 } else { 0 };
 
     // Cluster colors
     let mut color_count = 0usize;

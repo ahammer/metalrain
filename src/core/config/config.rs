@@ -171,6 +171,7 @@ pub struct GameConfig {
     pub metaballs: MetaballsRenderConfig,
     pub metaballs_shader: MetaballsShaderConfig,
     pub noise: NoiseConfig, // NEW: procedural background noise params
+    pub surface_noise: SurfaceNoiseConfig,
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
 }
@@ -188,6 +189,7 @@ impl Default for GameConfig {
             metaballs: Default::default(),
             metaballs_shader: Default::default(),
             noise: Default::default(),
+            surface_noise: Default::default(),
             draw_cluster_bounds: false,
             interactions: Default::default(),
         }
@@ -249,6 +251,44 @@ impl Default for NoiseConfig {
             lacunarity: 2.0,
             contrast_pow: 1.25,
             octaves: 5,
+            ridged: false,
+        }
+    }
+}
+
+// NEW: Surface noise config (independent high-frequency metaball edge modulation)
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
+#[serde(default)]
+pub struct SurfaceNoiseConfig {
+    pub enabled: bool,
+    pub mode: u32,        // 0 = field add, 1 = iso shift
+    pub amp: f32,         // amplitude in field/iso units
+    pub base_scale: f32,
+    pub warp_amp: f32,
+    pub warp_freq: f32,
+    pub speed_x: f32,
+    pub speed_y: f32,
+    pub octaves: u32,     // 0..6 (0 disables fast path)
+    pub gain: f32,
+    pub lacunarity: f32,
+    pub contrast_pow: f32,
+    pub ridged: bool,
+}
+impl Default for SurfaceNoiseConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            mode: 0,
+            amp: 0.08,
+            base_scale: 0.008,
+            warp_amp: 0.3,
+            warp_freq: 1.2,
+            speed_x: 0.20,
+            speed_y: 0.17,
+            octaves: 4,
+            gain: 0.55,
+            lacunarity: 2.05,
+            contrast_pow: 1.10,
             ridged: false,
         }
     }
@@ -471,6 +511,35 @@ impl GameConfig {
                 self.metaballs.radius_multiplier
             ));
         }
+
+        // Surface noise validation (edge perturbation)
+        if self.surface_noise.amp < 0.0 {
+            w.push(format!(
+                "surface_noise.amp {} negative -> treated as 0",
+                self.surface_noise.amp
+            ));
+        } else if self.surface_noise.amp > 0.5 {
+            w.push(format!(
+                "surface_noise.amp {} clamped to 0.5 (avoid aliasing)",
+                self.surface_noise.amp
+            ));
+        }
+        if self.surface_noise.base_scale <= 0.0 {
+            w.push(format!(
+                "surface_noise.base_scale {} must be > 0 (using default)",
+                self.surface_noise.base_scale
+            ));
+        }
+        if self.surface_noise.octaves > 6 {
+            w.push(format!(
+                "surface_noise.octaves {} > 6; clamped (perf safeguard)",
+                self.surface_noise.octaves
+            ));
+        }
+        if self.surface_noise.octaves == 0 && self.surface_noise.enabled {
+            w.push("surface_noise.octaves == 0 while enabled -> no effect (disable instead)".into());
+        }
+
         w
     }
 }
