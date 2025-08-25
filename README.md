@@ -90,6 +90,22 @@ cargo run
 
 (For WASM builds ensure suitable target & embedding path remain up to date if config layout changes.)
 
+## Rendering Policy
+This project enforces a WebGPU-only rendering path on the web and restricts native builds to modern explicit backends (Vulkan / Metal / DX12). OpenGL / WebGL backends are intentionally not compiled or requested. Rationale:
+- Consistent shader & feature parity (WGSL-first pipeline).
+- Reduced maintenance surface (no dual GLSL/WGSL or downlevel limits).
+- Explicit failure on unsupported browsers instead of silent GL fallback.
+Configuration summary:
+- `Cargo.toml` uses target-scoped `wgpu` dependencies:
+  - wasm32: `features = ["webgpu","wgsl"]`
+  - native: `features = ["wgsl","vulkan","metal","dx12"]`
+- Renderer creation masks:
+  - wasm32: `Backends::BROWSER_WEBGPU`
+  - native: `Backends::{VULKAN|METAL|DX12}`
+- Early WASM guard panics if `navigator.gpu` is absent.
+- Startup assertion confirms chosen adapter backend matches policy.
+Unsupported: Browsers or CI environments lacking WebGPU (wasm) or a modern native backend. Do not reintroduce WebGL/GL for fallback.
+
 ## License
 
 GPL-3.0-or-later

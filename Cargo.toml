@@ -6,7 +6,33 @@ authors = ["Adam <you@example.com>"]
 license = "GPL-3.0-or-later"
 
 [dependencies]
-bevy = "0.16" # upgraded from 0.14 -> 0.16
+# Bevy without WebGL: explicitly enumerate features (omit `webgl2` to avoid enabling wgpu/webgl)
+# Feature set retains core 2D / UI / asset / audio (optional) capabilities; adjust if you need fewer.
+bevy = { version = "0.16", default-features = false, features = [
+    "animation",
+    "bevy_asset",
+    "bevy_audio",
+    "bevy_core_pipeline",
+    "bevy_log",
+    "bevy_gizmos",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_sprite",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_winit",
+    "default_font",
+    "hdr",
+    "ktx2",
+    "multi_threaded",
+    "png",
+    "smaa_luts",
+    "tonemapping_luts",
+    "vorbis",
+    "x11",
+    # deliberately NO "webgl2"
+] } # WebGPU-only policy: `webgl2` removed
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.8"
@@ -21,12 +47,9 @@ wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
+# Web target: rely on Bevy's internal wgpu; no webgl feature enabled (WebGPU only)
 
-[dependencies.wgpu]
-version = "26.0.1"
-default-features = false
-webgpu = ["bevy_internal/webgpu"]
-
+# Native: rely on Bevy's internal wgpu (defaults pick Vulkan/Metal/DX12). No GL/WebGL features enabled.
 
 [dev-dependencies]
 tempfile = "3"
