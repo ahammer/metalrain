@@ -36,7 +36,7 @@
     ),
     metaballs_shader: (
         fg_mode: 1,
-        bg_mode: 2,
+        bg_mode: 1,
     ),
     draw_cluster_bounds: false,
     interactions: (
