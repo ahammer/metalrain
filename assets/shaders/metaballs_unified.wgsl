@@ -80,6 +80,7 @@ struct SurfaceNoiseParams {
     enabled: u32,
     _pad0: u32,
     _pad1: u32,
+    _pad2: u32,    // NEW padding -> total 16 scalars = 64 bytes (multiple of 16)
 };
 
 @group(2) @binding(2)

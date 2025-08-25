@@ -91,6 +91,7 @@ impl Default for NoiseParamsUniform {
 // NEW: SurfaceNoiseParamsUniform (group(2) binding(2))
 #[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug, Default)]
+// NOTE: Must remain exactly 64 bytes (16 * 4-byte scalars) so uniform buffer size is multiple of 16 for downlevel/WebGL.
 pub struct SurfaceNoiseParamsUniform {
     pub amp: f32,
     pub base_scale: f32,
@@ -107,6 +108,7 @@ pub struct SurfaceNoiseParamsUniform {
     pub enabled: u32,
     pub _pad0: u32,
     pub _pad1: u32,
+    pub _pad2: u32, // NEW padding: total scalars = 16 -> 64 bytes (must stay multiple of 16 for downlevel/WebGL)
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
