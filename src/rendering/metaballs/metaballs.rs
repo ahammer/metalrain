@@ -121,8 +121,6 @@ pub struct MetaballsUnifiedMaterial {
     noise: NoiseParamsUniform, // background noise (binding 1)
     #[uniform(2)]
     surface_noise: SurfaceNoiseParamsUniform, // NEW surface noise (binding 2)
-    #[uniform(3)]
-    style: StyleParamsUniform, // NEW stylized bevel & shadow params (binding 3)
 }
 
 impl MetaballsUnifiedMaterial {
@@ -282,34 +280,6 @@ impl Plugin for MetaballsPlugin {
     }
 }
 
-// =====================================================================================
-// NEW: Stylized bevel + shadow style uniform (mirrors WGSL StyleParamsStd140)
-// Layout: 16 * 16B scalars (64 bytes) grouped logically by semantic rows.
-// =====================================================================================
-#[repr(C, align(16))]
-#[derive(Clone, Copy, ShaderType, Debug, Default)]
-pub struct StyleParamsUniform {
-    // v0
-    pub bevel_width: f32,       // fraction of normalized edge thickness (0..1 approx, typical 0.05..0.25)
-    pub bevel_depth: f32,       // interior flatten 0=flat 1=domed
-    pub rim_boost: f32,         // rim highlight scale
-    pub rim_exponent: f32,      // rim falloff exponent
-    // v1
-    pub specular_power: f32,    // phong exponent
-    pub specular_strength: f32, // specular scale
-    pub shadow_softness: f32,   // softness scalar (0..1)
-    pub shadow_falloff_power: f32, // power controlling center emphasis
-    // v2
-    pub shadow_offset_x: f32,   // world units
-    pub shadow_offset_y: f32,   // world units
-    pub shadow_radius_scale: f32, // radius enlarge factor for shadow (>=1)
-    pub shadow_alpha: f32,      // max shadow alpha
-    // v3
-    pub shadow_color_r: f32,
-    pub shadow_color_g: f32,
-    pub shadow_color_b: f32,
-    pub flags: u32,             // bitfield: bit0=style_enabled, bit1=shadow_enabled, bit2=rim_enabled
-}
 
 // =====================================================================================
 // Startup / Config
@@ -552,57 +522,6 @@ fn update_metaballs_unified_material(
     }
     mat.data.v0.x = ball_count as f32;
 
-    // ------------------------------------------------------------
-    // Style params mapping (normalized config -> uniform packing)
-    // ------------------------------------------------------------
-    let style_cfg = &cfg.metaballs_style;
-    let fg_mode = fg.current();
-    let style_enabled = matches!(fg_mode, MetaballForegroundMode::Bevel);
-    // Derived parameters
-    let bevel_width = style_cfg.bevel_width.clamp(0.0, 1.0); // shader will clamp further
-    let bevel_depth = style_cfg.bevel_depth.clamp(0.0, 1.0);
-    let rim_boost = 0.55 * (0.5 + bevel_depth * 0.5); // scale rim by depth moderately
-    let rim_exponent = 2.0 + 2.0 * bevel_depth; // 2..4
-    let specular_power = 48.0 + 32.0 * bevel_depth; // 48..80
-    let specular_strength = 0.25 + 0.15 * bevel_depth; // 0.25..0.40
-    let shadow_softness = 1.0; // fixed for now
-    let shadow_falloff_power = 2.5; // heuristic center emphasis
-    let shadow_radius_scale = 1.0 + 0.75 * style_cfg.shadow_size.clamp(0.0, 1.0); // 1..1.75
-    let shadow_alpha = style_cfg.shadow_intensity.clamp(0.0, 1.0);
-    // Approx average spawn radius for world offset scaling (static; avoids per-frame loop).
-    let avg_radius = (cfg.balls.radius_range.min + cfg.balls.radius_range.max) * 0.5;
-    let mut lx = style_cfg.light_dir_x;
-    let mut ly = style_cfg.light_dir_y;
-    let len = (lx * lx + ly * ly).sqrt();
-    if len > 1e-4 { lx /= len; ly /= len; } else { lx = -0.707; ly = 0.707; }
-    // Shadow offset along inverse light dir (push away from light source).
-    let shadow_offset_scale = style_cfg.shadow_offset.clamp(0.0, 1.0) * avg_radius;
-    let shadow_offset_x = -lx * shadow_offset_scale;
-    let shadow_offset_y = -ly * shadow_offset_scale;
-    let shadow_color = (0.07_f32, 0.08_f32, 0.10_f32);
-    let shadow_enabled = shadow_alpha > 0.02 && style_cfg.shadow_size > 0.0;
-    let rim_enabled = true;
-    let mut flags: u32 = 0;
-    if style_enabled { flags |= 0x1; }
-    if shadow_enabled { flags |= 0x2; }
-    if rim_enabled { flags |= 0x4; }
-
-    mat.style.bevel_width = bevel_width;
-    mat.style.bevel_depth = bevel_depth;
-    mat.style.rim_boost = rim_boost;
-    mat.style.rim_exponent = rim_exponent;
-    mat.style.specular_power = specular_power;
-    mat.style.specular_strength = specular_strength;
-    mat.style.shadow_softness = shadow_softness;
-    mat.style.shadow_falloff_power = shadow_falloff_power;
-    mat.style.shadow_offset_x = shadow_offset_x;
-    mat.style.shadow_offset_y = shadow_offset_y;
-    mat.style.shadow_radius_scale = shadow_radius_scale;
-    mat.style.shadow_alpha = shadow_alpha;
-    mat.style.shadow_color_r = shadow_color.0;
-    mat.style.shadow_color_g = shadow_color.1;
-    mat.style.shadow_color_b = shadow_color.2;
-    mat.style.flags = flags;
 }
 
 // =====================================================================================

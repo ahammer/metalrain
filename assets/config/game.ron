@@ -38,15 +38,6 @@
         fg_mode: 1,
         bg_mode: 1,
     ),
-    metaballs_style: (
-        bevel_width: 2.02,          // 0..1 fraction of edge thickness used for bevel ring
-        bevel_depth: 5.0,          // 0=flat interior, 1=domed
-        shadow_size: 1.35,          // 0..1 extra radius scale applied to shadow footprint
-        shadow_intensity: 1.00,     // max shadow alpha under disc center
-        shadow_offset: 0.25,        // 0..1 offset in radii along inverse light direction
-        light_dir_x: -0.707,        // approximate -1/sqrt(2) for 45° lighting
-        light_dir_y: 0.707,         // approximate 1/sqrt(2)
-    ),
     noise: (
         base_scale: 0.004,
         warp_amp: 2.6,
