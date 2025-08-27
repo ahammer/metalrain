@@ -5,7 +5,7 @@ use bevy_rapier2d::prelude::{Collider, Velocity};
 use crate::core::components::{Ball, BallCircleVisual, BallRadius};
 use crate::core::config::GameConfig;
 use crate::core::system::system_order::PrePhysicsSet;
-use crate::physics::clustering::cluster::Clusters;
+use crate::physics::clustering::cluster::{Clusters, BallClusterIndex};
 
 /// Event emitted when a qualifying cluster transitions into the paddle lifecycle
 #[derive(Event, Debug, Clone)]
@@ -102,12 +102,62 @@ fn primary_pointer_world_pos(
     cursor_world_pos(window, camera_q, cursor)
 }
 
+const DIST_EPS: f32 = 1e-4; // distance squared epsilon for tie-breaking
+
+/// Ball-first cluster picking. Returns (ball_entity, cluster_index, ball_radius, distance_squared_to_ball)
+pub fn pick_ball_cluster<'a, I>(
+    world_pos: Vec2,
+    clusters: &Clusters,
+    cluster_index: &BallClusterIndex,
+    iter: I,
+    cp: &crate::core::config::ClusterPopConfig,
+) -> Option<(Entity, usize, f32, f32)>
+where I: IntoIterator<Item = (Entity, &'a Transform, &'a BallRadius, Option<&'a PaddleLifecycle>)>
+{
+    let mut best_ball: Option<(Entity, usize, f32, f32, f32)> = None; // (entity, cluster_idx, d2, radius, cluster_centroid_d2)
+    for (entity, tf, radius, lifecycle) in iter.into_iter() {
+        if lifecycle.is_some() { continue; }
+        let cluster_idx = match cluster_index.0.get(&entity) { Some(i) => *i, None => continue };
+        let pos = tf.translation.truncate();
+        let delta = world_pos - pos;
+        if !delta.x.is_finite() || !delta.y.is_finite() { continue; }
+        let d2 = delta.length_squared();
+        if d2.is_nan() { continue; }
+        let base_pick = cp.ball_pick_radius.max(0.0);
+        let eff_r = if cp.ball_pick_radius_scale_with_ball { base_pick.max(radius.0) } else { base_pick };
+        if d2 > eff_r * eff_r { continue; }
+        let cluster = match clusters.0.get(cluster_idx) { Some(c) => c, None => continue };
+        let centroid_d2 = cluster.centroid.distance_squared(world_pos);
+        let radius_val = radius.0;
+        let replace = match best_ball {
+            None => true,
+            Some((best_entity, bci, bd2, br, bcent_d2)) => {
+                if d2 + DIST_EPS < bd2 { true }
+                else if (d2 - bd2).abs() <= DIST_EPS {
+                    if cp.prefer_larger_radius_on_tie && (radius_val > br + 1e-6) { true }
+                    else if (radius_val - br).abs() <= 1e-6 {
+                        let bcl = &clusters.0[bci];
+                        if cluster.entities.len() > bcl.entities.len() { true }
+                        else if cluster.entities.len() == bcl.entities.len() {
+                            if centroid_d2 + DIST_EPS < bcent_d2 { true }
+                            else if (centroid_d2 - bcent_d2).abs() <= DIST_EPS { entity.index() < best_entity.index() } else { false }
+                        } else { false }
+                    } else { false }
+                } else { false }
+            }
+        };
+        if replace { best_ball = Some((entity, cluster_idx, d2, radius_val, centroid_d2)); }
+    }
+    best_ball.map(|(e, ci, d2, r, _)| (e, ci, r, d2))
+}
+
 fn handle_tap_cluster_pop(
     buttons: Res<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
     windows_q: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
     clusters: Res<Clusters>,
+    cluster_index: Res<BallClusterIndex>,
     mut q: Query<(Entity, &Transform, &BallRadius, &mut Velocity, Option<&PaddleLifecycle>), With<Ball>>,
     mut ew: EventWriter<ClusterPopped>,
     mut commands: Commands,
@@ -130,36 +180,15 @@ fn handle_tap_cluster_pop(
         return;
     };
 
-    // Cluster selection
-    let mut best: Option<usize> = None;
-    for (i, cl) in clusters.0.iter().enumerate() {
-        let pad = cp.aabb_pad.max(0.0);
-        let min = cl.min - Vec2::splat(pad);
-        let max = cl.max + Vec2::splat(pad);
-        let inside_aabb = world_pos.x >= min.x
-            && world_pos.x <= max.x
-            && world_pos.y >= min.y
-            && world_pos.y <= max.y;
-        let dist_centroid = cl.centroid.distance(world_pos);
-        let within_radius = dist_centroid <= cp.tap_radius.max(0.0);
-        if inside_aabb || within_radius {
-            if let Some(prev) = best {
-                let bcl = &clusters.0[prev];
-                let better = cl.entities.len() > bcl.entities.len()
-                    || (cl.entities.len() == bcl.entities.len()
-                        && dist_centroid < bcl.centroid.distance(world_pos));
-                if better {
-                    best = Some(i);
-                }
-            } else {
-                best = Some(i);
-            }
+    let iter = q.iter().map(|(e,t,r,_v,l)| (e,t,r,l));
+    let Some((_ball_entity, cluster_idx, chosen_radius, _d2)) = pick_ball_cluster(world_pos, &clusters, &cluster_index, iter, cp) else {
+        #[cfg(feature = "debug")]
+        {
+            info!("cluster_pop: no ball hit");
         }
-    }
-    let Some(idx) = best else {
         return;
     };
-    let cluster = &clusters.0[idx];
+    let cluster = &clusters.0[cluster_idx];
 
     let ball_count = cluster.entities.len();
     let total_area = cluster.total_area;
@@ -204,13 +233,14 @@ fn handle_tap_cluster_pop(
     #[cfg(feature = "debug")]
     {
         info!(
-            "ClusterPopped color={} count={} area={:.1} centroid=({:.1},{:.1}) peak_scale={:.2}",
+            "ClusterPopped color={} count={} area={:.1} centroid=({:.1},{:.1}) peak_scale={:.2} chosen_ball_radius={:.2}",
             cluster.color_index,
             ball_count,
             total_area,
             cluster.centroid.x,
             cluster.centroid.y,
-            cp.peak_scale
+            cp.peak_scale,
+            chosen_radius
         );
     }
 }

@@ -130,8 +130,14 @@ pub struct ClusterPopConfig {
     pub freeze_mode: u32,          // 0=ZeroVelEachFrame,1=Kinematic,2=Fixed
     pub fade_alpha: bool,
     pub fade_curve: u32,
+    // Deprecated (no longer used for tap picking); retained for backward compat deserialization
     pub aabb_pad: f32,
+    // Deprecated (replaced by ball_pick_radius and ball-first picking logic)
     pub tap_radius: f32,
+    // New ball-first picking fields
+    pub ball_pick_radius: f32,
+    pub ball_pick_radius_scale_with_ball: bool,
+    pub prefer_larger_radius_on_tie: bool,
     pub exclude_from_new_clusters: bool,
     // Legacy (ignored) fields kept optional so old configs deserialize; validation emits warning.
     pub impulse: Option<f32>,
@@ -160,6 +166,9 @@ impl Default for ClusterPopConfig {
             fade_curve: 1,
             aabb_pad: 4.0,
             tap_radius: 32.0,
+            ball_pick_radius: 36.0,
+            ball_pick_radius_scale_with_ball: true,
+            prefer_larger_radius_on_tie: true,
             exclude_from_new_clusters: true,
             impulse: None,
             outward_bonus: None,
@@ -534,10 +543,16 @@ impl GameConfig {
                     cp.aabb_pad
                 ));
             }
-            if cp.tap_radius < 0.0 {
+            if cp.tap_radius < 0.0 { // legacy field still validated for old configs
                 w.push(format!(
-                    "cluster_pop.tap_radius {} negative -> treated as 0",
+                    "cluster_pop.tap_radius {} negative -> treated as 0 (deprecated; use ball_pick_radius)",
                     cp.tap_radius
+                ));
+            }
+            if cp.ball_pick_radius < 0.0 {
+                w.push(format!(
+                    "cluster_pop.ball_pick_radius {} negative -> treated as 0",
+                    cp.ball_pick_radius
                 ));
             }
             if cp.peak_scale <= 1.0 {
@@ -603,6 +618,10 @@ impl GameConfig {
                     "Ignoring legacy cluster_pop fields: {}",
                     legacy.join(", ")
                 ));
+            }
+            // Deprecation notice
+            if cp.tap_radius != 32.0 { // user likely set legacy field
+                w.push("cluster_pop.tap_radius is deprecated; ball-first picking ignores it".into());
             }
         }
         if self.metaballs.radius_multiplier <= 0.0 {

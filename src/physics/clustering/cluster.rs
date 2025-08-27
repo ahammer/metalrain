@@ -36,6 +36,11 @@ impl Cluster {
 }
 #[derive(Resource, Default, Debug, Clone)]
 pub struct Clusters(pub Vec<Cluster>);
+
+/// Reverse index: ball Entity -> cluster index (into `Clusters.0`)
+/// Rebuilt every frame immediately after clusters are computed.
+#[derive(Resource, Default, Debug, Clone)]
+pub struct BallClusterIndex(pub std::collections::HashMap<Entity, usize>);
 #[derive(Debug, Clone)]
 struct BallPersist {
     cluster_id: u64,
@@ -52,6 +57,7 @@ pub struct ClusterPlugin;
 impl Plugin for ClusterPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Clusters>()
+            .init_resource::<BallClusterIndex>()
             .init_resource::<ClusterPersistence>()
             .add_systems(Update, compute_clusters.in_set(PostPhysicsAdjustSet))
             .add_systems(Update, debug_draw_clusters.after(compute_clusters));
@@ -61,12 +67,14 @@ impl Plugin for ClusterPlugin {
 struct Cell(i32, i32);
 fn compute_clusters(
     mut clusters: ResMut<Clusters>,
+    mut cluster_index: ResMut<BallClusterIndex>,
     mut persistence: ResMut<ClusterPersistence>,
     time: Res<Time>,
     q: Query<ClusterQueryItem<'_>, With<Ball>>,
     cfg: Option<Res<crate::core::config::GameConfig>>,
 ) {
     clusters.0.clear();
+    cluster_index.0.clear();
 
     let exclude_popping = cfg
         .as_ref()
@@ -264,6 +272,13 @@ fn compute_clusters(
     for cl in clusters.0.iter_mut() {
         if cl.total_area > 0.0 {
             cl.centroid /= cl.total_area;
+        }
+    }
+
+    // Rebuild reverse index (ball -> cluster index)
+    for (idx, cl) in clusters.0.iter().enumerate() {
+        for e in cl.entities.iter() {
+            cluster_index.0.insert(*e, idx);
         }
     }
 }
