@@ -9,6 +9,8 @@ use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use std::sync::OnceLock;
 #[cfg(target_arch = "wasm32")]
 static METABALLS_UNIFIED_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+#[cfg(target_arch = "wasm32")]
+static METABALLS_UNIFIED_DEBUG_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
@@ -130,13 +132,11 @@ impl MetaballsUnifiedMaterial {
 
 impl Material2d for MetaballsUnifiedMaterial {
     fn fragment_shader() -> ShaderRef {
+        // TEMP: Default to debug shader for diagnostics. Restore original once issue resolved.
+        // Revert default to production unified shader. Debug shader retained for manual swap / future toggle.
         #[cfg(target_arch = "wasm32")]
         {
-            return METABALLS_UNIFIED_SHADER_HANDLE
-                .get()
-                .cloned()
-                .map(ShaderRef::Handle)
-                .unwrap_or_else(|| ShaderRef::Path("shaders/metaballs_unified.wgsl".into()));
+            ShaderRef::Handle(METABALLS_UNIFIED_SHADER_HANDLE.get().unwrap().clone())
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -147,15 +147,14 @@ impl Material2d for MetaballsUnifiedMaterial {
     fn vertex_shader() -> ShaderRef {
         #[cfg(target_arch = "wasm32")]
         {
-            return METABALLS_UNIFIED_SHADER_HANDLE
-                .get()
-                .cloned()
-                .map(ShaderRef::Handle)
-                .unwrap_or_else(|| ShaderRef::Path("shaders/metaballs_unified.wgsl".into()));
+            if let Some(handle) = METABALLS_UNIFIED_DEBUG_SHADER_HANDLE.get().cloned() {
+                return ShaderRef::Handle(handle);
+            }
+            return ShaderRef::Path("shaders/metaballs_unified_debug.wgsl".into());
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            "shaders/metaballs_unified.wgsl".into()
+            "shaders/metaballs_unified_debug.wgsl".into()
         }
     }
 }
@@ -245,7 +244,12 @@ impl Plugin for MetaballsPlugin {
                 include_str!("../../../assets/shaders/metaballs_unified.wgsl"),
                 "metaballs_unified_embedded.wgsl",
             ));
+            let debug_handle = shaders.add(Shader::from_wgsl(
+                include_str!("../../../assets/shaders/metaballs_unified_debug.wgsl"),
+                "metaballs_unified_debug_embedded.wgsl",
+            ));
             METABALLS_UNIFIED_SHADER_HANDLE.get_or_init(|| unified_handle.clone());
+            METABALLS_UNIFIED_DEBUG_SHADER_HANDLE.get_or_init(|| debug_handle.clone());
         }
 
         app.init_resource::<MetaballsToggle>()

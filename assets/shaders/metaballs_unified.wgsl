@@ -318,12 +318,12 @@ fn dominant(acc: AccumResult) -> u32 {
 }
 
 // Conservative AA around iso via gradient magnitude and pixel footprint
-fn compute_mask(best_field: f32, iso: f32, grad: vec2<f32>, p: vec2<f32>) -> f32 {
-    let grad_len   = max(length(grad), 1e-5);
-    let field_delta = best_field - iso;
-    let px_world   = length(vec2<f32>(dpdx(p.x), dpdy(p.y)));
-    let smooth_w   = grad_len * px_world * 1.0;
-    return clamp(0.5 + field_delta / smooth_w, 0.0, 1.0);
+// Mask computation (AA): always use derivative-free ramp for cross-platform stability.
+// We intentionally avoid dpdx/dpdy after observing adapter-specific failures (black output).
+// The ramp start factor (0.6) empirically balances edge softness vs. thickness.
+fn compute_mask(best_field: f32, iso: f32) -> f32 {
+    let ramp_start = iso * 0.6;
+    return smoothstep(ramp_start, iso, best_field);
 }
 
 // =============================
@@ -455,7 +455,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let cluster_idx = acc.indices[dom];
     let base_col = metaballs.cluster_colors[cluster_idx].rgb;
-    let mask = compute_mask(best_field, effective_iso, grad, p);
+    let mask = compute_mask(best_field, effective_iso);
 
     let fg_ctx = ForegroundContext(
         best_field,
