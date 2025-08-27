@@ -126,6 +126,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let radius_scale      = metaballs.v0.z;
     let iso               = metaballs.v0.w;
     let radius_multiplier = metaballs.v2.w;
+    let bg_mode           = u32(metaballs.v1.z + 0.5); // reuse production layout index
     let p = in.world_pos;
 
     if (ball_count == 0u || cluster_color_cnt == 0u) {
@@ -147,9 +148,51 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (cluster < cluster_color_cnt) {
         base_col = metaballs.cluster_colors[cluster].rgb;
     }
-    // Derivative-free alpha: smoother across platforms (WebGPU WASM sometimes had derivative issues / extreme values).
+    // ---------------------------------------------------------------------
+    // ALPHA / VISIBILITY NOTE (Debug Fix):
+    // The earlier revision used screen-space derivatives (dpdx/dpdy) combined
+    // with the gradient magnitude to build an anti-aliased transition width.
+    // That worked on native (desktop) but produced an all‑black output on
+    // certain WASM / WebGPU paths (observed: mask evaluated ~0 everywhere).
+    // Potential causes (implementation dependent):
+    //   * Derivative precision / undefined behavior inside dynamic control
+    //     flow on some drivers leading to zero or NaN gradient lengths.
+    //   * Downlevel / adapter quirk causing large or invalid values that
+    //     push the computed mask outside [0,1] before clamp, collapsing alpha.
+    //   * Timing of derivative availability for a fullscreen triangle in the
+    //     pipeline with our loops (driver specific optimization).
+    // For a robust diagnostic view we replace that logic with a derivative‑
+    // free formulation: a simple smoothstep against the TOTAL scalar field.
+    // This guarantees consistent visibility across native & WASM and keeps
+    // the debug shader minimal (no reliance on implicit derivative hardware).
+    // If you need edge thickness control, you can reintroduce derivatives
+    // once the root cause is isolated, preferably behind a config toggle.
+    // ---------------------------------------------------------------------
     // Use a two-threshold smoothstep: start ramp earlier than iso for feather.
     let ramp_start = iso * 0.6; // earlier ramp makes blobs fatter in debug (easier to see)
     let mask = smoothstep(ramp_start, iso, total_field);
-    return vec4<f32>(base_col, mask);
+    // Background color selection (simple subset of production logic)
+    // Modes (debug subset):
+    // 0: dark neutral
+    // 1: vertical gradient
+    // 2: radial gradient
+    // 3: cluster hint noise (hash based)
+    var bg = vec3<f32>(0.05, 0.05, 0.07);
+    if (bg_mode == 1u) {
+        let t = 0.5 + 0.5 * (p.y / (metaballs.v2.y * 0.5));
+        bg = mix(vec3<f32>(0.06,0.07,0.10), vec3<f32>(0.12,0.14,0.19), clamp(t,0.0,1.0));
+    } else if (bg_mode == 2u) {
+        let center = vec2<f32>(0.0,0.0);
+        let r = length(p - center) / (length(metaballs.v2.xy) * 0.25 + 1e-5);
+        let t = clamp(r, 0.0, 1.0);
+        bg = mix(vec3<f32>(0.12,0.13,0.18), vec3<f32>(0.02,0.02,0.04), t);
+    } else if (bg_mode == 3u) {
+        // Tiny hash noise (deterministic) for quick visual contrast
+        let h = fract(sin(dot(p, vec2<f32>(12.9898,78.233))) * 43758.5453);
+        bg = vec3<f32>(0.04 + 0.04*h, 0.05 + 0.05*h, 0.07 + 0.05*h);
+    }
+
+    // Alpha blend metaballs over background
+    let out_rgb = mix(bg, base_col, mask);
+    return vec4<f32>(out_rgb, 1.0);
 }
