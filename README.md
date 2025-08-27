@@ -114,6 +114,8 @@ GPL-3.0-or-later
 
 This project supports a fast WebGPU-only WASM workflow without extra tooling like trunk or wasm-pack. (Built with accessibility considerations; please still verify with your own tools.)
 
+> Note: We rely exclusively on Bevy's internal wgpu; no direct `wgpu` dependency or WebGL fallback is included. Runtime guards assert the backend is BrowserWebGpu on wasm and Vulkan/Metal/DX12 on native.
+
 ### Prerequisites
 - Rust toolchain (stable)
 - Modern browser with WebGPU (Chrome 113+, Edge, Firefox Nightly (flag), Safari Technology Preview)
