@@ -133,16 +133,14 @@ impl MetaballsUnifiedMaterial {
 impl Material2d for MetaballsUnifiedMaterial {
     fn fragment_shader() -> ShaderRef {
         // TEMP: Default to debug shader for diagnostics. Restore original once issue resolved.
+        // Revert default to production unified shader. Debug shader retained for manual swap / future toggle.
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(handle) = METABALLS_UNIFIED_DEBUG_SHADER_HANDLE.get().cloned() {
-                return ShaderRef::Handle(handle);
-            }
-            return ShaderRef::Path("shaders/metaballs_unified_debug.wgsl".into());
+            ShaderRef::Handle(METABALLS_UNIFIED_SHADER_HANDLE.get().unwrap().clone())
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            "shaders/metaballs_unified_debug.wgsl".into()
+            "shaders/metaballs_unified.wgsl".into()
         }
     }
 
