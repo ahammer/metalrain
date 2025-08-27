@@ -59,6 +59,21 @@ struct SurfaceNoiseParamsStd140 {
 @group(2) @binding(2)
 var<uniform> surface_noise: SurfaceNoiseParamsStd140;
 
+// NEW: Stylized bevel + shadow params (binding 3)
+// v0 = (bevel_width, bevel_depth, rim_boost, rim_exponent)
+// v1 = (specular_power, specular_strength, shadow_softness, shadow_falloff_power)
+// v2 = (shadow_offset_x, shadow_offset_y, shadow_radius_scale, shadow_alpha)
+// v3 = (shadow_color_r, shadow_color_g, shadow_color_b, flags_u32)
+struct StyleParamsStd140 {
+    v0: vec4<f32>,
+    v1: vec4<f32>,
+    v2: vec4<f32>,
+    v3: vec4<f32>,
+};
+
+@group(2) @binding(3)
+var<uniform> style_params: StyleParamsStd140;
+
 // =============================
 // Vertex I/O
 // =============================
@@ -349,6 +364,52 @@ fn fg_bevel(base_col: vec3<f32>, grad: vec2<f32>, mask: f32, normal_z_scale: f32
     return vec4<f32>(out_col, 1.0);
 }
 
+// NEW: Stylized disc lighting (flatter interior + bevel ring + rim/spec + contrast)
+fn stylized_disc_lighting(base_col: vec3<f32>, grad: vec2<f32>, field_val: f32, iso: f32, normal_z_scale: f32) -> vec3<f32> {
+    let bevel_width = clamp(style_params.v0.x, 0.0005, 1.0);
+    let bevel_depth = clamp(style_params.v0.y, 0.0, 1.0);
+    let rim_boost = max(style_params.v0.z, 0.0);
+    let rim_exp = max(style_params.v0.w, 0.25);
+
+    let spec_pow = max(style_params.v1.x, 1.0);
+    let spec_strength = max(style_params.v1.y, 0.0);
+
+    // Normalization of field -> interior metric
+    let t = clamp(field_val / max(iso, 1e-5), 0.0, 1.0); // 0 near edge -> 1 center
+    let invert = 1.0 - t; // 1 edge -> 0 center
+    let bevel_band = smoothstep(0.0, bevel_width, invert) * (1.0 - smoothstep(bevel_width, bevel_width * 1.35, invert));
+    let interior_w = smoothstep(bevel_width, bevel_width * 1.2, invert); // interior region weight
+
+    // Normals: gradient vs flat
+    let n_grad = normalize(vec3<f32>(-grad.x, -grad.y, normal_z_scale));
+    let n_flat = vec3<f32>(0.0, 0.0, 1.0);
+    let n = normalize(mix(n_grad, n_flat, interior_w * bevel_depth));
+
+    // Lighting
+    let light_dir = normalize(vec3<f32>(-0.707, 0.707, 0.55)); // stable for now
+    let diff = max(dot(n, light_dir), 0.0);
+    let ambient = 0.28;
+    let shadow_term = pow(clamp(1.0 - diff, 0.0, 1.0), 1.25) * 0.35;
+    let mut_col = base_col * (ambient + diff * (1.0 - 0.25 * interior_w));
+
+    var spec: f32 = 0.0;
+    if (diff > 0.0) {
+        spec = pow(max(dot(reflect(-light_dir, n), vec3<f32>(0.0, 0.0, 1.0)), 0.0), spec_pow) * spec_strength;
+    }
+
+    let flags = u32(style_params.v3.w + 0.5);
+    let rim_enabled = (flags & 0x4u) != 0u;
+    var rim: f32 = 0.0;
+    if (rim_enabled) {
+        let facing = max(dot(n, -light_dir), 0.0);
+        rim = pow(1.0 - facing, rim_exp) * rim_boost * bevel_band;
+    }
+
+    var out_col = mut_col + spec + rim;
+    out_col = out_col - shadow_term * base_col * 0.4;
+    return clamp(out_col, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 fn fg_outline_glow(base_col: vec3<f32>, best_field: f32, iso: f32, mask: f32, _grad: vec2<f32>) -> vec4<f32> {
     let aa = 0.01;
     let edge_factor = smoothstep(iso - aa, iso, best_field) * (1.0 - smoothstep(iso, iso + aa, best_field));
@@ -476,6 +537,36 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Foreground
     var fg_col: vec4<f32>;
+    // Style flags
+    let style_flags = u32(style_params.v3.w + 0.5);
+    let style_enabled = (style_flags & 0x1u) != 0u; // bit0
+    let shadow_enabled = (style_flags & 0x2u) != 0u; // bit1
+
+    // Optional drop shadow BEFORE foreground composite (only when style + bevel mode)
+    if (fg_mode == 1u && style_enabled && shadow_enabled) {
+        let shadow_offset = style_params.v2.xy;
+        let p_shadow = p - shadow_offset;
+        // Re-accumulate for shadow using radius scale factor
+        var shadow_acc = accumulate_clusters(p_shadow, ball_count, cluster_color_count, radius_scale * style_params.v2.z, radius_multiplier);
+        if (shadow_acc.used > 0u) {
+            let dom_s = dominant(shadow_acc);
+            let field_s = shadow_acc.field[dom_s];
+            let softness = style_params.v1.z; // 0..1
+            let shadow_iso = effective_iso;
+            let sh_mask = smoothstep(shadow_iso * 0.4, shadow_iso * (1.0 + 0.1 * (0.4 + 0.6 * softness)), field_s);
+            let falloff_pow = style_params.v1.w;
+            // radial falloff based on distance from original pixel to shadow center offset length
+            let offset_len = length(shadow_offset) + 1e-4;
+            let radial_t = clamp(length(shadow_offset) / (offset_len * 1.0), 0.0, 1.0); // simplified, stable
+            let falloff = pow(1.0 - radial_t, falloff_pow);
+            let max_alpha = style_params.v2.w;
+            let shadow_alpha = sh_mask * max_alpha * falloff;
+            let shadow_color = style_params.v3.rgb;
+            let new_shadow_rgb = mix(bg_col.rgb, shadow_color, shadow_alpha);
+            bg_col = vec4<f32>(new_shadow_rgb, bg_col.a);
+        }
+    }
+
     switch (fg_mode) {
         case 0u: { // ClassicBlend
             if (fg_ctx.mask <= 0.0) {
@@ -484,8 +575,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 fg_col = fg_classic(fg_ctx.cluster_color, fg_ctx.mask);
             }
         }
-        case 1u: { // Bevel (opaque in-mask)
-            fg_col = fg_bevel(fg_ctx.cluster_color, fg_ctx.grad, fg_ctx.mask, normal_z_scale, bg_col.rgb);
+        case 1u: { // Bevel or Stylized Bevel
+            if (style_enabled) {
+                let lit = stylized_disc_lighting(fg_ctx.cluster_color, fg_ctx.grad, fg_ctx.best_field, effective_iso, normal_z_scale);
+                fg_col = vec4<f32>(lit, 1.0);
+            } else {
+                fg_col = fg_bevel(fg_ctx.cluster_color, fg_ctx.grad, fg_ctx.mask, normal_z_scale, bg_col.rgb);
+            }
         }
         default: { // OutlineGlow
             fg_col = fg_outline_glow(fg_ctx.cluster_color, fg_ctx.best_field, fg_ctx.iso, fg_ctx.mask, fg_ctx.grad);

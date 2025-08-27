@@ -194,6 +194,7 @@ pub struct GameConfig {
     pub metaballs_enabled: bool,
     pub metaballs: MetaballsRenderConfig,
     pub metaballs_shader: MetaballsShaderConfig,
+    pub metaballs_style: MetaballsStyleConfig, // NEW: stylized bevel & shadow params (normalized 0..1)
     pub noise: NoiseConfig, // NEW: procedural background noise params
     pub surface_noise: SurfaceNoiseConfig,
     pub draw_cluster_bounds: bool,
@@ -212,6 +213,7 @@ impl Default for GameConfig {
             metaballs_enabled: true,
             metaballs: Default::default(),
             metaballs_shader: Default::default(),
+            metaballs_style: Default::default(),
             noise: Default::default(),
             surface_noise: Default::default(),
             draw_cluster_bounds: false,
@@ -241,6 +243,39 @@ impl Default for MetaballsRenderConfig {
 pub struct MetaballsShaderConfig {
     pub fg_mode: usize,
     pub bg_mode: usize,
+}
+
+// NEW: Stylized metaball bevel + shadow parameters (all normalized scalars 0..1 unless noted)
+// These are intentionally high-level, allowing shader to map to more detailed style params.
+//  - bevel_width: fraction of normalized field thickness dedicated to edge bevel ring (typical 0.05..0.25)
+//  - bevel_depth: 0=flat interior, 1=fully domed (controls interior flatten / normal blend)
+//  - shadow_size: additional radius scale for drop shadow (0=no expansion, 1=large). Shader maps to (1 + k*shadow_size).
+//  - shadow_intensity: max alpha of shadow under disc center.
+//  - shadow_offset: offset distance of shadow center in radii along inverse light direction (0 centered, 1 far).
+//  - light_dir_x / light_dir_y: 2D direction components (will be normalized; z assumed positive). Range suggested -1..1.
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
+#[serde(default)]
+pub struct MetaballsStyleConfig {
+    pub bevel_width: f32,
+    pub bevel_depth: f32,
+    pub shadow_size: f32,
+    pub shadow_intensity: f32,
+    pub shadow_offset: f32,
+    pub light_dir_x: f32,
+    pub light_dir_y: f32,
+}
+impl Default for MetaballsStyleConfig {
+    fn default() -> Self {
+        Self {
+            bevel_width: 0.12,
+            bevel_depth: 0.65,
+            shadow_size: 0.35,
+            shadow_intensity: 0.85,
+            shadow_offset: 0.25,
+            light_dir_x: -0.707,
+            light_dir_y: 0.707,
+        }
+    }
 }
 
 // NEW: Noise configuration mapped to shader NoiseParams UBO
