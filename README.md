@@ -109,3 +109,63 @@ Unsupported: Browsers or CI environments lacking WebGPU (wasm) or a modern nativ
 ## License
 
 GPL-3.0-or-later
+
+## WASM (WebGPU) Development Loop
+
+This project supports a fast WebGPU-only WASM workflow without extra tooling like trunk or wasm-pack. (Built with accessibility considerations; please still verify with your own tools.)
+
+### Prerequisites
+- Rust toolchain (stable)
+- Modern browser with WebGPU (Chrome 113+, Edge, Firefox Nightly (flag), Safari Technology Preview)
+- No WebGL fallback is included—unsupported browsers will fail fast.
+
+### One-Time Setup
+```powershell
+rustup target add wasm32-unknown-unknown
+cargo install wasm-server-runner
+# Optional for iterative rebuilds
+cargo install cargo-watch
+```
+
+### Cargo Aliases
+```powershell
+# Debug
+cargo wasm-build
+cargo wasm-run          # serves via wasm-server-runner
+# Release
+cargo wasm-build-release
+cargo wasm-run-release
+```
+
+### PowerShell Helper Script
+```powershell
+# First time (ensures target + tools)
+pwsh scripts/wasm-dev.ps1 -Install
+# Subsequent debug sessions (watch mode auto if cargo-watch installed)
+pwsh scripts/wasm-dev.ps1
+# Optimized build (single run)
+pwsh scripts/wasm-dev.ps1 -Release
+```
+
+Script behavior:
+- Validates `web/index.html`
+- Uses `wasm-server-runner` as cargo runner (see `.cargo/config.toml`)
+- Watches `src/`, `assets/`, and `web/` when `cargo-watch` is present
+- Prints a clear WebGPU requirement notice
+
+### Output Artifacts
+Build artifacts appear under:
+```
+target/wasm32-unknown-unknown/debug/   (or release/)
+```
+Served JS / WASM modules are referenced by `web/index.html`.
+
+### Troubleshooting
+| Symptom | Cause | Action |
+|---------|-------|--------|
+| Browser console: `navigator.gpu undefined` | WebGPU unsupported | Use a supported browser / enable flag |
+| Script says cargo-watch missing | Optional tool not installed | `cargo install cargo-watch` |
+| Port conflict | Another runner instance active | Stop prior process / change port (`$env:WASM_SERVER_RUNNER_PORT`) |
+| Stale build after edit (no watch) | Not using watch mode | Install cargo-watch or rerun script |
+
+Accessibility note: Plain-language, high-contrast instructions; still review with an auditing tool (e.g., Accessibility Insights).
