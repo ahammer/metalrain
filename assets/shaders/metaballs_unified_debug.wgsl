@@ -45,11 +45,49 @@ fn vertex(@location(0) position: vec3<f32>) -> VertexOutput {
     return out;
 }
 
+// Simple field visualization:
+// Accumulates the same kernel used in production ( (1 - d^2/r^2)^3 ) and then
+// visualizes (field - iso). Inside = warm, outside = cool, iso ≈ near neutral.
+// This ignores clustering & gradient lighting for clarity.
 @fragment
-fn fragment(_in: VertexOutput) -> @location(0) vec4<f32> {
-    // Solid red diagnostic. Alpha 1.0 to make sure compositing visibly succeeds.
-    // If this shows up the pipeline / bind group layouts are correct and the
-    // black screen issue originates elsewhere (e.g., upstream pass failure or
-    // unsupported texture usage in another node).
-    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    let ball_count        = u32(metaballs.v0.x + 0.5);
+    let radius_scale      = metaballs.v0.z;      // derived in Rust
+    let iso               = metaballs.v0.w;      // threshold
+    let radius_multiplier = metaballs.v2.w;      // per-frame multiplier
+    let p = in.world_pos;
+
+    if (ball_count == 0u) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+
+    var field: f32 = 0.0;
+    for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
+        let b = metaballs.balls[i];
+        let center = b.xy;
+        let r = b.z * radius_multiplier;
+        if (r <= 0.0) { continue; }
+        let scaled_r = r * radius_scale;
+        let d = p - center;
+        let d2 = dot(d, d);
+        let r2 = scaled_r * scaled_r;
+        if (d2 < r2) {
+            let x = 1.0 - d2 / r2;
+            let fi = x * x * x; // (1 - d^2/r^2)^3
+            field = field + fi;
+        }
+    }
+
+    let is_signed = field - iso; // positive inside
+    let norm = clamp(abs(is_signed) / (iso + 1e-5), 0.0, 1.0);
+    // Bi-color ramp: inside -> reds, outside -> blues, fade to white near iso
+    var col: vec3<f32>;
+    if (is_signed >= 0.0) {
+        col = mix(vec3<f32>(1.0, 0.95, 0.9), vec3<f32>(0.95, 0.15, 0.05), norm);
+    } else {
+        col = mix(vec3<f32>(0.9, 0.95, 1.0), vec3<f32>(0.1, 0.3, 0.9), norm);
+    }
+    // Encode alpha as a soft mask approximation for quick visual check
+    let mask = clamp(field / (iso + iso), 0.0, 1.0);
+    return vec4<f32>(col, mask);
 }
