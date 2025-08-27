@@ -17,7 +17,6 @@ pub(crate) struct DebugOverlayText;
 pub(crate) struct DebugConfigOverlayText;
 
 #[cfg(feature = "debug")]
-#[allow(dead_code)]
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Top-left anchored UI text node.
     let font_path = "fonts/FiraSans-Bold.ttf";
@@ -70,7 +69,6 @@ pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer
 }
 
 #[cfg(feature = "debug")]
-#[allow(dead_code)]
 pub(crate) fn debug_overlay_update(
     state: Res<DebugState>,
     stats: Res<DebugStats>,
@@ -161,7 +159,6 @@ pub(crate) fn debug_overlay_update(
 }
 
 #[cfg(feature = "debug")]
-#[allow(dead_code)]
 pub(crate) fn debug_config_overlay_update(
     state: Res<DebugState>,
     cfg: Res<GameConfig>,
