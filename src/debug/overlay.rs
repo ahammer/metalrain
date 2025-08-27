@@ -185,7 +185,7 @@ pub(crate) fn debug_config_overlay_update(
             "CFG window {w:.0}x{h:.0} gravY {gy} rest {rest:.2}\n \
 balls n={bc} r[{rmin:.0}-{rmax:.0}] vx[{vxmin:.0},{vxmax:.0}] vy[{vymin:.0},{vymax:.0}]\n \
 sep {sepen} slop {slop:.2} push {push:.2} max {maxp:.1} damp {damp:.2}\n \
-cp {cpen} peak {peak:.2} grow {grow:.2} hold {hold:.2} shrink {shrink:.2} tapR {tpr:.0} minN {minn} minA {mina:.0} curve {curve} freeze {freeze}\n \
+ cp {cpen} peak {peak:.2} grow {grow:.2} hold {hold:.2} shrink {shrink:.2} pickR {pickr:.0} minN {minn} minA {mina:.0} curve {curve} freeze {freeze}\n \
 metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
             w = cfg.window.width, h = cfg.window.height,
             gy = cfg.gravity.y,
@@ -201,7 +201,7 @@ metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
             grow = cp.grow_duration,
             hold = cp.hold_duration,
             shrink = cp.shrink_duration,
-            tpr = cp.tap_radius, minn = cp.min_ball_count, mina = cp.min_total_area,
+            pickr = cp.ball_pick_radius, minn = cp.min_ball_count, mina = cp.min_total_area,
             curve = cp.collider_scale_curve,
             freeze = cp.freeze_mode,
             mben = if cfg.metaballs_enabled {"on"} else {"off"}, iso = mb.iso, nz = mb.normal_z_scale,

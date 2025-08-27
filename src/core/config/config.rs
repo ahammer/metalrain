@@ -130,10 +130,6 @@ pub struct ClusterPopConfig {
     pub freeze_mode: u32,          // 0=ZeroVelEachFrame,1=Kinematic,2=Fixed
     pub fade_alpha: bool,
     pub fade_curve: u32,
-    // Deprecated (no longer used for tap picking); retained for backward compat deserialization
-    pub aabb_pad: f32,
-    // Deprecated (replaced by ball_pick_radius and ball-first picking logic)
-    pub tap_radius: f32,
     // New ball-first picking fields
     pub ball_pick_radius: f32,
     pub ball_pick_radius_scale_with_ball: bool,
@@ -164,8 +160,6 @@ impl Default for ClusterPopConfig {
             freeze_mode: 0,
             fade_alpha: true,
             fade_curve: 1,
-            aabb_pad: 4.0,
-            tap_radius: 32.0,
             ball_pick_radius: 36.0,
             ball_pick_radius_scale_with_ball: true,
             prefer_larger_radius_on_tie: true,
@@ -537,18 +531,6 @@ impl GameConfig {
                     cp.min_total_area
                 ));
             }
-            if cp.aabb_pad < 0.0 {
-                w.push(format!(
-                    "cluster_pop.aabb_pad {} negative -> treated as 0",
-                    cp.aabb_pad
-                ));
-            }
-            if cp.tap_radius < 0.0 { // legacy field still validated for old configs
-                w.push(format!(
-                    "cluster_pop.tap_radius {} negative -> treated as 0 (deprecated; use ball_pick_radius)",
-                    cp.tap_radius
-                ));
-            }
             if cp.ball_pick_radius < 0.0 {
                 w.push(format!(
                     "cluster_pop.ball_pick_radius {} negative -> treated as 0",
@@ -618,10 +600,6 @@ impl GameConfig {
                     "Ignoring legacy cluster_pop fields: {}",
                     legacy.join(", ")
                 ));
-            }
-            // Deprecation notice
-            if cp.tap_radius != 32.0 { // user likely set legacy field
-                w.push("cluster_pop.tap_radius is deprecated; ball-first picking ignores it".into());
             }
         }
         if self.metaballs.radius_multiplier <= 0.0 {

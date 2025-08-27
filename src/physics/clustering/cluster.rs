@@ -53,14 +53,31 @@ struct ClusterPersistence {
     next_cluster_id: u64,
 }
 const DETACH_THRESHOLD: f32 = 0.5;
-pub struct ClusterPlugin;
-impl Plugin for ClusterPlugin {
+/// Core clustering logic plugin: computes clusters and maintains reverse indices.
+/// (Extracted so tests can depend on clustering logic without pulling in gizmo resources.)
+pub struct ClusterCorePlugin;
+impl Plugin for ClusterCorePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Clusters>()
             .init_resource::<BallClusterIndex>()
             .init_resource::<ClusterPersistence>()
-            .add_systems(Update, compute_clusters.in_set(PostPhysicsAdjustSet))
-            .add_systems(Update, debug_draw_clusters.after(compute_clusters));
+            .add_systems(Update, compute_clusters.in_set(PostPhysicsAdjustSet));
+    }
+}
+
+/// Optional debug drawing for clusters; depends on gizmo infrastructure.
+pub struct ClusterDebugPlugin;
+impl Plugin for ClusterDebugPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, debug_draw_clusters.after(compute_clusters));
+    }
+}
+
+/// Backwards-compatible umbrella plugin preserving previous behavior (core + debug drawing).
+pub struct ClusterPlugin;
+impl Plugin for ClusterPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((ClusterCorePlugin, ClusterDebugPlugin));
     }
 }
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
