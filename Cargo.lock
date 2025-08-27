@@ -307,6 +307,7 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "web-sys",
+ "wgpu",
 ]
 
 [[package]]
