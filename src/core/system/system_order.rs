@@ -2,7 +2,7 @@
 //! Stages (high-level):
 //! 1. PrePhysics (custom forces / manual velocity edits before Rapier)
 //! 2. Rapier (handled by plugin)
-//! 3. PostPhysicsAdjust (separation / extra corrections)
+//! 3. PostPhysicsAdjust (lightweight post-physics corrections)
 //! 4. Rendering (implicit)
 use bevy::prelude::*;
 

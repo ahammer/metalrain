@@ -20,6 +20,8 @@ use crate::rendering::camera::camera::CameraPlugin;
 use crate::rendering::materials::materials::MaterialsPlugin;
 use crate::rendering::metaballs::metaballs::MetaballsPlugin;
 
+/// Aggregates core plugins: rendering, physics setup, spawning, clustering,
+/// metaball rendering, input actions, interaction mechanics, debug & tooling.
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
@@ -46,4 +48,3 @@ impl Plugin for GamePlugin {
         ));
     }
 }
-// SeparationPlugin removed (feature deprecated / removed).
