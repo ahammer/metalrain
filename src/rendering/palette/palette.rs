@@ -9,7 +9,6 @@ pub const BASE_COLORS: [Color; 4] = [
 
 // Secondary palette (disabled state variants)
 pub const SECONDARY_COLORS: [Color; 4] = [
-    // Even darker, further desaturated disabled variants for stronger contrast
     Color::srgb(0.22, 0.03, 0.04),  // Deeper muted red
     Color::srgb(0.03, 0.14, 0.26),  // Darker steel blue
     Color::srgb(0.24, 0.24, 0.04),  // Darker olive yellow
