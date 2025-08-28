@@ -95,26 +95,6 @@ impl Default for BallSpawnConfig {
         }
     }
 }
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(default)]
-pub struct CollisionSeparationConfig {
-    pub enabled: bool,
-    pub overlap_slop: f32,
-    pub push_strength: f32,
-    pub max_push: f32,
-    pub velocity_dampen: f32,
-}
-impl Default for CollisionSeparationConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            overlap_slop: 0.98,
-            push_strength: 0.5,
-            max_push: 10.0,
-            velocity_dampen: 0.2,
-        }
-    }
-}
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
@@ -188,7 +168,6 @@ pub struct GameConfig {
     pub gravity: GravityConfig,
     pub bounce: BounceConfig,
     pub balls: BallSpawnConfig,
-    pub separation: CollisionSeparationConfig,
     pub rapier_debug: bool,
     pub draw_circles: bool,
     pub metaballs_enabled: bool,
@@ -206,7 +185,6 @@ impl Default for GameConfig {
             gravity: Default::default(),
             bounce: Default::default(),
             balls: Default::default(),
-            separation: Default::default(),
             rapier_debug: false,
             draw_circles: false,
             metaballs_enabled: true,
@@ -498,26 +476,6 @@ impl GameConfig {
         check_range_f32(&mut w, "balls.y_range", &self.balls.y_range);
         check_range_f32(&mut w, "balls.vel_x_range", &self.balls.vel_x_range);
         check_range_f32(&mut w, "balls.vel_y_range", &self.balls.vel_y_range);
-        if self.separation.enabled {
-            if !(0.0..=1.2).contains(&self.separation.overlap_slop) {
-                w.push(format!(
-                    "separation.overlap_slop {} outside 0..1.2 typical bounds",
-                    self.separation.overlap_slop
-                ));
-            }
-            if self.separation.push_strength < 0.0 {
-                w.push("separation.push_strength negative".into());
-            }
-            if self.separation.max_push <= 0.0 {
-                w.push("separation.max_push must be > 0".into());
-            }
-            if !(0.0..=1.0).contains(&self.separation.velocity_dampen) {
-                w.push(format!(
-                    "separation.velocity_dampen {} outside 0..1",
-                    self.separation.velocity_dampen
-                ));
-            }
-        }
         if self.interactions.cluster_pop.enabled {
             let cp = &self.interactions.cluster_pop;
             if cp.min_ball_count < 1 {

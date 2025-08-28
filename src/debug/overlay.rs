@@ -175,13 +175,11 @@ pub(crate) fn debug_config_overlay_update(
         }
         // Compact multi-line representation; keep within ~120 cols.
         let b = &cfg.balls;
-        let sep = &cfg.separation;
         let cp = &cfg.interactions.cluster_pop;
         let mb = &cfg.metaballs;
         text.0 = format!(
             "CFG window {w:.0}x{h:.0} gravY {gy} rest {rest:.2}\n \
 balls n={bc} r[{rmin:.0}-{rmax:.0}] vx[{vxmin:.0},{vxmax:.0}] vy[{vymin:.0},{vymax:.0}]\n \
-sep {sepen} slop {slop:.2} push {push:.2} max {maxp:.1} damp {damp:.2}\n \
  cp {cpen} peak {peak:.2} grow {grow:.2} hold {hold:.2} shrink {shrink:.2} pickR {pickr:.0} minN {minn} minA {mina:.0} curve {curve} freeze {freeze}\n \
 metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
             w = cfg.window.width, h = cfg.window.height,
@@ -191,8 +189,6 @@ metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
             rmin = b.radius_range.min, rmax = b.radius_range.max,
             vxmin = b.vel_x_range.min, vxmax = b.vel_x_range.max,
             vymin = b.vel_y_range.min, vymax = b.vel_y_range.max,
-            sepen = if sep.enabled {"on"} else {"off"},
-            slop = sep.overlap_slop, push = sep.push_strength, maxp = sep.max_push, damp = sep.velocity_dampen,
             cpen = if cp.enabled {"on"} else {"off"},
             peak = cp.peak_scale,
             grow = cp.grow_duration,

@@ -16,7 +16,6 @@ use crate::interaction::session::config_hot_reload::ConfigHotReloadPlugin;
 use crate::physics::clustering::cluster::ClusterPlugin;
 use crate::physics::gravity::radial_gravity::RadialGravityPlugin;
 use crate::physics::rapier::rapier_physics::PhysicsSetupPlugin;
-use crate::physics::separation::separation::SeparationPlugin;
 use crate::rendering::camera::camera::CameraPlugin;
 use crate::rendering::materials::materials::MaterialsPlugin;
 use crate::rendering::metaballs::metaballs::MetaballsPlugin;
@@ -35,12 +34,10 @@ impl Plugin for GamePlugin {
             PhysicsSetupPlugin,
             RadialGravityPlugin,
             BallSpawnPlugin,
-            SeparationPlugin,
             ClusterPlugin,
             MetaballsPlugin,
             InputActionsPlugin,
             ClusterPopPlugin,
-
             DebugPlugin,
             ConfigHotReloadPlugin,
             AutoClosePlugin,
@@ -49,4 +46,4 @@ impl Plugin for GamePlugin {
         ));
     }
 }
-// Removed verbose debug_entity_counts logging system.
+// SeparationPlugin removed (feature deprecated / removed).
