@@ -48,7 +48,7 @@ struct BallPersist {
     color_index: usize,
 }
 #[derive(Resource, Default)]
-struct ClusterPersistence {
+pub struct ClusterPersistence {
     map: std::collections::HashMap<Entity, BallPersist>,
     next_cluster_id: u64,
 }
@@ -82,7 +82,7 @@ impl Plugin for ClusterPlugin {
 }
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 struct Cell(i32, i32);
-fn compute_clusters(
+pub fn compute_clusters(
     mut clusters: ResMut<Clusters>,
     mut cluster_index: ResMut<BallClusterIndex>,
     mut persistence: ResMut<ClusterPersistence>,

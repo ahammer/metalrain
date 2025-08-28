@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 use bevy::prelude::*;
 use bevy::sprite::MeshMaterial2d;
 use bevy_rapier2d::prelude::{Collider, Velocity};
@@ -137,11 +138,22 @@ where I: IntoIterator<Item = (Entity, &'a Transform, &'a BallRadius, Option<&'a 
                     if cp.prefer_larger_radius_on_tie && (radius_val > br + 1e-6) { true }
                     else if (radius_val - br).abs() <= 1e-6 {
                         let bcl = &clusters.0[bci];
-                        if cluster.entities.len() > bcl.entities.len() { true }
-                        else if cluster.entities.len() == bcl.entities.len() {
-                            if centroid_d2 + DIST_EPS < bcent_d2 { true }
-                            else if (centroid_d2 - bcent_d2).abs() <= DIST_EPS { entity.index() < best_entity.index() } else { false }
-                        } else { false }
+                        {
+                            use std::cmp::Ordering;
+                            match cluster.entities.len().cmp(&bcl.entities.len()) {
+                                Ordering::Greater => true,
+                                Ordering::Less => false,
+                                Ordering::Equal => {
+                                    if centroid_d2 + DIST_EPS < bcent_d2 {
+                                        true
+                                    } else if (centroid_d2 - bcent_d2).abs() <= DIST_EPS {
+                                        entity.index() < best_entity.index()
+                                    } else {
+                                        false
+                                    }
+                                }
+                            }
+                        }
                     } else { false }
                 } else { false }
             }

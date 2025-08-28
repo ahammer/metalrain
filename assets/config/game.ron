@@ -23,9 +23,9 @@
     draw_circles: false,
     metaballs_enabled: true,
     metaballs: (
-        iso: 0.001,
+        iso: 0.7,
         normal_z_scale: 0.12,
-        radius_multiplier: 2.0,
+        radius_multiplier: 0.8,
     ),
     metaballs_shader: (
         fg_mode: 1,
@@ -79,4 +79,7 @@
         ),
     ),
 
+    ball_state: (
+        tween_duration: 0.35,
+    ),
 )

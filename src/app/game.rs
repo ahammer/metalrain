@@ -19,6 +19,7 @@ use crate::physics::rapier::rapier_physics::PhysicsSetupPlugin;
 use crate::rendering::camera::camera::CameraPlugin;
 use crate::rendering::materials::materials::MaterialsPlugin;
 use crate::rendering::metaballs::metaballs::MetaballsPlugin;
+use crate::gameplay::state::BallStatePlugin;
 
 /// Aggregates core plugins: rendering, physics setup, spawning, clustering,
 /// metaball rendering, input actions, interaction mechanics, debug & tooling.
@@ -37,6 +38,7 @@ impl Plugin for GamePlugin {
             RadialGravityPlugin,
             BallSpawnPlugin,
             ClusterPlugin,
+            BallStatePlugin,
             MetaballsPlugin,
             InputActionsPlugin,
             ClusterPopPlugin,

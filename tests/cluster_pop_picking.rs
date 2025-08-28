@@ -3,7 +3,7 @@ use bevy_rapier2d::prelude::*;
 use ball_matcher::core::components::{Ball, BallRadius};
 use ball_matcher::core::config::{GameConfig, ClusterPopConfig};
 use ball_matcher::interaction::cluster_pop::{pick_ball_cluster, PaddleLifecycle};
-use ball_matcher::physics::clustering::cluster::{ClusterPlugin, BallClusterIndex, Clusters};
+use ball_matcher::physics::clustering::cluster::{ClusterCorePlugin, BallClusterIndex, Clusters};
 
 fn base_cluster_pop() -> ClusterPopConfig {
     ClusterPopConfig {
@@ -36,7 +36,7 @@ fn test_app(modify: impl FnOnce(&mut ClusterPopConfig)) -> App {
     app.add_plugins(MinimalPlugins);
     app.insert_resource(cfg);
     // Not running full physics; velocities only
-    app.add_plugins(ClusterPlugin);
+    app.add_plugins(ClusterCorePlugin);
     // Do not add full ClusterPopPlugin; we test pick_ball_cluster directly to avoid mouse input resource requirements
     app
 }
@@ -54,7 +54,7 @@ fn perform_pick(app: &mut App, world_pos: Vec2) -> Option<usize> {
     let world = app.world_mut();
     // Manual iteration
     for (entity, tf, br, pl) in world.query::<(Entity, &Transform, &BallRadius, Option<&PaddleLifecycle>)>().iter(world) {
-        entities.push((entity, tf.clone(), *br, pl.is_some()));
+        entities.push((entity, *tf, *br, pl.is_some()));
     }
     let clusters = world.resource::<Clusters>().clone();
     let index = world.resource::<BallClusterIndex>().clone();

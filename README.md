@@ -6,79 +6,73 @@ Experimental clustering & popping prototype built with Bevy.
 
 - Metaball rendering with multiple foreground / background shader modes.
 - Cluster persistence & popping (growth / hold / shrink lifecycle).
-- NEW: Cluster Highlighting (Disabled / Enabled / Active) with smooth color tweening.
+- Ball state system (Enabled / Disabled) with secondary palette + smooth tween; disabled balls isolated (non-merging).
 
-## Cluster Highlighting
+## Ball State & Dual Palette
 
-Purpose: Instantly communicates which clusters are:
-- Disabled: Below pop size threshold (darker).
-- Enabled: Reachable / can be popped (base palette color).
-- Active: Currently popping (lighter) during lifecycle animation.
+Purpose: Instantly distinguish actionable (poppable) clusters from non-actionable ones while preserving merging behavior only for enabled clusters. Disabled (non-poppable) balls use a secondary fixed palette variant and are visually isolated (their metaball fields do not merge) without any WGSL interface changes.
 
-### Configuration (game.ron)
+### States
+- Enabled: Cluster meets BOTH thresholds (`min_ball_count` AND `min_total_area`) -> shares a single color slot (classic merging).
+- Disabled: Cluster fails one or both thresholds -> each ball receives its own unique slot (no field accumulation / no merging look).
 
+### Components / Systems
+- `BallState { enabled: bool, last_change: f32 }` lazily inserted/updated per ball after clustering (`compute_clusters`) in `BallStateUpdateSet`.
+- `BallStatePlugin` orders `update_ball_states` after `compute_clusters` inside `PostPhysicsAdjustSet`.
+- Rendering system assigns:
+  1. Slots for enabled clusters (one per enabled cluster).
+  2. Unique per-ball slots for disabled clusters.
+  3. Overflow fallback (if unique slots exceed `MAX_CLUSTERS`): disabled balls grouped by base palette index (merging may reappear) with a one-time log.
+
+### Palette / Colors
+Primary: `BASE_COLORS`
+Secondary: `SECONDARY_COLORS` (artist-authored alternatives; not algorithmic darkening)
+Helper: `secondary_color_for_index(i)` keeps index alignment.
+
+### Tweening
+Linear interpolation in linear color space between enabled and disabled variants per represented state:
+- On transition (enabled flag flip) `last_change` updated.
+- Factor `t = clamp((now - last_change)/tween_duration, 0..1)`.
+- If `enabled` now true: `lerp(disabled_color -> enabled_color, t)`.
+- Else: `lerp(enabled_color -> disabled_color, t)`.
+
+No extra buffers; color computed while packing uniform cluster color array.
+
+### Config
+`GameConfig.ball_state.tween_duration` (default 0.35s, clamped & warned if <= 0 -> treated as 0.01). Secondary palette is fixed (no config fields yet).
+
+Example (optional explicit override in `game.ron`):
 ```ron
-cluster_highlight: (
-    enabled: true,
-    color_tween_seconds: 0.20,
-    disabled_mix: 0.5,
-    active_mix: 0.5,
+ball_state: (
+    tween_duration: 0.35,
 )
 ```
 
-Field semantics:
-- enabled: Master toggle. When false, rendering uses legacy base colors (variants collapse to base).
-- color_tween_seconds: Linear tween duration (0.0..2.0 clamped) for transitions between state colors.
-- disabled_mix: Lerp factor toward black for Disabled variant (0..1 clamped; auto-bumped +0.1 if contrast too low).
-- active_mix: Lerp factor toward white for Active variant (0..1 clamped; auto-bumped +0.1 if contrast too low).
-
-Cluster pop threshold is NOT duplicated; the size gate is always: `interactions.cluster_pop.min_ball_count`.
-
-### Runtime Model
-
-Per logical cluster:
-- `ClusterHighlight` component tracks state machine & tween.
-- State derivation:
-  - Active if any ball in cluster has `PaddleLifecycle`.
-  - Else Enabled if `ball_count >= min_ball_count`.
-  - Else Disabled.
-- Palette variants (enabled/disabled/active) precomputed once at startup (or hot-reload path if extended later) and reused.
-
-### Performance Notes
-
-- No extra per-ball allocations; per-frame highlight color lookup is O(cluster_count).
-- Tween math only runs while `tween_t < 1.0`.
-- CPU-side blended color written into existing uniform cluster color array (no shader change required).
-
-### Testing
-
-Pure tests include:
-- Color lerp midpoint.
-- Palette variant generation clamp & luminance direction.
-- State decision logic (`decide_state`).
-(See `src/rendering/palette/palette.rs` & `src/interaction/cluster_highlight/mod.rs` tests.)
+### Performance Considerations
+- O(cluster_count + ball_count) per frame; uses pre-sized hash maps (capacity ball_count).
+- No per-frame heap growth beyond temporary maps.
+- Slot overflow handled gracefully; single INFO log via `OverflowLogged` resource.
 
 ### Logging
+- INFO (target = "ball_state") on first Disabled insert and on state transitions (can be later throttled if overly chatty).
+- INFO (target = "metaballs") on overflow fallback trigger (once).
 
-- `info[target=cluster_highlight]` on palette variant initialization (or when disabled).
-- (debug feature only) `debug[target=cluster_highlight]` for state transitions (guarded & minimal).
-- Validation warnings for out-of-range config values emitted via existing `GameConfig::validate()` (new warnings for highlight fields).
+### Edge Cases
+- 0 clusters: system early returns (no inserts).
+- Rapid threshold oscillation restarts tween each flip.
+- Extremely small tween duration behaves like instant color swap.
 
-### Future Enhancements (Documented Only)
+### Testing
+Unit/integration tests:
+- `lerp_color_midpoint` accuracy.
+- Secondary palette mapping difference.
+- Slot allocation test: Disabled (unique slots) -> Enabled (shared slot) transition.
 
-- GPU-side branching / variant arrays & per-cluster factor to skip CPU blending.
-- Non-linear easing curves (ease-in-out).
-- Per-color adaptive mixes to normalize perceived luminance.
-- Outline / halo effect or subtle pulse instead of pure fill color shift.
-- Adjustable minimum luminance delta fields (e.g., `min_luminance_delta_disabled`, `min_luminance_delta_active`).
-
-### Manual Playtest Checklist (Developer)
-
-- Toggle threshold size around `cluster_pop.min_ball_count` and confirm a ~200ms smooth transition (no abrupt jump).
-- Click an Enabled cluster: transitions to Active variant immediately and tweens if coming from another state.
-- Disabled clusters appear visibly darker; Active clusters noticeably lighter (target ~50% mix).
-- Disable feature in config and confirm original visuals restored and logs reflect disabled state.
-- Profiling: Ensure color update system adds < 0.2ms at representative cluster counts.
+### Manual Visual Verification Checklist
+- Disabled balls appear discrete (no merging halos) and show secondary hues.
+- Enabled clusters continue to merge identically to legacy behavior.
+- Smooth cross-fade when clusters become enabled/disabled.
+- Overflow scenario (force many disabled balls) still renders (fallback grouping) with log.
 
 ## Building / Running
 
