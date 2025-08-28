@@ -38,10 +38,19 @@ impl Default for GravityConfig {
 #[serde(default)]
 pub struct BounceConfig {
     pub restitution: f32,
+    pub friction: f32,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
 }
 impl Default for BounceConfig {
     fn default() -> Self {
-        Self { restitution: 0.85 }
+        // Defaults tuned for more stable cluster settling (lower restitution, some friction & damping)
+        Self {
+            restitution: 0.65,
+            friction: 0.9,
+            linear_damping: 0.25,
+            angular_damping: 0.8,
+        }
     }
 }
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -460,6 +469,39 @@ impl GameConfig {
         }
         if self.bounce.restitution < 0.0 {
             w.push("restitution negative -> energy gain/clamping side effects".into());
+        }
+        if self.bounce.friction < 0.0 {
+            w.push(format!(
+                "bounce.friction {} < 0 -> treated as 0 (non-physical negative)",
+                self.bounce.friction
+            ));
+        } else if self.bounce.friction > 10.0 {
+            w.push(format!(
+                "bounce.friction {} very high; contact resolution may become sticky",
+                self.bounce.friction
+            ));
+        }
+        if self.bounce.linear_damping < 0.0 {
+            w.push(format!(
+                "bounce.linear_damping {} < 0 -> treated as 0",
+                self.bounce.linear_damping
+            ));
+        } else if self.bounce.linear_damping > 10.0 {
+            w.push(format!(
+                "bounce.linear_damping {} extremely high; motion may freeze",
+                self.bounce.linear_damping
+            ));
+        }
+        if self.bounce.angular_damping < 0.0 {
+            w.push(format!(
+                "bounce.angular_damping {} < 0 -> treated as 0",
+                self.bounce.angular_damping
+            ));
+        } else if self.bounce.angular_damping > 20.0 {
+            w.push(format!(
+                "bounce.angular_damping {} extremely high; rotation may halt abruptly",
+                self.bounce.angular_damping
+            ));
         }
         if self.balls.count == 0 {
             w.push("balls.count is 0; nothing will spawn".into());

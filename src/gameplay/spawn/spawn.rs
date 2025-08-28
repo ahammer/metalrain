@@ -114,6 +114,9 @@ fn spawn_balls(
             radius,
             material,
             restitution,
+            cfg.bounce.friction,
+            cfg.bounce.linear_damping,
+            cfg.bounce.angular_damping,
             variant_idx,
             cfg.draw_circles,
         );
@@ -135,6 +138,9 @@ pub fn spawn_ball_entity(
     radius: f32,
     material: Handle<ColorMaterial>,
     restitution: f32,
+    friction: f32,
+    linear_damping: f32,
+    angular_damping: f32,
     variant_idx: usize,
     draw_circles: bool,
 ) {
@@ -145,9 +151,10 @@ pub fn spawn_ball_entity(
         Collider::ball(radius),
         Velocity::linear(linear_vel),
         Restitution::coefficient(restitution),
+        Friction::coefficient(friction),
         Damping {
-            linear_damping: 0.0,
-            angular_damping: 0.0,
+            linear_damping,
+            angular_damping,
         },
         ActiveEvents::COLLISION_EVENTS,
         Ball,

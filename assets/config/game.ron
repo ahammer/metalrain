@@ -9,7 +9,10 @@
         y: -600.0,
     ),
     bounce: (
-        restitution: 0.85,
+        restitution: 0.62,
+        friction: 0.9,
+        linear_damping: 0.3,
+        angular_damping: 0.8,
     ),
     balls: (
         count: 250,

@@ -9,11 +9,11 @@ pub const BASE_COLORS: [Color; 4] = [
 
 // Secondary palette (disabled state variants)
 pub const SECONDARY_COLORS: [Color; 4] = [
-    // Darker, desaturated disabled variants (clearly distinct, harmonious)
-    Color::srgb(0.35, 0.05, 0.07),  // Deep muted red
-    Color::srgb(0.05, 0.22, 0.40),  // Deep steel blue
-    Color::srgb(0.40, 0.40, 0.06),  // Dark olive yellow
-    Color::srgb(0.05, 0.30, 0.17),  // Deep forest green
+    // Even darker, further desaturated disabled variants for stronger contrast
+    Color::srgb(0.22, 0.03, 0.04),  // Deeper muted red
+    Color::srgb(0.03, 0.14, 0.26),  // Darker steel blue
+    Color::srgb(0.24, 0.24, 0.04),  // Darker olive yellow
+    Color::srgb(0.03, 0.18, 0.10),  // Darker forest green
 ];
 
 #[inline]

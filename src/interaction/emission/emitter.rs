@@ -109,6 +109,9 @@ fn emit_balls(
         radius,
         material,
         restitution,
+        cfg.bounce.friction,
+        cfg.bounce.linear_damping,
+        cfg.bounce.angular_damping,
         variant_idx,
         cfg.draw_circles,
     );
