@@ -114,6 +114,7 @@ mod tests {
                 max: Vec2::ZERO,
                 centroid: Vec2::ZERO,
                 total_area: 2000.0,
+                id: 0,
             });
         }
         // Run schedules

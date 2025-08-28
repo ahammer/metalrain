@@ -21,9 +21,10 @@ pub struct Cluster {
     pub max: Vec2,
     pub centroid: Vec2,
     pub total_area: f32,
+    pub id: u64, // stable cluster id
 }
 impl Cluster {
-    fn new(color_index: usize) -> Self {
+    fn new(color_index: usize, id: u64) -> Self {
         Self {
             color_index,
             entities: Vec::new(),
@@ -31,6 +32,7 @@ impl Cluster {
             max: Vec2::splat(f32::NEG_INFINITY),
             centroid: Vec2::ZERO,
             total_area: 0.0,
+            id,
         }
     }
 }
@@ -38,23 +40,21 @@ impl Cluster {
 pub struct Clusters(pub Vec<Cluster>);
 
 /// Reverse index: ball Entity -> cluster index (into `Clusters.0`)
-/// Rebuilt every frame immediately after clusters are computed.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct BallClusterIndex(pub std::collections::HashMap<Entity, usize>);
+
 #[derive(Debug, Clone)]
-struct BallPersist {
+struct PersistEntry {
     cluster_id: u64,
-    last_touch_time: f32,
     color_index: usize,
 }
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Debug, Clone)]
 pub struct ClusterPersistence {
-    map: std::collections::HashMap<Entity, BallPersist>,
-    next_cluster_id: u64,
+    pub map: std::collections::HashMap<Entity, PersistEntry>,
+    pub next_cluster_id: u64,
 }
-const DETACH_THRESHOLD: f32 = 0.5;
-/// Core clustering logic plugin: computes clusters and maintains reverse indices.
-/// (Extracted so tests can depend on clustering logic without pulling in gizmo resources.)
+
+/// Core clustering logic plugin.
 pub struct ClusterCorePlugin;
 impl Plugin for ClusterCorePlugin {
     fn build(&self, app: &mut App) {
@@ -65,7 +65,7 @@ impl Plugin for ClusterCorePlugin {
     }
 }
 
-/// Optional debug drawing for clusters; depends on gizmo infrastructure.
+/// Optional debug drawing for clusters.
 pub struct ClusterDebugPlugin;
 impl Plugin for ClusterDebugPlugin {
     fn build(&self, app: &mut App) {
@@ -73,20 +73,21 @@ impl Plugin for ClusterDebugPlugin {
     }
 }
 
-/// Backwards-compatible umbrella plugin preserving previous behavior (core + debug drawing).
+/// Umbrella plugin.
 pub struct ClusterPlugin;
 impl Plugin for ClusterPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((ClusterCorePlugin, ClusterDebugPlugin));
     }
 }
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 struct Cell(i32, i32);
+
 pub fn compute_clusters(
     mut clusters: ResMut<Clusters>,
     mut cluster_index: ResMut<BallClusterIndex>,
     mut persistence: ResMut<ClusterPersistence>,
-    time: Res<Time>,
     q: Query<ClusterQueryItem<'_>, With<Ball>>,
     cfg: Option<Res<crate::core::config::GameConfig>>,
 ) {
@@ -98,7 +99,7 @@ pub fn compute_clusters(
         .map(|g| g.interactions.cluster_pop.exclude_from_new_clusters)
         .unwrap_or(true);
 
-    // Collect only included (non-popping when excluded) balls
+    // Collect included balls
     let mut entities: Vec<Entity> = Vec::new();
     let mut positions: Vec<Vec2> = Vec::new();
     let mut radii: Vec<f32> = Vec::new();
@@ -121,12 +122,27 @@ pub fn compute_clusters(
 
     let count = entities.len();
     if count == 0 {
-        // No included balls this frame; clear persistence of removed entities
+        // Clear persistence of removed entities
         persistence.map.clear();
         return;
     }
 
-    // Union-find buffers sized to included count ONLY (bug fix: previously sized to total query count incl. excluded)
+    // Hysteresis thresholds (clamped logically)
+    let enter = cfg
+        .as_ref()
+        .map(|c| c.clustering.distance_buffer_enter_cluster)
+        .unwrap_or(1.2)
+        .max(1.0)
+        .min(3.0);
+    let mut exit = cfg
+        .as_ref()
+        .map(|c| c.clustering.distance_buffer_exit_cluster)
+        .unwrap_or(1.25)
+        .max(enter)
+        .min(3.0);
+
+
+    // Union-find
     let mut parent: Vec<usize> = (0..count).collect();
     let mut rank: Vec<u8> = vec![0; count];
     fn find(parent: &mut [usize], i: usize) -> usize {
@@ -152,9 +168,11 @@ pub fn compute_clusters(
             rank[ra] += 1;
         }
     }
-    let cell_size = (max_radius * 2.0).max(1.0);
+
+    // Spatial hash
+    let cell_size = (max_radius * 2.0 * exit).max(1.0); // use largest buffer for coverage
     let inv_cell = 1.0 / cell_size;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     let mut grid: HashMap<Cell, Vec<usize>> = HashMap::new();
     for (i, p) in positions.iter().enumerate() {
         let cx = (p.x * inv_cell).floor() as i32;
@@ -163,6 +181,13 @@ pub fn compute_clusters(
     }
     let neighbor_offsets = [-1, 0, 1];
     let keys: Vec<Cell> = grid.keys().cloned().collect();
+
+    // Pre-fetch previous cluster ids for hysteresis
+    let mut prev_cluster_ids: Vec<Option<u64>> = Vec::with_capacity(count);
+    for e in entities.iter() {
+        prev_cluster_ids.push(persistence.map.get(e).map(|p| p.cluster_id));
+    }
+
     for cell in keys {
         if let Some(indices) = grid.get(&cell) {
             for &i in indices {
@@ -186,9 +211,20 @@ pub fn compute_clusters(
                                 let rj = radii[j];
                                 let delta = pj - pi;
                                 let dist2 = delta.length_squared();
-                                let touch = ri + rj;
-                                if dist2 <= touch * touch {
+                                let sum_r = ri + rj;
+                                let enter_thresh = sum_r * enter;
+                                let exit_thresh = sum_r * exit;
+                                if dist2 <= enter_thresh * enter_thresh {
                                     union(&mut parent, &mut rank, i, j);
+                                } else if dist2 <= exit_thresh * exit_thresh {
+                                    // Only keep if previously same cluster (hysteresis)
+                                    if let (Some(a), Some(b)) =
+                                        (prev_cluster_ids[i], prev_cluster_ids[j])
+                                    {
+                                        if a == b {
+                                            union(&mut parent, &mut rank, i, j);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -197,73 +233,39 @@ pub fn compute_clusters(
             }
         }
     }
-    let mut raw: HashMap<usize, Vec<usize>> = HashMap::new();
+
+    // Aggregate by root (collect indices)
+    let mut comps: HashMap<usize, Vec<usize>> = HashMap::new();
     for i in 0..count {
         let root = find(&mut parent, i);
-        raw.entry(root).or_default().push(i);
+        comps.entry(root).or_default().push(i);
     }
-    let now = time.elapsed_secs();
-    let mut seen: HashSet<Entity> = HashSet::new();
-    for indices in raw.values() {
-        let multi = indices.len() > 1;
-        let mut existing_ids: HashSet<u64> = HashSet::new();
-        for &idx in indices {
-            if let Some(p) = persistence.map.get(&entities[idx]) {
-                existing_ids.insert(p.cluster_id);
-            }
-        }
-        let target_id = if let Some(&id) = existing_ids.iter().next() {
-            id
+
+    // Determine stable cluster IDs:
+    // For each component, gather existing ids among members; reuse smallest, else allocate new.
+    let mut new_clusters: Vec<Cluster> = Vec::with_capacity(comps.len());
+    for indices in comps.values() {
+        // Collect existing persistence ids
+        let mut existing_ids: Vec<u64> = indices
+            .iter()
+            .filter_map(|&idx| prev_cluster_ids[idx])
+            .collect();
+        existing_ids.sort_unstable();
+        existing_ids.dedup();
+        let cluster_id = if let Some(id) = existing_ids.first() {
+            *id
         } else {
             let id = persistence.next_cluster_id;
             persistence.next_cluster_id += 1;
             id
         };
-        if existing_ids.len() > 1 {
-            for (_e, p) in persistence.map.iter_mut() {
-                if existing_ids.contains(&p.cluster_id) {
-                    p.cluster_id = target_id;
-                }
-            }
-        }
+
+        // If multiple previous ids merged, no need to rewrite anything yet; later we update entries.
+
+        let color_index = colors[indices[0]];
+        let mut cl = Cluster::new(color_index, cluster_id);
         for &idx in indices {
-            let e = entities[idx];
-            let color = colors[idx];
-            let entry = persistence.map.entry(e).or_insert(BallPersist {
-                cluster_id: target_id,
-                last_touch_time: now,
-                color_index: color,
-            });
-            entry.color_index = color;
-            if multi {
-                entry.last_touch_time = now;
-            }
-            seen.insert(e);
-        }
-    }
-    let current_set: HashSet<Entity> = entities.iter().copied().collect();
-    persistence.map.retain(|e, _| current_set.contains(e));
-    let mut to_reassign: Vec<Entity> = Vec::new();
-    for (e, p) in persistence.map.iter() {
-        let isolated_long_enough = now - p.last_touch_time > DETACH_THRESHOLD;
-        if isolated_long_enough {
-            to_reassign.push(*e);
-        }
-    }
-    for e in to_reassign {
-        let new_id = persistence.next_cluster_id;
-        persistence.next_cluster_id += 1;
-        if let Some(p) = persistence.map.get_mut(&e) {
-            p.cluster_id = new_id;
-        }
-    }
-    let mut agg: HashMap<u64, Cluster> = HashMap::new();
-    for (e, p) in persistence.map.iter() {
-        if let Some(idx) = entities.iter().position(|ee| ee == e) {
-            let cl = agg
-                .entry(p.cluster_id)
-                .or_insert_with(|| Cluster::new(p.color_index));
-            cl.entities.push(*e);
+            cl.entities.push(entities[idx]);
             let pos = positions[idx];
             let r = radii[idx];
             let area = std::f32::consts::PI * r * r;
@@ -284,21 +286,39 @@ pub fn compute_clusters(
                 cl.max.y = max_p.y;
             }
         }
+        new_clusters.push(cl);
     }
-    clusters.0 = agg.into_values().collect();
-    for cl in clusters.0.iter_mut() {
+
+    for cl in new_clusters.iter_mut() {
         if cl.total_area > 0.0 {
             cl.centroid /= cl.total_area;
         }
     }
 
-    // Rebuild reverse index (ball -> cluster index)
+    // Update persistence map to only current entities
+    let current_set: std::collections::HashSet<Entity> =
+        entities.iter().copied().collect();
+    persistence.map.retain(|e, _| current_set.contains(e));
+
+    // Write new persistence entries (merging any old cluster ids automatically reuses chosen id)
+    for cl in new_clusters.iter() {
+        for &e in cl.entities.iter() {
+            persistence
+                .map
+                .insert(e, PersistEntry { cluster_id: cl.id, color_index: cl.color_index });
+        }
+    }
+
+    clusters.0 = new_clusters;
+
+    // Rebuild reverse index
     for (idx, cl) in clusters.0.iter().enumerate() {
         for e in cl.entities.iter() {
             cluster_index.0.insert(*e, idx);
         }
     }
 }
+
 fn debug_draw_clusters(
     clusters: Res<Clusters>,
     _display: Option<Res<BallDisplayMaterials>>,
@@ -320,5 +340,97 @@ fn debug_draw_clusters(
         let center = min + size * 0.5;
         let color = color_for_index(cl.color_index);
         gizmos.rect_2d(Isometry2d::from_translation(center), size, color);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::*;
+
+    fn setup_app(enter: f32, exit: f32) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(TransformPlugin);
+        app.add_plugins(ClusterCorePlugin);
+        let mut cfg = crate::core::config::GameConfig::default();
+        cfg.clustering.distance_buffer_enter_cluster = enter;
+        cfg.clustering.distance_buffer_exit_cluster = exit;
+        app.insert_resource(cfg);
+        app
+    }
+
+    fn spawn_ball(app: &mut App, pos: Vec2, radius: f32, color: usize) -> Entity {
+        app.world_mut().spawn((
+            Ball,
+            BallRadius(radius),
+            BallMaterialIndex(color),
+            Transform::from_xyz(pos.x, pos.y, 0.0),
+            GlobalTransform::default(),
+        )).id()
+    }
+
+    #[test]
+    fn within_enter_forms_cluster() {
+        let mut app = setup_app(1.2, 1.25);
+        spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
+        spawn_ball(&mut app, Vec2::new(23.0, 0.0), 10.0, 0); // < 24 enter
+        app.update();
+        let clusters = app.world().resource::<Clusters>();
+        assert_eq!(clusters.0.len(), 1);
+        assert_eq!(clusters.0[0].entities.len(), 2);
+    }
+
+    #[test]
+    fn outside_enter_not_join_first_frame() {
+        let mut app = setup_app(1.2, 1.25);
+        spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
+        spawn_ball(&mut app, Vec2::new(25.0, 0.0), 10.0, 0); // > 24 enter, > 25 exit? exit = (10+10)*1.25=25 => boundary
+        app.update();
+        let clusters = app.world().resource::<Clusters>();
+        assert_eq!(clusters.0.len(), 2);
+    }
+
+    #[test]
+    fn hysteresis_keeps_pair_until_exit() {
+        let mut app = setup_app(1.2, 1.25);
+        // Start within enter
+        let e1 = spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
+        let e2 = spawn_ball(&mut app, Vec2::new(23.0, 0.0), 10.0, 0);
+        app.update();
+        {
+            let clusters = app.world().resource::<Clusters>();
+            assert_eq!(clusters.0.len(), 1);
+        }
+        // Move second ball just outside enter (24.5) but inside exit (25)
+        {
+            let mut t = app.world_mut().get_mut::<Transform>(e2).unwrap();
+            t.translation.x = 24.5;
+        }
+        app.update();
+        {
+            let clusters = app.world().resource::<Clusters>();
+            assert_eq!(clusters.0.len(), 1, "should persist due to exit hysteresis");
+        }
+        // Move beyond exit (25.5)
+        {
+            let mut t = app.world_mut().get_mut::<Transform>(e2).unwrap();
+            t.translation.x = 25.5;
+        }
+        app.update();
+        {
+            let clusters = app.world().resource::<Clusters>();
+            assert_eq!(clusters.0.len(), 2, "pair should split after exceeding exit");
+        }
+    }
+
+    #[test]
+    fn different_colors_do_not_merge() {
+        let mut app = setup_app(1.2, 1.25);
+        spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
+        spawn_ball(&mut app, Vec2::new(20.0, 0.0), 10.0, 1);
+        app.update();
+        let clusters = app.world().resource::<Clusters>();
+        assert_eq!(clusters.0.len(), 2);
     }
 }

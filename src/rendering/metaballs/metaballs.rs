@@ -787,6 +787,7 @@ mod tests {
                         max: Vec2::ZERO,
                         centroid: Vec2::ZERO,
                         total_area: 0.0,
+                        id: 0,
                     });
                 } else {
                     clusters.0[0].entities.push(e);

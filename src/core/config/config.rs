@@ -181,6 +181,21 @@ impl Default for BallStateConfig {
     }
 }
 
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct ClusteringConfig {
+    pub distance_buffer_enter_cluster: f32,
+    pub distance_buffer_exit_cluster: f32,
+}
+impl Default for ClusteringConfig {
+    fn default() -> Self {
+        Self {
+            distance_buffer_enter_cluster: 1.2,
+            distance_buffer_exit_cluster: 1.25,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
 pub struct GameConfig {
@@ -197,6 +212,7 @@ pub struct GameConfig {
     pub surface_noise: SurfaceNoiseConfig,
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
+    pub clustering: ClusteringConfig,
     pub ball_state: BallStateConfig,
 }
 impl Default for GameConfig {
@@ -215,6 +231,7 @@ impl Default for GameConfig {
             surface_noise: Default::default(),
             draw_cluster_bounds: false,
             interactions: Default::default(),
+            clustering: Default::default(),
             ball_state: Default::default(),
         }
     }
@@ -659,6 +676,27 @@ impl GameConfig {
             w.push(format!(
                 "ball_state.tween_duration {} <= 0 -> clamped to 0.01",
                 self.ball_state.tween_duration
+            ));
+        }
+        // Clustering validation warnings (non-mutating)
+        let db_enter = self.clustering.distance_buffer_enter_cluster;
+        let db_exit = self.clustering.distance_buffer_exit_cluster;
+        if db_enter < 1.0 {
+            w.push(format!(
+                "clustering.distance_buffer_enter_cluster {} < 1.0 -> treated logically as 1.0",
+                db_enter
+            ));
+        }
+        if db_exit < db_enter {
+            w.push(format!(
+                "clustering.distance_buffer_exit_cluster {} < enter {} -> will be treated as enter",
+                db_exit, db_enter
+            ));
+        }
+        if db_exit > 3.0 {
+            w.push(format!(
+                "clustering.distance_buffer_exit_cluster {} > 3.0; large merge radius may create mega-cluster & hurt perf",
+                db_exit
             ));
         }
 
