@@ -46,11 +46,10 @@ pub struct BallClusterIndex(pub std::collections::HashMap<Entity, usize>);
 #[derive(Debug, Clone)]
 struct PersistEntry {
     cluster_id: u64,
-    color_index: usize,
 }
 #[derive(Resource, Default, Debug, Clone)]
 pub struct ClusterPersistence {
-    pub map: std::collections::HashMap<Entity, PersistEntry>,
+    map: std::collections::HashMap<Entity, PersistEntry>,
     pub next_cluster_id: u64,
 }
 
@@ -134,7 +133,7 @@ pub fn compute_clusters(
         .unwrap_or(1.2)
         .max(1.0)
         .min(3.0);
-    let mut exit = cfg
+    let exit = cfg
         .as_ref()
         .map(|c| c.clustering.distance_buffer_exit_cluster)
         .unwrap_or(1.25)
@@ -305,7 +304,7 @@ pub fn compute_clusters(
         for &e in cl.entities.iter() {
             persistence
                 .map
-                .insert(e, PersistEntry { cluster_id: cl.id, color_index: cl.color_index });
+                .insert(e, PersistEntry { cluster_id: cl.id });
         }
     }
 
