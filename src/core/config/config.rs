@@ -170,16 +170,6 @@ impl Default for ClusterPopConfig {
 pub struct InteractionConfig {
     pub cluster_pop: ClusterPopConfig,
 }
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(default)]
-pub struct BallStateConfig {
-    pub tween_duration: f32,
-}
-impl Default for BallStateConfig {
-    fn default() -> Self {
-        Self { tween_duration: 0.35 }
-    }
-}
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
@@ -213,7 +203,6 @@ pub struct GameConfig {
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
     pub clustering: ClusteringConfig,
-    pub ball_state: BallStateConfig,
 }
 impl Default for GameConfig {
     fn default() -> Self {
@@ -232,7 +221,6 @@ impl Default for GameConfig {
             draw_cluster_bounds: false,
             interactions: Default::default(),
             clustering: Default::default(),
-            ball_state: Default::default(),
         }
     }
 }
@@ -671,12 +659,6 @@ impl GameConfig {
         }
         if self.surface_noise.octaves == 0 && self.surface_noise.enabled {
             w.push("surface_noise.octaves == 0 while enabled -> no effect (disable instead)".into());
-        }
-        if self.ball_state.tween_duration <= 0.0 {
-            w.push(format!(
-                "ball_state.tween_duration {} <= 0 -> clamped to 0.01",
-                self.ball_state.tween_duration
-            ));
         }
         // Clustering validation warnings (non-mutating)
         let db_enter = self.clustering.distance_buffer_enter_cluster;

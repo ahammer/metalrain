@@ -39,7 +39,6 @@ pub struct DebugPlugin;
 #[cfg(feature = "debug")]
 impl Plugin for DebugPlugin {
     fn build(&self, app: &mut App) {
-        use crate::core::components::BallCircleVisual;
         #[cfg(feature = "debug")]
         use bevy_rapier2d::render::DebugRenderContext;
         use keys::debug_key_input_system;
@@ -50,43 +49,6 @@ impl Plugin for DebugPlugin {
         use overlay::{debug_config_overlay_update, debug_overlay_spawn, debug_overlay_update};
         use stats::debug_stats_collect_system;
 
-        fn toggle_circle_visibility(
-            state: Res<modes::DebugState>,
-            mut q_circles: Query<
-                &mut Visibility,
-                (
-                    With<BallCircleVisual>,
-                    Without<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>,
-                ),
-            >,
-            mut q_metaballs_quad: Query<
-                &mut Visibility,
-                With<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>,
-            >,
-        ) {
-            use modes::DebugRenderMode::*;
-            // Circles only shown for rapier wireframe mode now
-            let show_circles = matches!(state.mode, RapierWireframe);
-            for mut vis in q_circles.iter_mut() {
-                vis.set_if_neq(if show_circles {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                });
-            }
-            // Metaballs quad only visible for metaball-based modes
-            let show_metaballs = matches!(
-                state.mode,
-                Metaballs | MetaballHeightfield | MetaballColorInfo
-            );
-            if let Ok(mut vis) = q_metaballs_quad.single_mut() {
-                vis.set_if_neq(if show_metaballs {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                });
-            }
-        }
 
         #[cfg(feature = "debug")]
         fn toggle_rapier_debug(
@@ -254,7 +216,6 @@ impl Plugin for DebugPlugin {
                 debug_stats_collect_system,
                 apply_mode_visual_overrides_system,
                 propagate_metaballs_view_system,
-                toggle_circle_visibility,
                 toggle_rapier_debug,
                 debug_logging_system,
                 debug_input_gizmos,

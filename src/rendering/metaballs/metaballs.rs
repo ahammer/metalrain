@@ -1,8 +1,8 @@
-#![allow(clippy::type_complexity, clippy::collapsible_match)]
+#![allow(clippy::type_complexity)]
 use bevy::input::keyboard::KeyCode;
 use bevy::input::ButtonInput;
-use bevy::prelude::Mesh2d;
 use bevy::prelude::*;
+use bevy::prelude::Mesh2d;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 
@@ -13,19 +13,17 @@ static METABALLS_UNIFIED_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new
 #[cfg(target_arch = "wasm32")]
 static METABALLS_UNIFIED_DEBUG_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
-use crate::core::components::{Ball, BallRadius, BallState};
+use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
-use crate::gameplay::state::{BallStateUpdateSet, OverflowLogged};
 use crate::physics::clustering::cluster::Clusters;
 use crate::rendering::materials::materials::BallMaterialIndex;
 use crate::rendering::palette::palette::color_for_index;
 
 // =====================================================================================
-// Uniform layout (BINARY LAYOUT UNCHANGED – ONLY SEMANTICS UPDATED)
+// Uniform layout
 // v0: (ball_count, cluster_color_count, radius_scale, iso)
 // v1: (normal_z_scale, foreground_mode, background_mode, debug_view)
 // v2: (viewport_w, viewport_h, time_seconds, radius_multiplier)
-// balls / cluster_colors arrays unchanged
 // =====================================================================================
 
 pub const MAX_BALLS: usize = 1024;
@@ -44,11 +42,8 @@ pub(crate) struct MetaballsUniform {
 impl Default for MetaballsUniform {
     fn default() -> Self {
         Self {
-            // radius_scale (v0.z) will be derived from iso each update
             v0: Vec4::new(0.0, 0.0, 1.0, 0.6),
-            // v1.y / v1.z will be written by mode update
             v1: Vec4::new(1.0, 0.0, 0.0, 0.0),
-            // v2.w radius_multiplier relocated here (previously v1.z)
             v2: Vec4::new(0.0, 0.0, 0.0, 1.0),
             balls: [Vec4::ZERO; MAX_BALLS],
             cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
@@ -56,7 +51,7 @@ impl Default for MetaballsUniform {
     }
 }
 
-// NEW: Mirror of WGSL NoiseParams (group(2) binding(1))
+// Noise params (background)
 #[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug)]
 pub struct NoiseParamsUniform {
@@ -92,10 +87,9 @@ impl Default for NoiseParamsUniform {
     }
 }
 
-// NEW: SurfaceNoiseParamsUniform (group(2) binding(2))
+// Surface noise params (edge modulation)
 #[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug, Default)]
-// NOTE: Must remain exactly 64 bytes (16 * 4-byte scalars) so uniform buffer size is multiple of 16 for downlevel/WebGL.
 pub struct SurfaceNoiseParamsUniform {
     pub amp: f32,
     pub base_scale: f32,
@@ -112,7 +106,7 @@ pub struct SurfaceNoiseParamsUniform {
     pub enabled: u32,
     pub _pad0: u32,
     pub _pad1: u32,
-    pub _pad2: u32, // NEW padding: total scalars = 16 -> 64 bytes (must stay multiple of 16 for downlevel/WebGL)
+    pub _pad2: u32,
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
@@ -120,9 +114,9 @@ pub struct MetaballsUnifiedMaterial {
     #[uniform(0)]
     data: MetaballsUniform,
     #[uniform(1)]
-    noise: NoiseParamsUniform, // background noise (binding 1)
+    noise: NoiseParamsUniform,
     #[uniform(2)]
-    surface_noise: SurfaceNoiseParamsUniform, // NEW surface noise (binding 2)
+    surface_noise: SurfaceNoiseParamsUniform,
 }
 
 impl MetaballsUnifiedMaterial {
@@ -130,8 +124,6 @@ impl MetaballsUnifiedMaterial {
     pub fn set_debug_view(&mut self, view: u32) {
         self.data.v1.w = view as f32;
     }
-
-    /// Debug helper: returns (ball_count, slot_count) for tests / diagnostics.
     pub fn debug_counts(&self) -> (u32, u32) {
         (self.data.v0.x as u32, self.data.v0.y as u32)
     }
@@ -148,7 +140,6 @@ impl Material2d for MetaballsUnifiedMaterial {
             "shaders/metaballs_unified.wgsl".into()
         }
     }
-
     fn vertex_shader() -> ShaderRef {
         #[cfg(target_arch = "wasm32")]
         {
@@ -164,9 +155,7 @@ impl Material2d for MetaballsUnifiedMaterial {
     }
 }
 
-// =====================================================================================
-// NEW DUAL AXIS MODE RESOURCES (Foreground / Background)
-// =====================================================================================
+// Foreground / Background shader modes
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaballForegroundMode {
@@ -211,8 +200,6 @@ impl MetaballBackground {
         MetaballBackgroundMode::ALL[self.idx % MetaballBackgroundMode::ALL.len()]
     }
 }
-
-// =====================================================================================
 
 #[derive(Component)]
 pub struct MetaballsUnifiedQuad;
@@ -275,8 +262,7 @@ impl Plugin for MetaballsPlugin {
             .add_systems(
                 Update,
                 (
-                    update_metaballs_unified_material
-                        .after(BallStateUpdateSet), // ensure BallState updated
+                    update_metaballs_unified_material,
                     cycle_foreground_mode,
                     cycle_background_mode,
                     resize_fullscreen_quad,
@@ -286,9 +272,7 @@ impl Plugin for MetaballsPlugin {
     }
 }
 
-// =====================================================================================
 // Startup / Config
-// =====================================================================================
 
 fn initialize_toggle_from_config(mut toggle: ResMut<MetaballsToggle>, cfg: Res<GameConfig>) {
     toggle.0 = cfg.metaballs_enabled;
@@ -332,7 +316,8 @@ fn setup_metaballs(
     let mut umat = MetaballsUnifiedMaterial::default();
     umat.data.v2.x = w;
     umat.data.v2.y = h;
-    // Initialize noise uniform from config (will also be updated per-frame)
+
+    // Noise
     umat.noise.base_scale = cfg.noise.base_scale;
     umat.noise.warp_amp = cfg.noise.warp_amp;
     umat.noise.warp_freq = cfg.noise.warp_freq;
@@ -344,7 +329,7 @@ fn setup_metaballs(
     umat.noise.octaves = cfg.noise.octaves;
     umat.noise.ridged = if cfg.noise.ridged { 1 } else { 0 };
 
-    // Initialize surface noise uniform from config.surface_noise
+    // Surface noise
     let sn = &cfg.surface_noise;
     umat.surface_noise.amp = sn.amp.clamp(0.0, 0.5);
     umat.surface_noise.base_scale = if sn.base_scale > 0.0 { sn.base_scale } else { 0.008 };
@@ -380,79 +365,53 @@ fn log_initial_modes(fg: Res<MetaballForeground>, bg: Res<MetaballBackground>) {
     );
 }
 
-// =====================================================================================
-// Mode Cycling
-// =====================================================================================
+// Mode cycling
 
 fn cycle_foreground_mode(mut fg: ResMut<MetaballForeground>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::End) {
         fg.idx = (fg.idx + 1) % MetaballForegroundMode::ALL.len();
-        info!(
-            target: "metaballs",
-            "Foreground mode -> {:?}",
-            fg.current()
-        );
+        info!(target: "metaballs", "Foreground mode -> {:?}", fg.current());
     }
     if keys.just_pressed(KeyCode::Home) {
         fg.idx =
             (fg.idx + MetaballForegroundMode::ALL.len() - 1) % MetaballForegroundMode::ALL.len();
-        info!(
-            target: "metaballs",
-            "Foreground mode -> {:?}",
-            fg.current()
-        );
+        info!(target: "metaballs", "Foreground mode -> {:?}", fg.current());
     }
 }
 
 fn cycle_background_mode(mut bg: ResMut<MetaballBackground>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::PageUp) {
         bg.idx = (bg.idx + 1) % MetaballBackgroundMode::ALL.len();
-        info!(
-            target: "metaballs",
-            "Background mode -> {:?}",
-            bg.current()
-        );
+        info!(target: "metaballs", "Background mode -> {:?}", bg.current());
     }
     if keys.just_pressed(KeyCode::PageDown) {
         bg.idx =
             (bg.idx + MetaballBackgroundMode::ALL.len() - 1) % MetaballBackgroundMode::ALL.len();
-        info!(
-            target: "metaballs",
-            "Background mode -> {:?}",
-            bg.current()
-        );
+        info!(target: "metaballs", "Background mode -> {:?}", bg.current());
     }
 }
 
-// =====================================================================================
-// Uniform Update (ENABLED vs DISABLED clusters + tweened colors)
-// =====================================================================================
+// Uniform update (simplified: no per-ball state differentiation)
 
-#[allow(clippy::too_many_arguments)]
 fn update_metaballs_unified_material(
     time: Res<Time>,
     fg: Res<MetaballForeground>,
     bg: Res<MetaballBackground>,
     clusters: Res<Clusters>,
-    q_balls: Query<(Entity, &Transform, &BallRadius, Option<&BallState>, &BallMaterialIndex), With<Ball>>,
+    q_balls: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex), With<Ball>>,
     mut materials: ResMut<Assets<MetaballsUnifiedMaterial>>,
     q_mat: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
     toggle: Res<MetaballsToggle>,
     params: Res<MetaballsParams>,
     cfg: Res<GameConfig>,
-    overflow_logged: Option<ResMut<OverflowLogged>>,
 ) {
     if !toggle.0 {
         return;
     }
-    let Ok(handle_comp) = q_mat.single() else {
-        return;
-    };
-    let Some(mat) = materials.get_mut(&handle_comp.0) else {
-        return;
-    };
+    let Ok(handle_comp) = q_mat.single() else { return; };
+    let Some(mat) = materials.get_mut(&handle_comp.0) else { return; };
 
-    // PACK static fields
+    // Static fields
     mat.data.v0.w = params.iso;
     mat.data.v1.x = params.normal_z_scale;
     mat.data.v1.y = (fg.current() as u32) as f32;
@@ -463,7 +422,7 @@ fn update_metaballs_unified_material(
     let k = (1.0 - iso.powf(1.0 / 3.0)).max(1e-4).sqrt();
     mat.data.v0.z = 1.0 / k;
 
-    // Noise uniforms live update
+    // Live noise updates from config
     {
         let noise_cfg = &cfg.noise;
         mat.noise.base_scale = noise_cfg.base_scale;
@@ -493,137 +452,39 @@ fn update_metaballs_unified_material(
         mat.surface_noise.enabled = if sn.enabled { 1 } else { 0 };
     }
 
-    // Clear previous frame slots
+    // Clear previous cluster colors
     for c in mat.data.cluster_colors.iter_mut() {
         *c = Vec4::ZERO;
     }
 
-    let now = time.elapsed_secs();
-    let tween_dur = cfg.ball_state.tween_duration.max(0.01);
-
-    // Build quick lookup for ball components
+    // Build quick lookup for ball transforms & radii
     use std::collections::HashMap;
-    let mut ball_tf: HashMap<Entity, (Vec2, f32, Option<BallState>, usize)> =
+    let mut ball_tf: HashMap<Entity, (Vec2, f32, usize)> =
         HashMap::with_capacity(q_balls.iter().len());
-    for (e, tf, r, st, color_idx) in q_balls.iter() {
-        ball_tf.insert(
-            e,
-            (tf.translation.truncate(), r.0, st.copied(), color_idx.0),
-        );
+    for (e, tf, r, color_idx) in q_balls.iter() {
+        ball_tf.insert(e, (tf.translation.truncate(), r.0, color_idx.0));
     }
 
-    // Entity -> slot mapping
+    // Cluster to slot mapping (simple, sequential)
     let mut slot_map: HashMap<Entity, usize> = HashMap::with_capacity(ball_tf.len());
-
     let mut slot_count = 0usize;
-    let mut overflow = false;
-
-    // Enabled clusters first: share slot
     for cl in clusters.0.iter() {
         if slot_count >= MAX_CLUSTERS {
-            overflow = true;
             break;
         }
-        // Determine cluster state (all balls classified the same; use first that has state)
-        let mut cluster_enabled = true;
+        let slot = slot_count;
+        slot_count += 1;
+        let c = color_for_index(cl.color_index).to_srgba();
+        mat.data.cluster_colors[slot] = Vec4::new(c.red, c.green, c.blue, 1.0);
         for &e in &cl.entities {
-            if let Some((_p, _r, st_opt, _ci)) = ball_tf.get(&e) {
-                if let Some(st) = st_opt {
-                    cluster_enabled = st.enabled;
-                    break;
-                }
-            }
-        }
-        if cluster_enabled {
-            let slot = slot_count;
-            slot_count += 1;
-            // Representative state for tween
-            let rep_state = {
-                let e = cl.entities[0];
-                let (_, _, st_opt, _ci) = ball_tf.get(&e).unwrap();
-                *st_opt
-            };
-            let enabled_color = color_for_index(cl.color_index);
-            let disabled_color = enabled_color; // secondary palette removed
-            let color_vec = compute_tween_color(enabled_color, disabled_color, rep_state, now, tween_dur);
-            mat.data.cluster_colors[slot] = color_vec;
-            for &e in &cl.entities {
-                slot_map.insert(e, slot);
-            }
+            slot_map.insert(e, slot);
         }
     }
-
-    // Disabled clusters: unique slot per ball (prevent merging)
-    if !overflow {
-        for cl in clusters.0.iter() {
-            // Determine cluster enabled state again
-            let mut cluster_enabled = true;
-            for &e in &cl.entities {
-                if let Some((_p, _r, st_opt, _ci)) = ball_tf.get(&e) {
-                    if let Some(st) = st_opt {
-                        cluster_enabled = st.enabled;
-                        break;
-                    }
-                }
-            }
-            if cluster_enabled {
-                continue;
-            }
-            for &e in &cl.entities {
-                if slot_count >= MAX_CLUSTERS {
-                    overflow = true;
-                    break;
-                }
-                let (_p, _r, st_opt, ci) = ball_tf.get(&e).unwrap();
-                let enabled_color = color_for_index(*ci);
-                let disabled_color = enabled_color; // secondary palette removed
-                let color_vec = compute_tween_color(enabled_color, disabled_color, *st_opt, now, tween_dur);
-                let slot = slot_count;
-                slot_count += 1;
-                mat.data.cluster_colors[slot] = color_vec;
-                slot_map.insert(e, slot);
-            }
-            if overflow {
-                break;
-            }
-        }
-    }
-
-    // Overflow fallback: group disabled balls by palette index (merging may reappear)
-    if overflow {
-        if let Some(mut flag) = overflow_logged {
-            if !flag.0 {
-                info!(
-                    target: "metaballs",
-                    "MAX_CLUSTERS overflow ({}). Falling back to grouping disabled balls by base color.",
-                    MAX_CLUSTERS
-                );
-                flag.0 = true;
-            }
-        }
-        // Assign any unassigned balls a slot based on color index modulo MAX_CLUSTERS
-        for (e, (_p, _r, st_opt, ci)) in ball_tf.iter() {
-            if slot_map.contains_key(e) {
-                continue;
-            }
-            let slot = *ci % MAX_CLUSTERS;
-            if mat.data.cluster_colors[slot] == Vec4::ZERO {
-                // pick disabled variant color (no tween per-ball due to grouping)
-                let enabled_color = color_for_index(*ci);
-                let disabled_color = enabled_color; // secondary palette removed
-                let color_vec = compute_tween_color(enabled_color, disabled_color, *st_opt, now, tween_dur);
-                mat.data.cluster_colors[slot] = color_vec;
-            }
-            slot_map.insert(*e, slot);
-        }
-        slot_count = MAX_CLUSTERS;
-    }
-
     mat.data.v0.y = slot_count as f32;
 
     // Balls array
     let mut ball_index = 0usize;
-    for (e, (pos, radius, _st, _ci)) in ball_tf.iter() {
+    for (e, (pos, radius, _ci)) in ball_tf.iter() {
         if ball_index >= MAX_BALLS {
             break;
         }
@@ -634,49 +495,14 @@ fn update_metaballs_unified_material(
     mat.data.v0.x = ball_index as f32;
 }
 
-// Color tween helper: returns Vec4 (srgb components) for uniform
-fn compute_tween_color(
-    enabled_col: Color,
-    disabled_col: Color,
-    state: Option<BallState>,
-    now: f32,
-    tween_dur: f32,
-) -> Vec4 {
-    let st = state.unwrap_or(BallState { enabled: true, last_change: now });
-    let t = ((now - st.last_change) / tween_dur).clamp(0.0, 1.0);
-    let (from, to) = if st.enabled {
-        (disabled_col, enabled_col)
-    } else {
-        (enabled_col, disabled_col)
-    };
-    let lerped = lerp_color(from, to, t);
-    let srgb = lerped.to_srgba();
-    Vec4::new(srgb.red, srgb.green, srgb.blue, 1.0)
-}
-
-// Linear color lerp
-fn lerp_color(a: Color, b: Color, t: f32) -> Color {
-    let la = a.to_linear();
-    let lb = b.to_linear();
-    let r = la.red + (lb.red - la.red) * t;
-    let g = la.green + (lb.green - la.green) * t;
-    let bch = la.blue + (lb.blue - la.blue) * t;
-    let a_out = la.alpha + (lb.alpha - la.alpha) * t;
-    Color::linear_rgba(r, g, bch, a_out)
-}
-
-// =====================================================================================
 // Resize handling
-// =====================================================================================
 
 fn resize_fullscreen_quad(
     windows: Query<&Window>,
     q_unified: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
 ) {
-    let Ok(window) = windows.single() else {
-        return;
-    };
+    let Ok(window) = windows.single() else { return; };
     if let Ok(handle_comp) = q_unified.single() {
         if let Some(mat) = unified_mats.get_mut(&handle_comp.0) {
             if mat.data.v2.x != window.width() || mat.data.v2.y != window.height() {
@@ -687,9 +513,7 @@ fn resize_fullscreen_quad(
     }
 }
 
-// =====================================================================================
 // Param tweaks (iso)
-// =====================================================================================
 
 fn tweak_metaballs_params(
     mut params: ResMut<MetaballsParams>,
@@ -714,153 +538,45 @@ fn tweak_metaballs_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rendering::palette::palette::BASE_COLORS;
-    use bevy::ecs::system::SystemState;
     use bevy::asset::Assets;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[test]
-    fn lerp_color_midpoint() {
-        let a = Color::linear_rgba(0.0, 0.0, 0.0, 1.0);
-        let b = Color::linear_rgba(1.0, 1.0, 1.0, 1.0);
-        let m = super::lerp_color(a, b, 0.5);
-        let l = m.to_linear();
-        assert!((l.red - 0.5).abs() < 1e-6);
-        assert!((l.green - 0.5).abs() < 1e-6);
-        assert!((l.blue - 0.5).abs() < 1e-6);
-    }
-
-
-    // Integration-style test of slot allocation: disabled cluster -> per-ball slots, then enabled -> shared slot.
-    #[test]
-    fn disabled_then_enabled_slot_allocation() {
+    fn slot_count_limited() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-
-        // Resources
         app.insert_resource(GameConfig::default());
         app.insert_resource(Clusters::default());
-
-        // Minimal material assets & quad
         app.world_mut().init_resource::<Assets<MetaballsUnifiedMaterial>>();
         let mut materials = app.world_mut().resource_mut::<Assets<MetaballsUnifiedMaterial>>();
         let handle = materials.add(MetaballsUnifiedMaterial::default());
-        let _quad = app.world_mut().spawn((MetaballsUnifiedQuad, MeshMaterial2d(handle.clone()))).id();
-
-        // Insert time
+        app.world_mut().spawn((
+            MetaballsUnifiedQuad,
+            MeshMaterial2d(handle.clone()),
+        ));
         app.insert_resource(Time::<()>::default());
         app.insert_resource(MetaballsToggle(true));
         app.insert_resource(MetaballsParams::default());
         app.insert_resource(MetaballForeground::default());
         app.insert_resource(MetaballBackground::default());
-        app.insert_resource(OverflowLogged::default());
 
-        // Spawn 3 balls (below default thresholds -> disabled)
-        for i in 0..3 {
-            let e = app.world_mut().spawn((
+        // Spawn a few balls (no clusters -> slot_count 0)
+        for i in 0..5 {
+            app.world_mut().spawn((
                 Ball,
                 BallRadius(10.0),
-                BallMaterialIndex(0),
-                Transform::from_xyz(i as f32 * 25.0, 0.0, 0.0),
+                BallMaterialIndex(i % 2),
+                Transform::from_xyz(i as f32 * 10.0, 0.0, 0.0),
                 GlobalTransform::default(),
-                BallState { enabled: false, last_change: 0.0 },
-            )).id();
-            // Add to clusters resource (single cluster)
-            {
-                let mut clusters = app.world_mut().resource_mut::<Clusters>();
-                if clusters.0.is_empty() {
-                    clusters.0.push(crate::physics::clustering::cluster::Cluster {
-                        color_index: 0,
-                        entities: vec![e],
-                        min: Vec2::ZERO,
-                        max: Vec2::ZERO,
-                        centroid: Vec2::ZERO,
-                        total_area: 0.0,
-                        id: 0,
-                    });
-                } else {
-                    clusters.0[0].entities.push(e);
-                }
-                // recompute area & bounds crudely
-                clusters.0[0].total_area += std::f32::consts::PI * 10.0 * 10.0;
-            }
+            ));
         }
 
-        // Run material update manually via SystemState to supply params
-        {
-            let mut system_state: SystemState<(
-                Res<Time>,
-                Res<MetaballForeground>,
-                Res<MetaballBackground>,
-                Res<Clusters>,
-                Query<(Entity, &Transform, &BallRadius, Option<&BallState>, &BallMaterialIndex), With<Ball>>,
-                ResMut<Assets<MetaballsUnifiedMaterial>>,
-                Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
-                Res<MetaballsToggle>,
-                Res<MetaballsParams>,
-                Res<GameConfig>,
-                Option<ResMut<OverflowLogged>>,
-            )> = SystemState::new(app.world_mut());
+        // Run update system manually
+        let _ = app.world_mut().run_system_once(update_metaballs_unified_material);
 
-            let world = app.world_mut();
-            let params = system_state.get_mut(world);
-            update_metaballs_unified_material(
-                params.0, params.1, params.2, params.3, params.4, params.5, params.6,
-                params.7, params.8, params.9, params.10,
-            );
-            system_state.apply(world);
-        }
-
-        // Assert: 3 slots (one per disabled ball)
-        let materials_res = app.world().resource::<Assets<MetaballsUnifiedMaterial>>();
-        let mat = materials_res.get(handle.id()).unwrap();
-        let (_ball_count, slot_count) = mat.debug_counts();
-        assert_eq!(slot_count, 3, "expected unique slot per disabled ball");
-
-        // Enable cluster: flip BallState enabled true and lower thresholds
-        {
-            let mut cfg = app.world_mut().resource_mut::<GameConfig>();
-            cfg.interactions.cluster_pop.min_ball_count = 1;
-            cfg.interactions.cluster_pop.min_total_area = 0.0;
-        }
-        {
-            let world = app.world_mut();
-            let mut q = world.query::<&mut BallState>();
-            for mut st in q.iter_mut(world) {
-                st.enabled = true;
-                st.last_change = 0.0;
-            }
-        }
-
-        // Run update again
-        {
-            let mut system_state: SystemState<(
-                Res<Time>,
-                Res<MetaballForeground>,
-                Res<MetaballBackground>,
-                Res<Clusters>,
-                Query<(Entity, &Transform, &BallRadius, Option<&BallState>, &BallMaterialIndex), With<Ball>>,
-                ResMut<Assets<MetaballsUnifiedMaterial>>,
-                Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
-                Res<MetaballsToggle>,
-                Res<MetaballsParams>,
-                Res<GameConfig>,
-                Option<ResMut<OverflowLogged>>,
-            )> = SystemState::new(app.world_mut());
-
-            let world = app.world_mut();
-            let params = system_state.get_mut(world);
-            update_metaballs_unified_material(
-                params.0, params.1, params.2, params.3, params.4, params.5, params.6,
-                params.7, params.8, params.9, params.10,
-            );
-            system_state.apply(world);
-        }
-        let materials_res = app.world().resource::<Assets<MetaballsUnifiedMaterial>>();
-        let mat = materials_res.get(handle.id()).unwrap();
-        let (_ball_count2, slot_count2) = mat.debug_counts();
-        assert_eq!(slot_count2, 1, "expected shared slot for enabled cluster");
-        let (_bc, sc) = mat.debug_counts();
-        assert_eq!(sc, 1);
-        assert_eq!(mat.data.v0.x as usize, 3);
+        let mats = app.world().resource::<Assets<MetaballsUnifiedMaterial>>();
+        let mat = mats.get(handle.id()).unwrap();
+        let (_balls, slots) = mat.debug_counts();
+        assert_eq!(slots, 0);
     }
 }

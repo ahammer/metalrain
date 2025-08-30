@@ -87,7 +87,4 @@
         distance_buffer_exit_cluster: 1.6,
     ),
 
-    ball_state: (
-        tween_duration: 1.00,
-    ),
 )

@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::sprite::MeshMaterial2d;
 use bevy_rapier2d::prelude::{Collider, Velocity};
 
-use crate::core::components::{Ball, BallCircleVisual, BallRadius};
+use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
 use crate::core::system::system_order::PrePhysicsSet;
 use crate::physics::clustering::cluster::{Clusters, BallClusterIndex};
@@ -55,11 +55,7 @@ impl PaddleLifecycle {
     }
 }
 
-type ChildVisualTuple<'a> = (
-    &'a mut Transform,
-    Option<&'a MeshMaterial2d<ColorMaterial>>,
-    Option<&'a BallCircleVisual>,
-);
+type ChildVisualTuple<'a> = (&'a mut Transform, Option<&'a MeshMaterial2d<ColorMaterial>>);
 
 pub struct ClusterPopPlugin;
 
@@ -334,7 +330,7 @@ fn update_paddle_lifecycle(
         // Update visuals (child transform scale, alpha fade)
         if let Some(children) = children_opt {
             for child in children.iter() {
-                if let Ok((mut tf, maybe_mat, _marker)) = q_child_vis.get_mut(child) {
+                if let Ok((mut tf, maybe_mat)) = q_child_vis.get_mut(child) {
                     tf.scale = Vec3::splat(plc.base_radius * 2.0 * factor);
                     if plc.fade_alpha {
                         if let Some(mesh_mat) = maybe_mat {

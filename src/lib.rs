@@ -10,5 +10,5 @@ pub mod rendering;
 
 // Curated re-exports
 pub use app::game::GamePlugin;
-pub use core::components::{Ball, BallCircleVisual, BallRadius};
+pub use core::components::{Ball, BallRadius};
 pub use core::config::{config::GameConfig, config::WindowConfig};
