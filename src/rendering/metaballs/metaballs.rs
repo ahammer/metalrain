@@ -480,19 +480,39 @@ fn update_metaballs_unified_material(
             slot_map.insert(e, slot);
         }
     }
-    mat.data.v0.y = slot_count as f32;
+    // Do NOT finalize v0.y yet; popped (orphan) balls may add extra color slots.
 
-    // Balls array
+    // Balls array (with stable color fallback for orphan / popped balls)
+    use std::collections::HashMap as StdHashMap;
+    let mut orphan_color_slots: StdHashMap<usize, usize> = StdHashMap::new();
     let mut ball_index = 0usize;
-    for (e, (pos, radius, _ci)) in ball_tf.iter() {
+    for (e, (pos, radius, ci)) in ball_tf.iter() {
         if ball_index >= MAX_BALLS {
             break;
         }
-        let slot = slot_map.get(e).copied().unwrap_or(0) as f32;
-        mat.data.balls[ball_index] = Vec4::new(pos.x, pos.y, *radius, slot);
+        let slot_usize = if let Some(s) = slot_map.get(e) {
+            *s
+        } else {
+            // Ball not in any current cluster (e.g., popped & excluded from clustering).
+            // Assign a dedicated color slot based on its original BallMaterialIndex
+            // to prevent rainbow/flicker caused by reordering of cluster 0.
+            *orphan_color_slots.entry(*ci).or_insert_with(|| {
+                if slot_count < MAX_CLUSTERS {
+                    let slot = slot_count;
+                    slot_count += 1;
+                    let c = color_for_index(*ci).to_srgba();
+                    mat.data.cluster_colors[slot] = Vec4::new(c.red, c.green, c.blue, 1.0);
+                    slot
+                } else {
+                    0 // fallback if we run out of slots
+                }
+            })
+        };
+        mat.data.balls[ball_index] = Vec4::new(pos.x, pos.y, *radius, slot_usize as f32);
         ball_index += 1;
     }
     mat.data.v0.x = ball_index as f32;
+    mat.data.v0.y = slot_count as f32;
 }
 
 // Resize handling
