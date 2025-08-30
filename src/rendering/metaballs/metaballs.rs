@@ -162,9 +162,10 @@ pub enum MetaballForegroundMode {
     ClassicBlend,
     Bevel,
     OutlineGlow,
+    Metadata,
 }
 impl MetaballForegroundMode {
-    pub const ALL: [Self; 3] = [Self::ClassicBlend, Self::Bevel, Self::OutlineGlow];
+    pub const ALL: [Self; 4] = [Self::ClassicBlend, Self::Bevel, Self::OutlineGlow, Self::Metadata];
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,12 +371,20 @@ fn log_initial_modes(fg: Res<MetaballForeground>, bg: Res<MetaballBackground>) {
 fn cycle_foreground_mode(mut fg: ResMut<MetaballForeground>, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::End) {
         fg.idx = (fg.idx + 1) % MetaballForegroundMode::ALL.len();
-        info!(target: "metaballs", "Foreground mode -> {:?}", fg.current());
+        if fg.current() == MetaballForegroundMode::Metadata {
+            info!(target: "metaballs", "Foreground mode -> Metadata (metadata RGBA output)");
+        } else {
+            info!(target: "metaballs", "Foreground mode -> {:?}", fg.current());
+        }
     }
     if keys.just_pressed(KeyCode::Home) {
         fg.idx =
             (fg.idx + MetaballForegroundMode::ALL.len() - 1) % MetaballForegroundMode::ALL.len();
-        info!(target: "metaballs", "Foreground mode -> {:?}", fg.current());
+        if fg.current() == MetaballForegroundMode::Metadata {
+            info!(target: "metaballs", "Foreground mode -> Metadata (metadata RGBA output)");
+        } else {
+            info!(target: "metaballs", "Foreground mode -> {:?}", fg.current());
+        }
     }
 }
 
@@ -555,6 +564,11 @@ fn tweak_metaballs_params(
     }
 }
 
+// Helper mirroring WGSL normalization for metadata SDF proxy (kept pure for testing)
+pub fn map_signed_distance(signed_d: f32, d_scale: f32) -> f32 {
+    (0.5 - 0.5 * signed_d / d_scale).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,7 +594,8 @@ mod tests {
         app.insert_resource(MetaballForeground::default());
         app.insert_resource(MetaballBackground::default());
 
-        // Spawn a few balls (no clusters -> slot_count 0)
+    // Spawn a few balls (no clusters). Orphan balls allocate color slots per distinct
+    // BallMaterialIndex; with i % 2 we expect 2 distinct slots.
         for i in 0..5 {
             app.world_mut().spawn((
                 Ball,
@@ -596,7 +611,65 @@ mod tests {
 
         let mats = app.world().resource::<Assets<MetaballsUnifiedMaterial>>();
         let mat = mats.get(handle.id()).unwrap();
-        let (_balls, slots) = mat.debug_counts();
-        assert_eq!(slots, 0);
+    let (_balls, slots) = mat.debug_counts();
+    assert_eq!(slots, 2, "expected 2 orphan color slots, got {slots}");
+    }
+
+    #[test]
+    fn sdf_mapping_basic() {
+        let scale = 8.0;
+        // Inside surface: signed_d negative => value > 0.5
+        let inside = map_signed_distance(-2.0, scale);
+        assert!(inside > 0.5, "inside expected > 0.5 got {}", inside);
+        // On surface: signed_d = 0 => 0.5
+        let surface = map_signed_distance(0.0, scale);
+        assert!((surface - 0.5).abs() < 1e-6);
+        // Outside: signed_d positive => value < 0.5
+        let outside = map_signed_distance(4.0, scale);
+        assert!(outside < 0.5, "outside expected < 0.5 got {}", outside);
+        // Far outside clamps to 0.0
+        let far = map_signed_distance(1e6, scale);
+        assert!(far >= 0.0 && far <= 0.001);
+    }
+
+    #[test]
+    fn metadata_mode_updates_material() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(GameConfig::default());
+        app.insert_resource(Clusters::default());
+        app.world_mut().init_resource::<Assets<MetaballsUnifiedMaterial>>();
+        let mut materials = app.world_mut().resource_mut::<Assets<MetaballsUnifiedMaterial>>();
+        let handle = materials.add(MetaballsUnifiedMaterial::default());
+        app.world_mut().spawn((MetaballsUnifiedQuad, MeshMaterial2d(handle.clone())));
+        app.insert_resource(Time::<()>::default());
+        app.insert_resource(MetaballsToggle(true));
+        app.insert_resource(MetaballsParams::default());
+        let mut fg = MetaballForeground::default();
+        fg.idx = MetaballForegroundMode::ALL.len() - 1; // Metadata
+        app.insert_resource(fg);
+        app.insert_resource(MetaballBackground::default());
+
+        let _ = app.world_mut().run_system_once(update_metaballs_unified_material);
+        let mats = app.world().resource::<Assets<MetaballsUnifiedMaterial>>();
+        let mat = mats.get(handle.id()).unwrap();
+        assert_eq!(mat.data.v1.y as u32, MetaballForegroundMode::Metadata as u32);
+    }
+
+    #[test]
+    fn cycling_wraps_with_metadata() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+    let fg = MetaballForeground { idx: MetaballForegroundMode::ALL.len() - 1 };
+    app.insert_resource(fg);
+        // Simulate End key press to wrap around
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::End);
+        app.insert_resource(keys);
+        app.world_mut().run_system_once(|fg: ResMut<MetaballForeground>, keys: Res<ButtonInput<KeyCode>>| {
+            super::cycle_foreground_mode(fg, keys);
+        }).unwrap();
+        let fg_after = app.world().resource::<MetaballForeground>();
+        assert_eq!(fg_after.current() as u32, MetaballForegroundMode::ClassicBlend as u32);
     }
 }

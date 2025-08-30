@@ -10,6 +10,9 @@
 const MAX_BALLS    : u32 = 1024u;
 const MAX_CLUSTERS : u32 =  256u;
 const K_MAX        : u32 =   12u;
+// NOTE: Foreground mode discriminants (keep in sync with Rust enum order)
+// 0 = ClassicBlend, 1 = Bevel, 2 = OutlineGlow, 3 = Metadata
+const FG_MODE_METADATA : u32 = 3u;
 
 // =============================
 // Uniform Buffers (16B aligned)
@@ -407,6 +410,10 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
 
     var acc = accumulate_clusters(p, ball_count, cluster_color_count, radius_scale, radius_multiplier);
     if (acc.used == 0u) {
+        // Metadata mode sentinel when no field contributions: (R=1,G=0,B=0,A=0)
+        if (fg_mode == FG_MODE_METADATA) {
+            return vec4<f32>(1.0, 0.0, 0.0, 0.0);
+        }
         var bg_col2: vec4<f32>;
         switch (bg_mode) {
             case 0u: { bg_col2 = bg_solid_gray(); }
@@ -420,7 +427,8 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     var best_field = acc.field[dom];
     let grad = acc.grad[dom];
 
-    if (debug_view == 1u) {
+    if (fg_mode != FG_MODE_METADATA && debug_view == 1u) {
+        // Debug grayscale suppressed in Metadata mode (metadata path has priority)
         let gray = clamp(best_field / iso, 0.0, 1.0);
         return vec4<f32>(vec3<f32>(gray, gray, gray), 1.0);
     }
@@ -443,6 +451,36 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let cluster_idx = acc.indices[dom];
     let base_col = metaballs.cluster_colors[cluster_idx].rgb;
     let mask = compute_mask(best_field, effective_iso);
+
+    // ---------------------------------------------------------------------
+    // Metadata Foreground Mode
+    // Produces RGBA where:
+    //   R = normalized signed distance proxy (0.5 = iso surface)
+    //   G = clickable mask (bootstrap: all clickable => mask)
+    //   B = non-clickable mask (bootstrap: 0.0)
+    //   A = cluster/orphan color slot index encoded as cluster_u8 / 255
+    // Signed distance proxy: (iso - field) / |grad| with gradient of dominant cluster.
+    // Normalization window uses constant d_scale = 8.0 (TODO adaptive to radius / pixel density).
+    // Sentinel when acc.used == 0u handled earlier.
+    // Future per-ball clickability flag packing plan:
+    //   Reserve high bits in balls[i].w: b.w = cluster + (clickable_flag * 4096).
+    //   Shader decode: raw = u32(b.w+0.5); clickable = ((raw / 4096u) & 1u) == 1u; cluster = raw & 4095u.
+    // TODO: metadata-mode SDF scaling adapt to radius & screen resolution.
+    // TODO: implement per-ball clickability flag packing (see meta_ball_metadata_prompt.md).
+    // PERF: confirm metadata path branch cost negligible vs existing.
+    if (fg_mode == FG_MODE_METADATA) {
+        let gradv = acc.grad[dom];
+        let g_len = max(length(gradv), 1e-5);
+        let signed_d = (effective_iso - best_field) / g_len; // outside positive
+        let d_scale = 8.0; // heuristic: ~8px transition window; tuned for typical blob radii.
+        var r_channel = clamp(0.5 - 0.5 * signed_d / d_scale, 0.0, 1.0);
+        if (g_len <= 1e-5) { r_channel = 0.5; }
+        let clickable = mask; // bootstrap: all clickable
+        let non_clickable = 0.0;
+        let cluster_u8 = min(cluster_idx, 255u);
+        let a_channel = f32(cluster_u8) / 255.0;
+        return vec4<f32>(r_channel, clickable, non_clickable, a_channel);
+    }
 
     let fg_ctx = ForegroundContext(
         best_field,
@@ -475,8 +513,11 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         case 1u: { // Bevel
             fg_col = fg_bevel(fg_ctx.cluster_color, fg_ctx.grad, fg_ctx.mask, normal_z_scale, bg_col.rgb);
         }
-        default: { // OutlineGlow
+        case 2u: { // OutlineGlow
             fg_col = fg_outline_glow(fg_ctx.cluster_color, fg_ctx.best_field, fg_ctx.iso, fg_ctx.mask, fg_ctx.grad);
+        }
+        default: { // Metadata already early-returned; keep fallback
+            fg_col = vec4<f32>(fg_ctx.cluster_color, fg_ctx.mask);
         }
     }
 
