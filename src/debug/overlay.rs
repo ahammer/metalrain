@@ -17,6 +17,10 @@ pub(crate) struct DebugOverlayText;
 pub(crate) struct DebugConfigOverlayText;
 
 #[cfg(feature = "debug")]
+#[derive(Component)]
+pub(crate) struct DebugSpawnButton;
+
+#[cfg(feature = "debug")]
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Top-left anchored UI text node.
     let font_path = "fonts/FiraSans-Bold.ttf";
@@ -66,6 +70,32 @@ pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer
         },
         DebugConfigOverlayText,
     ));
+
+    // Top-right debug extra spawn button
+    commands
+        .spawn((
+            Button,
+            DebugSpawnButton,
+            bevy::ui::Node {
+                position_type: bevy::ui::PositionType::Absolute,
+                top: Val::Px(4.0),
+                right: Val::Px(6.0),
+                ..Default::default()
+            },
+            BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.6)),
+            BorderRadius::all(Val::Px(4.0)),
+        ))
+        .with_children(|p| {
+            p.spawn((
+                Text::new("Spawn +100"),
+                TextFont {
+                    font: font_handle.clone(),
+                    font_size: 14.0,
+                    ..Default::default()
+                },
+                TextColor(Color::WHITE),
+            ));
+        });
 }
 
 #[cfg(feature = "debug")]

@@ -18,7 +18,7 @@ use crate::core::config::GameConfig;
 use crate::gameplay::state::{BallStateUpdateSet, OverflowLogged};
 use crate::physics::clustering::cluster::Clusters;
 use crate::rendering::materials::materials::BallMaterialIndex;
-use crate::rendering::palette::palette::{color_for_index, secondary_color_for_index};
+use crate::rendering::palette::palette::color_for_index;
 
 // =====================================================================================
 // Uniform layout (BINARY LAYOUT UNCHANGED – ONLY SEMANTICS UPDATED)
@@ -544,7 +544,7 @@ fn update_metaballs_unified_material(
                 *st_opt
             };
             let enabled_color = color_for_index(cl.color_index);
-            let disabled_color = secondary_color_for_index(cl.color_index);
+            let disabled_color = enabled_color; // secondary palette removed
             let color_vec = compute_tween_color(enabled_color, disabled_color, rep_state, now, tween_dur);
             mat.data.cluster_colors[slot] = color_vec;
             for &e in &cl.entities {
@@ -576,7 +576,7 @@ fn update_metaballs_unified_material(
                 }
                 let (_p, _r, st_opt, ci) = ball_tf.get(&e).unwrap();
                 let enabled_color = color_for_index(*ci);
-                let disabled_color = secondary_color_for_index(*ci);
+                let disabled_color = enabled_color; // secondary palette removed
                 let color_vec = compute_tween_color(enabled_color, disabled_color, *st_opt, now, tween_dur);
                 let slot = slot_count;
                 slot_count += 1;
@@ -610,7 +610,7 @@ fn update_metaballs_unified_material(
             if mat.data.cluster_colors[slot] == Vec4::ZERO {
                 // pick disabled variant color (no tween per-ball due to grouping)
                 let enabled_color = color_for_index(*ci);
-                let disabled_color = secondary_color_for_index(*ci);
+                let disabled_color = enabled_color; // secondary palette removed
                 let color_vec = compute_tween_color(enabled_color, disabled_color, *st_opt, now, tween_dur);
                 mat.data.cluster_colors[slot] = color_vec;
             }
@@ -714,7 +714,7 @@ fn tweak_metaballs_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rendering::palette::palette::{BASE_COLORS, secondary_color_for_index};
+    use crate::rendering::palette::palette::BASE_COLORS;
     use bevy::ecs::system::SystemState;
     use bevy::asset::Assets;
 
@@ -729,18 +729,6 @@ mod tests {
         assert!((l.blue - 0.5).abs() < 1e-6);
     }
 
-    #[test]
-    fn secondary_palette_mapping_cycles() {
-        for i in 0..16 {
-            let s = secondary_color_for_index(i);
-            let b = BASE_COLORS[i % BASE_COLORS.len()];
-            // Just ensure they differ enough in at least one channel
-            let sd = s.to_srgba();
-            let bd = b.to_srgba();
-            let diff = (sd.red - bd.red).abs() + (sd.green - bd.green).abs() + (sd.blue - bd.blue).abs();
-            assert!(diff > 0.05, "secondary color too similar to base at index {i}");
-        }
-    }
 
     // Integration-style test of slot allocation: disabled cluster -> per-ball slots, then enabled -> shared slot.
     #[test]
