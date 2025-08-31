@@ -7,32 +7,39 @@ This file is intentionally concise but comprehensive. Treat it as the operationa
 # Copilot Instructions (Ball Matcher)
 
 ## 1. High‑Level Architecture
-The project is a Bevy game / simulation featuring large numbers of bouncing balls with physics (Rapier 2D), clustering, custom metaball rendering (WGSL shaders), interaction modes, debug overlays, and hot‑reloadable configuration.
+Simulation / game built with Bevy + Rapier 2D + a unified metaball shader. Focus: large ball counts, clustering, procedural + surface noise shading, gesture interaction, and feature‑gated debug tooling.
 
-Top modules (`src/`):
-- `app` – High level `GamePlugin` wiring of sub‑plugins.
-- `core` – Foundational components (`Ball`, radii), configuration loading + validation (`GameConfig` and sub‑configs).
-- `physics` – Rapier integration, gravity / separation / clustering logic.
-- `rendering` – Materials, palette, background, camera setup, metaballs (custom shaders) and alternate visual modes.
-- `interaction` – Input mapping, interaction systems (drag, explosion, parameter tweak), session lifecycle helpers.
-- `debug` – Logging, debug modes, overlays, stats, (feature‑gated) Rapier debug render.
-- `gameplay` – Spawning and higher level game mechanics.
+Key modules (`src/`):
+* `app` – `GamePlugin` composes camera, materials, physics setup, gravity, spawning, clustering, metaballs, input actions, cluster pop, debug, hot reload (config & input), auto close.
+* `core` – Components, ordering labels (`PrePhysicsSet`, `PostPhysicsAdjustSet`), layered config load & validation.
+* `physics` – Rapier setup (`PhysicsSetupPlugin`), radial gravity, clustering passes, post‑physics adjustments.
+* `rendering` – Camera, material palettes, unified metaballs material + noise uniforms, shader mode cycling.
+* `interaction` – Custom input pipeline (collection + evaluation chain), cluster popping, session lifecycle.
+* `debug` – Feature‑gated overlay, stats, visual override modes, optional Rapier wireframe (runtime toggle when not compiled with `debug` but config enables).
+* `gameplay` – Ball spawning / entity construction.
 
-Design style: modular Bevy plugins, additive systems grouped by schedule (Startup / Update). Configuration centralization via `GameConfig` resource inserted at startup and validated with warnings (non‑fatal). Rendering supports switching metaball render modes at runtime. WASM builds embed shaders to avoid fetch overhead; native loads from `assets/` paths.
+Reference base engine idioms in `external/bevy` (submodule) for ECS scheduling, plugin structuring, material patterns. Prefer local established minimal wrappers while mirroring upstream naming where helpful.
+
+Design style: small composable plugins; explicit ordering with named `SystemSet`s (not implicit insertion). Config inserted early then treated read‑only except for hot reload. WASM embeds shaders with `include_str!` + `OnceLock`; native uses asset paths. Unified metaball material packs all field + color data.
 
 ## 2. Core Conventions
 Follow and preserve existing style unless a change yields a clear improvement.
 
 ### 2.1 Rust / Bevy
-- Prefer *small focused plugins* implementing `Plugin::build` that only register their systems & resources.
-- System functions: Keep inputs minimal; prefer queries over broad `Res` usage. Group related systems in a tuple within a single `.add_systems(Schedule, (...))` call for clarity.
-- Use `#[derive(Component)]` newtypes (like `BallRadius`) for semantic clarity instead of raw primitives.
-- Keep **order independence** where possible. If ordering is required, encode it explicitly (e.g., using system sets / ordering labels) rather than relying on insertion order.
-- Favor immutable access (`Res<GameConfig>`) except when mutation is required; isolate mutation to dedicated update systems.
-- Log with structured context (`info!(target: "…", ... )`) for filterability. Avoid noisy per‑frame logs in hot loops.
-- Validate external inputs (config fields) once at startup; store sanitized values (clamped, positive, etc.) if needed to avoid repeated runtime guards.
-- Use feature flags (`debug`) judiciously to keep release binary lean.
-- Keep hot path branching minimal (e.g., metaballs updates bail early on toggle off) – replicate pattern.
+* Small focused plugins (one concern). `GamePlugin` just composes.
+* Explicit `SystemSet`s for ordering:
+	* `PrePhysicsSet` – forces / velocity edits before Rapier step.
+	* Rapier simulation (plugin internal).
+	* `PostPhysicsAdjustSet` – lightweight corrections / clustering.
+	* `DebugPreRenderSet` (feature gated) – overlay & stats after physics.
+	* `InputActionUpdateSet` (in `PreUpdate`) – deterministic input capture & evaluation chain before gameplay.
+* Group related systems via tuple in one `.add_systems(Stage, (...))`; use `.chain()` when strict intra‑tuple ordering required.
+* Minimize system params; avoid broad `ResMut<GameConfig>` in hot paths. Live reads (`Res<GameConfig>`) acceptable; mutation isolated to config hot‑reload systems.
+* Component newtypes (`BallRadius`, `BallMaterialIndex`) for semantic clarity & packing.
+* Encode ordering with `.after()` / `.in_set()`; never rely on registration order.
+* Logging: targeted (`target = "metaballs"|"spawn"|"config"`). Avoid per‑entity per‑frame logs.
+* Validation done at startup; warnings only. Panics only for platform policy (backend mismatch, missing WebGPU on wasm).
+* Guard optional heavy systems with early exit toggles (`if !toggle.0 { return; }`).
 
 ### 2.2 Configuration
 - `GameConfig` layering: maintain ability to overlay multiple RON files (`game.ron`, `game.local.ron`). When adding config fields:
@@ -43,18 +50,26 @@ Follow and preserve existing style unless a change yields a clear improvement.
 - Never hard panic on config issues; log warnings and fall back to defaults (current pattern).
 
 ### 2.3 Physics (Rapier)
-- Ensure gravity and scale remain consistent; if enabling custom gravity from config, set through `RapierConfiguration` in a startup system. Keep in mind Rapier guidance (SI units ideal; avoid giant coordinate magnitudes). Reference: rapier.rs common mistakes (gravity non‑zero, mass, collider presence).
-- Avoid per‑frame expensive broad queries; cache handles or use query filters.
-- When adjusting forces/impulses, consider stable timestep assumptions; if adding variable timestep logic, gate behind explicit design decision.
+* `PhysicsSetupPlugin` registers Rapier; `configure_gravity` currently sets gravity to zero (radial gravity/other forces handled elsewhere). If adding config gravity ensure no conflict with custom force systems.
+* Keep scale moderate; large magnitudes require retuning damping.
+* Cache reused handles to avoid re‑querying broad sets.
+* If moving to fixed timestep logic, document & gate; safest current assumption is variable frame time.
 
 ### 2.4 Rendering & Shaders
-- WGSL shader handles: For WASM keep `OnceLock` pattern for embedding; for native rely on asset path – replicate this dual path for any new shader pair.
-- Uniform structs: Maintain 16‑byte alignment (use `#[repr(C, align(16))]` and `ShaderType`). Keep arrays sized with compile‑time constants (e.g., `MAX_BALLS`); if increasing sizes, assess GPU uniform buffer limits.
-- Minimize divergence between variant materials (classic vs bevel). If logic duplication grows, refactor to shared helper (not yet critical – note as potential tech debt).
-- Keep color calculation consistent (`color_for_index`). If adding palette logic, centralize mapping rather than scattering conversions.
+* WASM: embed WGSL via `include_str!` -> `Assets<Shader>` + `OnceLock` handles. Native: path refs. Mirror this for new shader variants.
+* Unified metaballs material structure:
+	* Header vectors (`v0`, `v1`, `v2`) for counts, iso, modes, viewport size, time, normalization.
+	* Fixed arrays: `balls[MAX_BALLS]`, `cluster_colors[MAX_CLUSTERS]`. Raising limits requires checking uniform buffer size limits; prefer storage buffer refactor over unbounded growth.
+* All GPU structs `#[repr(C, align(16))]` + `ShaderType` (includes noise & surface noise uniforms) – preserve alignment.
+* Orphan ball color slot logic ensures deterministic palette (prevents flicker). Preserve when altering cluster logic.
+* Clamp iso & derived normalization to safe epsilon before pow/roots.
+* Centralize palette operations in `palette::color_for_index`.
 
 ### 2.5 Interaction / Input Map
-- Input bindings should be symbolic (“MetaballIsoInc”) not hard‑coded key checks spread across systems. Reuse existing `InputMap` resource pattern. Add tests / hot reload support if new bindings are introduced.
+* Pipeline: `PreUpdate` -> `InputActionUpdateSet`: `system_collect_inputs` then `system_evaluate_bindings` (chained) for deterministic action states.
+* Systems depend on symbolic actions (`MetaballIsoInc`) not raw key codes (except mode cycling keys intentionally separate).
+* Hot reload for input map is feature gated (`debug`); keep file watch cost out of release.
+* New actions: extend parser + tests; update debug overlay visibility.
 
 ### 2.6 Debug & Instrumentation
 - Feature gate heavy debug systems to avoid overhead in release (keep `#[cfg(feature="debug")]`).
@@ -62,7 +77,7 @@ Follow and preserve existing style unless a change yields a clear improvement.
 - Use targeted log targets (e.g., `target: "metaballs"`) so external consumers can filter.
 
 ## 3. Performance Guidelines
-Primary hotspots: metaball material updates, ball spawning, cluster updates, physics stepping.
+Primary hotspots: metaball material uniform packing, clustering passes, mass spawning bursts, physics stepping.
 
 Apply:
 - Early exits (`if !toggle.0 { return; }`).
@@ -72,10 +87,10 @@ Apply:
 - Log frequency throttling: for repeated param tweaks, log only on change (current approach). Maintain this pattern.
 
 ## 4. Safety & Robustness
-- Handle `Query::single*` fallibility with graceful `else { return; }` patterns to prevent panics; continue using this guard approach.
-- Clamp or sanitize user‑driven / config values before use in math sensitive code (e.g., iso threshold clamp). Replicate that for any nonlinear parameters.
-- Prefer deterministic ordering when iterating collections where color/mode mapping matters (document assumptions if order becomes significant).
-- If adding parallel systems (e.g., via `bevy::tasks`), ensure Send/Sync boundaries of resources & avoid racey interior mutability.
+* Use early returns for optional single queries (`let Ok(x) = ... else { return; }`).
+* Sanitize config at application & on live read (surface noise amp clamp, iso epsilon, radius multiplier floor).
+* Color slot ordering: cluster slots allocate sequentially; orphan slots per material index. If cross‑run determinism becomes required replace `HashMap` with ordered map.
+* Parallelism: current hot systems (metaballs update) intentionally single‑threaded; evaluate parallelization only after profiling shows consistent benefit.
 
 ## 5. Adding New Features – Workflow Checklist
 1. Define config additions (if needed) – defaults + validation.
@@ -138,10 +153,11 @@ No network / file IO outside config loading; keep file reads constrained to `ass
 - Embed essential shaders & configs; large dynamic loads risk latency.
 
 ## 16. When Unsure
-Before large refactors:
-1. Propose a small spike / design diff referencing this file.
-2. Preserve observable behavior (config compatibility, deterministic visuals unless feature flagged).
-3. Benchmark representative releases before & after (frame time, ball count scaling).
+Consult this file AND upstream examples in `external/bevy`. If conflicting patterns:
+1. Choose the *safest* (least panic, clamped values, additive config changes).
+2. Preserve existing public config keys (additive > breaking rename).
+3. Optimize only after measuring (avoid speculative micro‑tuning).
+4. Provide a design diff / spike for large refactors referencing system sets & config impact.
 
 ## 17. Contribution Ready Definition
 A change is ready when:
@@ -173,11 +189,12 @@ impl Plugin for NewVisualPlugin { fn build(&self, app: &mut App) {
 Although primarily a simulation/game, when adding UI or text: use clear, high‑contrast colors, avoid color‑only differentiation, and prepare future text elements for localization by avoiding hard‑coded concatenations.
 
 ## 20. Keep This File Current
-Update this document when:
-- Introducing a new subsystem pattern.
-- Changing max buffer sizes impacting shaders.
-- Altering configuration layering strategy.
-- Adopting parallel execution or new scheduling phases.
+Update when:
+* New system set names or ordering constraints are added.
+* Metaball uniform shapes / maxima change.
+* Gravity policy shifts (e.g., enabling config gravity instead of zero baseline).
+* Config layering strategy changes.
+* New hot reloadable domains introduced.
 
 ---
 Generated with accessibility and maintainability in mind. Review periodically & adapt as architecture evolves.
