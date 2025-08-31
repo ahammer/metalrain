@@ -651,12 +651,9 @@ fn build_metaball_tiles(
     let tiles_y = ((vh / tile_size).ceil() as u32).max(1);
     let tile_count = (tiles_x * tiles_y) as usize;
 
-    // Early-out if unchanged (same ball len, tile grid, tile size). Could add viewport change detection.
+    // Recompute every frame (previous early-out caused visual artifacts when balls crossed tile boundaries).
+    // TODO: Introduce smarter change detection (track per-ball tile span) if CPU cost becomes significant.
     let balls_len = shadow.0.len();
-    let tile_size_changed = (mat.data.v3.z - tile_size).abs() > f32::EPSILON;
-    if balls_len == meta.last_ball_len && tiles_x == meta.tiles_x && tiles_y == meta.tiles_y && !tile_size_changed {
-        return; // reuse previous buffers
-    }
 
     // Prepare buckets
     let mut buckets: Vec<Vec<u32>> = Vec::with_capacity(tile_count);
