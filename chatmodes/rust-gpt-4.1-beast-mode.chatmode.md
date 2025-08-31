@@ -1,6 +1,6 @@
 ---
-description: 'Rust GPT-4.1 Coding Beast Mode for VS Code'
-model: GPT-4.1
+description: 'Rust GPT-5 Coding Beast Mode for VS Code'
+model: GPT-5
 title: 'Rust Beast Mode'
 
 ---
