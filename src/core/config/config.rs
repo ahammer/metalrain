@@ -34,6 +34,43 @@ impl Default for GravityConfig {
         Self { y: -600.0 }
     }
 }
+// ----------------------------------------------------------------------------
+// NEW: Gravity Widgets Config (replaces legacy center radial gravity)
+// ----------------------------------------------------------------------------
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct GravityWidgetConfig {
+    pub id: u32,
+    pub strength: f32,
+    pub mode: String,      // parsed into enum after load ("Attract"|"Repulse")
+    pub radius: f32,       // influence radius; <= 0 => infinite
+    pub falloff: String,   // ("None"|"InverseLinear"|"InverseSquare"|"SmoothEdge")
+    pub enabled: bool,
+    #[serde(rename = "physics_collider")] // keep snake_case key; allow camelCase via ron default tolerant
+    pub physics_collider: bool,
+    #[serde(skip)]
+    pub _parsed_ok: bool, // internal flag (not serialized) set true if mode/falloff parsed
+}
+impl Default for GravityWidgetConfig {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            strength: 600.0,
+            mode: "Attract".into(),
+            radius: 0.0,
+            falloff: "InverseLinear".into(),
+            enabled: true,
+            physics_collider: false,
+            _parsed_ok: true,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct GravityWidgetsConfig {
+    pub widgets: Vec<GravityWidgetConfig>,
+}
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct BounceConfig {
@@ -191,6 +228,7 @@ impl Default for ClusteringConfig {
 pub struct GameConfig {
     pub window: WindowConfig,
     pub gravity: GravityConfig,
+    pub gravity_widgets: GravityWidgetsConfig, // NEW: widget-based gravity system
     pub bounce: BounceConfig,
     pub balls: BallSpawnConfig,
     pub rapier_debug: bool,
@@ -209,6 +247,7 @@ impl Default for GameConfig {
         Self {
             window: Default::default(),
             gravity: Default::default(),
+            gravity_widgets: Default::default(),
             bounce: Default::default(),
             balls: Default::default(),
             rapier_debug: false,
@@ -452,7 +491,7 @@ impl GameConfig {
             ));
         }
         if self.gravity.y.abs() < 1e-4 {
-            w.push("gravity.y magnitude near zero; balls may float".into());
+            w.push("gravity.y magnitude near zero (legacy field) – prefer gravity_widgets".into());
         }
         if self.gravity.y > 0.0 {
             w.push(format!(
@@ -465,6 +504,32 @@ impl GameConfig {
                 "gravity.y very large magnitude ({}); integration instability possible",
                 self.gravity.y
             ));
+        }
+        // Gravity widgets validation + migration guidance
+        if self.gravity_widgets.widgets.is_empty() {
+            if self.gravity.y.abs() > 0.0 {
+                w.push(format!("gravity.y legacy field ({:.1}) used to seed implicit gravity widget (id=0). Define gravity_widgets to silence this.", self.gravity.y));
+            } else {
+                w.push("No gravity widgets defined (gravity_widgets.widgets empty) and legacy gravity.y ~0 -> scene may have no central force".into());
+            }
+        } else {
+            use std::collections::HashSet;
+            let mut ids = HashSet::new();
+            for gw in &self.gravity_widgets.widgets {
+                if !ids.insert(gw.id) {
+                    w.push(format!("Duplicate gravity widget id {}", gw.id));
+                }
+                if gw.strength <= 0.0 {
+                    w.push(format!("gravity_widgets id {} strength {} <= 0 -> no effect", gw.id, gw.strength));
+                }
+                if gw.radius < 0.0 {
+                    w.push(format!("gravity_widgets id {} radius {} < 0 -> treated as infinite", gw.id, gw.radius));
+                }
+                let mode_ok = matches!(gw.mode.as_str(), "Attract"|"Repulse");
+                if !mode_ok { w.push(format!("gravity_widgets id {} unknown mode '{}'", gw.id, gw.mode)); }
+                let fall_ok = matches!(gw.falloff.as_str(), "None"|"InverseLinear"|"InverseSquare"|"SmoothEdge");
+                if !fall_ok { w.push(format!("gravity_widgets id {} unknown falloff '{}'", gw.id, gw.falloff)); }
+            }
         }
         if !(0.0..=1.5).contains(&self.bounce.restitution) {
             w.push(format!(
