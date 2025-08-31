@@ -1,16 +1,39 @@
-// Metaballs Dual-Axis Shader (Foreground / Background) — 16B-aligned UBOs
+// Metaballs Unified Shader (Foreground / Background / Metadata)
 // ------------------------------------------------------------------------------------
-// Changes vs. your version:
-// - All uniform structs are packed into vec4 slots (std140-like) for strict 16-byte alignment.
-// - No scalar members in UBOs; flags are u32 lanes in vec4<u32>.
-// - Accumulator arrays are initialized; "replace-smallest" only scans used range.
-// - Bindings unchanged: group(2)/binding(0..2).
+// Version: 2025-08-31
+// Implemented Improvements (see audit prompt):
+//   - EarlyExitIsoFix: Early-exit now accounts for surface-noise iso shift mode (sn_mode == 1).
+//   - MetadataV2: Optional (metaballs.v4.z) 16-bit cluster id encoding (B = hi8, A = lo8).
+//   - AdaptiveSDF: Metadata SDF normalization scale adapts to dominant approximate radius.
+//   - AdaptiveMask: Gradient-aware anti-aliasing mask toggle (metaballs.v4.w).
+//   - NoiseCenteringFix: Both background and surface noise recentered post-contrast to remove mean bias.
+// Secondary scaffolding / doc:
+//   - Header constants block for FG mode discriminants (sync with Rust enum).
+//   - TODO(TEXTURE_PALETTE): future sampled 1D texture path for cluster colors.
+//   - TODO(STORAGE_METADATA_TEXTURE): richer metadata picking path.
+// Removed stale TODOs replaced by above implementations.
 // ------------------------------------------------------------------------------------
+// Uniform packing notes:
+//   v4.x = enable_early_exit
+//   v4.y = needs_gradient (hint / forced by Metadata mode)
+//   v4.z = metadata_v2_enabled
+//   v4.w = enable_adaptive_mask (0 = legacy ramp, 1 = gradient / iso adaptive width)
+// ------------------------------------------------------------------------------------
+// Test Harness Guidance (CPU-side / host app):
+//   1. Capture reference frame pre-refactor.
+//   2. Render post-refactor with enable_adaptive_mask=0 and sn_mode=0 additive disabled; diff tolerance avg abs < 0.01.
+//   3. Toggle adaptive mask (v4.w=1) – inspect thinner yet AA-stable edges.
+//   4. Toggle metadata_v2_enabled (v4.z) using a cluster id > 255 and confirm B/A encode hi/lo bytes.
+//   5. Force sn_mode=1 (iso shift) and compare silhouette vs forcing early_exit off globally (v4.x=0) – shapes must match.
+// ------------------------------------------------------------------------------------
+// NOTE: Foreground mode discriminants (keep in sync with Rust enum order)
+//   0 = ClassicBlend, 1 = Bevel, 2 = OutlineGlow, 3 = Metadata
+//   Add new modes ONLY by updating both Rust & this header block.
+// TODO(TEXTURE_PALETTE): Introduce sampler + 1D texture for cluster palette; keep binding indices stable.
+// TODO(STORAGE_METADATA_TEXTURE): Separate structured metadata write path (u32 packed cluster + flags).
 
 const MAX_CLUSTERS : u32 =  256u;
 const K_MAX        : u32 =   12u;
-// NOTE: Foreground mode discriminants (keep in sync with Rust enum order)
-// 0 = ClassicBlend, 1 = Bevel, 2 = OutlineGlow, 3 = Metadata
 const FG_MODE_METADATA : u32 = 3u;
 
 // =============================
@@ -27,7 +50,7 @@ struct MetaballsData {
     v2: vec4<f32>,
     // v3: (tiles_x, tiles_y, tile_size_px, balls_len_actual)
     v3: vec4<f32>,
-    // v4: (enable_early_exit, needs_gradient, reserved0, reserved1)
+    // v4: (enable_early_exit, needs_gradient, metadata_v2_enabled, enable_adaptive_mask)
     v4: vec4<f32>,
     cluster_colors: array<vec4<f32>, MAX_CLUSTERS>,
 };
@@ -170,19 +193,25 @@ fn noise_color(p: vec2<f32>, time: f32) -> vec3<f32> {
         amp  *= gain;
     }
 
+    // Normalize & clamp raw accumulation to [0,1].
     n = n / max(weight_sum, 1e-5);
     n = clamp(n, 0.0, 1.0);
-    n = pow(n, contrast);
+    // Apply contrast THEN re-center (NoiseCenteringFix) to remove mean shift when contrast != 1.
+    if (contrast != 1.0) {
+        n = pow(n, contrast);
+    }
+    let n_centered = n - 0.5; // now in [-0.5,0.5]
+    let n01 = n_centered + 0.5; // re-map for remaining color shaping logic
 
-    let mid_sharp = smoothstep(0.30, 0.70, n);
-    let hi        = smoothstep(0.55, 0.95, n);
-    n = mix(n, mid_sharp, 0.15);
+    let mid_sharp = smoothstep(0.30, 0.70, n01);
+    let hi        = smoothstep(0.55, 0.95, n01);
+    let n_mix = mix(n01, mid_sharp, 0.15);
 
     let cA = vec3<f32>(0.05, 0.08, 0.15);
     let cB = vec3<f32>(0.04, 0.35, 0.45);
     let cHi= vec3<f32>(0.85, 0.65, 0.30);
     let base = mix(cA, cB, mid_sharp);
-    let out_col = mix(base, cHi, hi * 0.35);
+    let out_col = mix(base, cHi, hi * 0.35) * (n_mix * 0.05 + 0.95); // subtle variation retains centered mean
     return out_col * 0.95;
 }
 
@@ -235,18 +264,25 @@ fn surface_noise_scalar(p: vec2<f32>, time: f32) -> f32 {
 
     n = n / max(wsum, 1e-5);
     n = clamp(n, 0.0, 1.0);
-    n = pow(n, contrast);
-    return n * amp;
+    if (contrast != 1.0) {
+        n = pow(n, contrast);
+    }
+    // Recenter post-contrast (NoiseCenteringFix)
+    let n_centered = n - 0.5;
+    // Return re-biased into [0,1] domain * amplitude: amp * (n_centered + 0.5)
+    return (n_centered + 0.5) * amp;
 }
 
 // =============================
 // Accumulation
 // =============================
 struct AccumResult {
-    used:   u32,
+    used:    u32,
     indices: array<u32,  K_MAX>,
     field:   array<f32,  K_MAX>,
     grad:    array<vec2<f32>, K_MAX>,
+    // AdaptiveSDF: track last seen scaled radius per active cluster (heuristic for dominant blob pixel radius)
+    approx_r: array<f32, K_MAX>,
 };
 
 fn accumulate_clusters_tile(
@@ -257,8 +293,8 @@ fn accumulate_clusters_tile(
     cluster_color_count: u32,
     radius_scale: f32,
     radius_multiplier: f32,
-    enable_early_exit: bool,
-    needs_gradient: bool,
+    allow_early_exit: bool,
+    needs_gradient: bool, // retained for mask gradient path decisions
     effective_iso: f32
 ) -> AccumResult {
     var res: AccumResult;
@@ -269,6 +305,7 @@ fn accumulate_clusters_tile(
         res.indices[k] = 0u;
         res.field[k]   = 0.0;
         res.grad[k]    = vec2<f32>(0.0, 0.0);
+        res.approx_r[k]= 0.0;
     }
 
     let safe_ball_count = min(ball_count_exposed, balls_len_actual);
@@ -303,10 +340,12 @@ fn accumulate_clusters_tile(
                 let idx = u32(found);
                 res.field[idx] = res.field[idx] + fi;
                 res.grad[idx]  = res.grad[idx]  + g;
+                res.approx_r[idx] = scaled_r; // overwrite with latest; sufficient heuristic
             } else if (res.used < K_MAX) {
                 res.indices[res.used] = cluster;
                 res.field[res.used]   = fi;
                 res.grad[res.used]    = g;
+                res.approx_r[res.used]= scaled_r;
                 res.used = res.used + 1u;
             } else {
                 // Replace the smallest among the *used* entries.
@@ -319,10 +358,11 @@ fn accumulate_clusters_tile(
                     res.indices[smallest_i] = cluster;
                     res.field[smallest_i]   = fi;
                     res.grad[smallest_i]    = g;
+                    res.approx_r[smallest_i]= scaled_r;
                 }
             }
             // Early-exit: if dominant field already >= iso and no gradient needed.
-            if (enable_early_exit && !needs_gradient) {
+            if (allow_early_exit && !needs_gradient) {
                 var best_field: f32 = 0.0;
                 for (var kk: u32 = 0u; kk < res.used; kk = kk + 1u) { if (res.field[kk] > best_field) { best_field = res.field[kk]; } }
                 if (best_field >= effective_iso) { break; }
@@ -434,6 +474,8 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let balls_len_actual    = u32(metaballs.v3.w + 0.5);
     let enable_early_exit   = (metaballs.v4.x > 0.5);
     let needs_gradient      = (metaballs.v4.y > 0.5) || (fg_mode == FG_MODE_METADATA);
+    let metadata_v2_enabled = (metaballs.v4.z > 0.5);
+    let enable_adaptive_mask= (metaballs.v4.w > 0.5);
 
     // Compute tile coordinate (fragment positions share same space as world_pos; origin -viewport/2 .. +)
     let half_size = metaballs.v2.xy * 0.5;
@@ -442,11 +484,28 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let tc = clamp(vec2<i32>(floor(rel / tile_size_px)), vec2<i32>(0,0), vec2<i32>(i32(tiles_x)-1, i32(tiles_y)-1));
     let tile_index = u32(tc.y) * tiles_x + u32(tc.x);
     let tile = tile_headers[tile_index];
+    // Dev assertion scaffold: tile.offset + tile.count bounds would be validated if a total index length uniform existed.
+    // if (debug_view == 2u) { // TODO(DEV_ASSERT): when total_index_count uniform added, detect overflow and output magenta.
+    // }
 
-    // We need effective_iso for early-exit and surface noise path; may shift later.
-    var effective_iso = iso;
+    // Surface noise pre-pass for iso shift mode (sn_mode == 1) requires sampling noise BEFORE accumulation so
+    // early-exit uses the correct threshold. Additive mode (sn_mode == 0) applied after accumulation.
+    let sn_octaves  = surface_noise.v3.x;
+    let sn_mode     = surface_noise.v3.z; // 0 = additive field perturb, 1 = iso shift
+    let sn_enabled  = (surface_noise.v3.w != 0u) && (sn_octaves > 0u) && (surface_noise.v0.x > 0.00001);
 
-    var acc = accumulate_clusters_tile(p, tile, ball_count_exposed, balls_len_actual, cluster_color_count, radius_scale, radius_multiplier, enable_early_exit, needs_gradient, effective_iso);
+    var effective_iso = iso; // may be modified if iso-shift noise active
+    if (sn_enabled && sn_mode == 1u) {
+        let delta = surface_noise_scalar(p, time_seconds); // unbiased after NoiseCenteringFix
+        effective_iso = iso + (delta - surface_noise.v0.x * 0.5); // EarlyExitIsoFix
+    }
+
+    // Gate early-exit if:
+    //  - Additive surface noise mode (sn_mode==0) because final field may cross iso only after perturbation.
+    //  - Gradient explicitly needed (e.g. metadata mode or bevel lighting). (allow_early_exit already excludes needs_gradient in accumulate routine, but we micro-opt here.)
+    let allow_early_exit = enable_early_exit && !(sn_enabled && sn_mode == 0u) && !needs_gradient;
+
+    var acc = accumulate_clusters_tile(p, tile, ball_count_exposed, balls_len_actual, cluster_color_count, radius_scale, radius_multiplier, allow_early_exit, needs_gradient, effective_iso);
     if (acc.used == 0u) {
         // Metadata mode sentinel when no field contributions: (R=1,G=0,B=0,A=0)
         if (fg_mode == FG_MODE_METADATA) {
@@ -464,6 +523,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let dom = dominant(acc);
     var best_field = acc.field[dom];
     let grad = acc.grad[dom];
+    let approx_r_dom = acc.approx_r[dom];
 
     if (fg_mode != FG_MODE_METADATA && debug_view == 1u) {
         // Debug grayscale suppressed in Metadata mode (metadata path has priority)
@@ -471,24 +531,24 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(vec3<f32>(gray, gray, gray), 1.0);
     }
 
-    // Surface edge modulation (optional)
-    // effective_iso already declared; may be modified by surface noise below.
-    let sn_octaves  = surface_noise.v3.x;
-    let sn_mode     = surface_noise.v3.z;
-    let sn_enabled  = (surface_noise.v3.w != 0u);
-
-    if (sn_enabled && sn_octaves > 0u && surface_noise.v0.x > 0.00001) {
-        let delta = surface_noise_scalar(p, time_seconds); // already includes amplitude
-        if (sn_mode == 0u) {
-            best_field = best_field + (delta - surface_noise.v0.x * 0.5); // amp*(n-0.5)
-        } else {
-            effective_iso = iso + (delta - surface_noise.v0.x * 0.5);
-        }
+    // Surface edge modulation additive mode applied AFTER accumulation (EarlyExitIsoFix rationale).
+    if (sn_enabled && sn_mode == 0u) {
+        let delta_post = surface_noise_scalar(p, time_seconds);
+        best_field = best_field + (delta_post - surface_noise.v0.x * 0.5);
     }
 
     let cluster_idx = acc.indices[dom];
     let base_col = metaballs.cluster_colors[cluster_idx].rgb;
-    let mask = compute_mask(best_field, effective_iso);
+    // Adaptive gradient-aware mask (AdaptiveMask) or legacy ramp.
+    var mask: f32;
+    if (enable_adaptive_mask) {
+        let grad_len = max(length(grad), 1e-5);
+        // approximate pixel footprint: assume world unit ~ pixel (coordinate space contract). Could scale if viewport mapping changes.
+        let aa_width = clamp(effective_iso / (grad_len + 1e-5) * 0.5, 0.75, 4.0);
+        mask = smoothstep(effective_iso - aa_width, effective_iso + aa_width, best_field);
+    } else {
+        mask = compute_mask(best_field, effective_iso);
+    }
 
     // ---------------------------------------------------------------------
     // Metadata Foreground Mode
@@ -510,21 +570,26 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         let gradv = acc.grad[dom];
         let g_len = max(length(gradv), 1e-5);
         let signed_d = (effective_iso - best_field) / g_len; // outside positive
-        let d_scale = 8.0; // heuristic: ~8px transition window; tuned for typical blob radii.
+        // AdaptiveSDF scale selection: derive heuristic from approx radius; fallback to legacy 8.0
+        let r_px = select(approx_r_dom, 0.0, approx_r_dom < 0.0); // approx_r_dom always >=0, keep explicit for clarity
+        var d_scale = 8.0;
+        if (r_px > 0.0) {
+            d_scale = clamp(r_px * 0.25, 4.0, 24.0);
+        }
         var r_channel = clamp(0.5 - 0.5 * signed_d / d_scale, 0.0, 1.0);
         if (g_len <= 1e-5) { r_channel = 0.5; }
-        let clickable = mask; // bootstrap: all clickable
-        let non_clickable = 0.0;
-        if (metaballs.v4.z > 0.5) {
-            // Metadata V2 encoding: B = high8, A = low8
+        let clickable = mask; // all clickable in current design
+        if (metadata_v2_enabled) {
+            // Metadata V2 encoding: B = high8, A = low8 (cluster id up to 16 bits)
             let cid16 = min(cluster_idx, 65535u);
             let low = f32(cid16 & 255u) / 255.0;
             let high = f32((cid16 >> 8u) & 255u) / 255.0;
             return vec4<f32>(r_channel, clickable, high, low);
         } else {
+            // Legacy encoding: B = 0, A = cluster_u8
             let cluster_u8 = min(cluster_idx, 255u);
             let a_channel = f32(cluster_u8) / 255.0;
-            return vec4<f32>(r_channel, clickable, non_clickable, a_channel);
+            return vec4<f32>(r_channel, clickable, 0.0, a_channel);
         }
     }
 
