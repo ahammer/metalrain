@@ -32,9 +32,17 @@
 // TODO(TEXTURE_PALETTE): Introduce sampler + 1D texture for cluster palette; keep binding indices stable.
 // TODO(STORAGE_METADATA_TEXTURE): Separate structured metadata write path (u32 packed cluster + flags).
 
-const MAX_CLUSTERS : u32 =  256u;
-const K_MAX        : u32 =   12u;
-const FG_MODE_METADATA : u32 = 3u;
+const MAX_CLUSTERS        : u32 = 256u;
+const K_MAX               : u32 = 12u;
+const FG_MODE_METADATA    : u32 = 3u;
+// Hoisted tuning constants
+const AA_RAMP_START_FACTOR : f32 = 0.6;   // legacy mask ramp start fraction
+const GRAD_EPS             : f32 = 1e-5;  // gradient epsilon
+const FIELD_EPS            : f32 = 1e-5;  // generic small epsilon
+const MAX_OCTAVES          : u32 = 6u;    // loop cap (mirrors existing 6)
+const LEGACY_D_SCALE       : f32 = 8.0;   // legacy metadata SDF scale fallback
+const SDF_SCALE_MIN        : f32 = 4.0;   // adaptive SDF scale clamp min
+const SDF_SCALE_MAX        : f32 = 24.0;  // adaptive SDF scale clamp max
 
 // =============================
 // Uniform Buffers (16B aligned)
@@ -277,12 +285,14 @@ fn surface_noise_scalar(p: vec2<f32>, time: f32) -> f32 {
 // Accumulation
 // =============================
 struct AccumResult {
-    used:    u32,
-    indices: array<u32,  K_MAX>,
-    field:   array<f32,  K_MAX>,
-    grad:    array<vec2<f32>, K_MAX>,
-    // AdaptiveSDF: track last seen scaled radius per active cluster (heuristic for dominant blob pixel radius)
-    approx_r: array<f32, K_MAX>,
+    used:      u32,
+    best_i:    u32,
+    best_field: f32,
+    _pad:      f32,
+    indices:   array<u32,  K_MAX>,
+    field:     array<f32,  K_MAX>,
+    grad:      array<vec2<f32>, K_MAX>,
+    approx_r:  array<f32, K_MAX>,
 };
 
 fn accumulate_clusters_tile(
@@ -294,20 +304,22 @@ fn accumulate_clusters_tile(
     radius_scale: f32,
     radius_multiplier: f32,
     allow_early_exit: bool,
-    needs_gradient: bool, // retained for mask gradient path decisions
+    needs_gradient: bool,
     effective_iso: f32
 ) -> AccumResult {
     var res: AccumResult;
-
-    // Initialize everything to avoid any undefined reads.
     res.used = 0u;
+    res.best_i = 0u;
+    res.best_field = 0.0;
+    res._pad = 0.0;
     for (var k: u32 = 0u; k < K_MAX; k = k + 1u) {
         res.indices[k] = 0u;
         res.field[k]   = 0.0;
         res.grad[k]    = vec2<f32>(0.0, 0.0);
         res.approx_r[k]= 0.0;
     }
-
+    var min_field: f32 = 1e30;
+    var min_i: u32 = 0u;
     let safe_ball_count = min(ball_count_exposed, balls_len_actual);
     for (var j: u32 = 0u; j < tile.count; j = j + 1u) {
         let bi = tile_ball_indices[tile.offset + j];
@@ -316,78 +328,73 @@ fn accumulate_clusters_tile(
         let center = b.xy;
         let radius = b.z * radius_multiplier;
         if (radius <= 0.0) { continue; }
-
         let d = p - center;
         let d2 = dot(d, d);
         let scaled_r = radius * radius_scale;
         let r2 = scaled_r * scaled_r;
-
-        if (d2 < r2) {
-            let x  = 1.0 - d2 / r2;
-            let x2 = x * x;
-            let fi = x2 * x;
-            let g  = (-6.0 / r2) * d * x2;
-
-            let cluster = u32(b.w + 0.5);
-            if (cluster >= cluster_color_count) { continue; }
-
-            var found: i32 = -1;
-            for (var k: u32 = 0u; k < res.used; k = k + 1u) {
-                if (res.indices[k] == cluster) { found = i32(k); break; }
-            }
-
-            if (found >= 0) {
-                let idx = u32(found);
-                res.field[idx] = res.field[idx] + fi;
-                res.grad[idx]  = res.grad[idx]  + g;
-                res.approx_r[idx] = scaled_r; // overwrite with latest; sufficient heuristic
-            } else if (res.used < K_MAX) {
-                res.indices[res.used] = cluster;
-                res.field[res.used]   = fi;
-                res.grad[res.used]    = g;
-                res.approx_r[res.used]= scaled_r;
-                res.used = res.used + 1u;
-            } else {
-                // Replace the smallest among the *used* entries.
-                var smallest: f32 = 1e30;
-                var smallest_i: u32 = 0u;
+        if (d2 >= r2) { continue; }
+        let inv_r2 = 1.0 / r2;
+        let x  = 1.0 - d2 * inv_r2;
+        let x2 = x * x;
+        let fi = x2 * x;
+        var g = vec2<f32>(0.0, 0.0);
+        if (needs_gradient) { g = (-6.0 * inv_r2) * d * x2; }
+        let cluster = u32(b.w + 0.5); // TODO(bitcast for future packed flags)
+        if (cluster >= cluster_color_count) { continue; }
+        var found: i32 = -1;
+        for (var k: u32 = 0u; k < res.used; k = k + 1u) {
+            if (res.indices[k] == cluster) { found = i32(k); break; }
+        }
+        if (found >= 0) {
+            let idx = u32(found);
+            let new_field = res.field[idx] + fi;
+            res.field[idx] = new_field;
+            if (needs_gradient) { res.grad[idx] = res.grad[idx] + g; }
+            res.approx_r[idx] = scaled_r;
+            if (new_field > res.best_field) { res.best_field = new_field; res.best_i = idx; }
+            if (idx == min_i) {
+                var new_min: f32 = 1e30; var new_min_i: u32 = 0u;
                 for (var kk: u32 = 0u; kk < res.used; kk = kk + 1u) {
-                    if (res.field[kk] < smallest) { smallest = res.field[kk]; smallest_i = kk; }
+                    if (res.field[kk] < new_min) { new_min = res.field[kk]; new_min_i = kk; }
                 }
-                if (fi > smallest) {
-                    res.indices[smallest_i] = cluster;
-                    res.field[smallest_i]   = fi;
-                    res.grad[smallest_i]    = g;
-                    res.approx_r[smallest_i]= scaled_r;
-                }
+                min_field = new_min; min_i = new_min_i;
             }
-            // Early-exit: if dominant field already >= iso and no gradient needed.
-            if (allow_early_exit && !needs_gradient) {
-                var best_field: f32 = 0.0;
-                for (var kk: u32 = 0u; kk < res.used; kk = kk + 1u) { if (res.field[kk] > best_field) { best_field = res.field[kk]; } }
-                if (best_field >= effective_iso) { break; }
+        } else if (res.used < K_MAX) {
+            let idx = res.used;
+            res.indices[idx] = cluster;
+            res.field[idx]   = fi;
+            if (needs_gradient) { res.grad[idx] = g; }
+            res.approx_r[idx] = scaled_r;
+            res.used = res.used + 1u;
+            if (fi > res.best_field) { res.best_field = fi; res.best_i = idx; }
+            if (fi < min_field) { min_field = fi; min_i = idx; }
+        } else {
+            if (fi > min_field) {
+                res.indices[min_i] = cluster;
+                res.field[min_i]   = fi;
+                if (needs_gradient) { res.grad[min_i] = g; }
+                res.approx_r[min_i]= scaled_r;
+                if (fi > res.best_field) { res.best_field = fi; res.best_i = min_i; }
+                var new_min: f32 = 1e30; var new_min_i: u32 = min_i;
+                for (var kk: u32 = 0u; kk < res.used; kk = kk + 1u) {
+                    if (res.field[kk] < new_min) { new_min = res.field[kk]; new_min_i = kk; }
+                }
+                min_field = new_min; min_i = new_min_i;
             }
         }
+        if (allow_early_exit && !needs_gradient && res.best_field >= effective_iso) { break; }
     }
     return res;
 }
 
-fn dominant(acc: AccumResult) -> u32 {
-    // precondition: acc.used > 0
-    var best_i: u32 = 0u;
-    var best_field: f32 = acc.field[0u];
-    for (var k: u32 = 1u; k < acc.used; k = k + 1u) {
-        if (acc.field[k] > best_field) { best_field = acc.field[k]; best_i = k; }
-    }
-    return best_i;
-}
+fn dominant(acc: AccumResult) -> u32 { return acc.best_i; }
 
 // Conservative AA around iso via gradient magnitude and pixel footprint
 // Mask computation (AA): always use derivative-free ramp for cross-platform stability.
 // We intentionally avoid dpdx/dpdy after observing adapter-specific failures (black output).
 // The ramp start factor (0.6) empirically balances edge softness vs. thickness.
 fn compute_mask(best_field: f32, iso: f32) -> f32 {
-    let ramp_start = iso * 0.6;
+    let ramp_start = iso * AA_RAMP_START_FACTOR;
     return smoothstep(ramp_start, iso, best_field);
 }
 
@@ -521,7 +528,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let dom = dominant(acc);
-    var best_field = acc.field[dom];
+    var best_field = acc.best_field;
     let grad = acc.grad[dom];
     let approx_r_dom = acc.approx_r[dom];
 
@@ -542,7 +549,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     // Adaptive gradient-aware mask (AdaptiveMask) or legacy ramp.
     var mask: f32;
     if (enable_adaptive_mask) {
-        let grad_len = max(length(grad), 1e-5);
+        let grad_len = max(length(grad), GRAD_EPS);
         // approximate pixel footprint: assume world unit ~ pixel (coordinate space contract). Could scale if viewport mapping changes.
         let aa_width = clamp(effective_iso / (grad_len + 1e-5) * 0.5, 0.75, 4.0);
         mask = smoothstep(effective_iso - aa_width, effective_iso + aa_width, best_field);
@@ -568,16 +575,14 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     // PERF: confirm metadata path branch cost negligible vs existing.
     if (fg_mode == FG_MODE_METADATA) {
         let gradv = acc.grad[dom];
-        let g_len = max(length(gradv), 1e-5);
+        let g_len = max(length(gradv), GRAD_EPS);
         let signed_d = (effective_iso - best_field) / g_len; // outside positive
         // AdaptiveSDF scale selection: derive heuristic from approx radius; fallback to legacy 8.0
-        let r_px = select(approx_r_dom, 0.0, approx_r_dom < 0.0); // approx_r_dom always >=0, keep explicit for clarity
-        var d_scale = 8.0;
-        if (r_px > 0.0) {
-            d_scale = clamp(r_px * 0.25, 4.0, 24.0);
-        }
+        let r_px = approx_r_dom;
+        var d_scale = LEGACY_D_SCALE;
+        if (r_px > 0.0) { d_scale = clamp(r_px * 0.25, SDF_SCALE_MIN, SDF_SCALE_MAX); }
         var r_channel = clamp(0.5 - 0.5 * signed_d / d_scale, 0.0, 1.0);
-        if (g_len <= 1e-5) { r_channel = 0.5; }
+        if (g_len <= GRAD_EPS) { r_channel = 0.5; }
         let clickable = mask; // all clickable in current design
         if (metadata_v2_enabled) {
             // Metadata V2 encoding: B = high8, A = low8 (cluster id up to 16 bits)
