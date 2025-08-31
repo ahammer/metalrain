@@ -668,14 +668,19 @@ fn build_metaball_tiles(
     for (i, b) in shadow.0.iter().enumerate() {
         let center = b.data.truncate();
         let base_r = b.data.z;
+        let center3 = b.data.truncate();
+        let center = Vec2::new(center3.x, center3.y);
         if base_r <= 0.0 { continue; }
         let scaled_r = base_r * radius_scale * radius_mult;
+        // Fudge factor to counteract boundary flooring so tiles adjacent to the circle edge don't miss inclusion.
+        let pad = 1.5_f32; // in pixels; tiny vs typical radii but prevents hairline cracks
+        let effective_r = scaled_r + pad;
 
         // Compute bounds in screen space relative to origin (convert to [0,vw]/[0,vh])
-        let min_x = center.x - scaled_r - origin_x; // since origin_x is negative
-        let max_x = center.x + scaled_r - origin_x;
-        let min_y = center.y - scaled_r - origin_y;
-        let max_y = center.y + scaled_r - origin_y;
+        let min_x = center.x - effective_r - origin_x; // since origin_x is negative
+        let max_x = center.x + effective_r - origin_x;
+        let min_y = center.y - effective_r - origin_y;
+        let max_y = center.y + effective_r - origin_y;
 
         // Convert to tile indices
         let mut tx0 = (min_x / tile_size).floor() as i32;
@@ -733,7 +738,7 @@ fn resize_fullscreen_quad(
     q_unified: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
 ) {
-    let Ok(window) = windows.single() else { return; };
+    let Ok(window) = windows.get_single() else { return; }; // keep compatibility until all call sites updated
     if let Ok(handle_comp) = q_unified.single() {
         if let Some(mat) = unified_mats.get_mut(&handle_comp.0) {
             if mat.data.v2.x != window.width() || mat.data.v2.y != window.height() {
