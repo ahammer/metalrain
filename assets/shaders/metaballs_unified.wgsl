@@ -7,7 +7,6 @@
 // - Bindings unchanged: group(2)/binding(0..2).
 // ------------------------------------------------------------------------------------
 
-const MAX_BALLS    : u32 = 1024u;
 const MAX_CLUSTERS : u32 =  256u;
 const K_MAX        : u32 =   12u;
 // NOTE: Foreground mode discriminants (keep in sync with Rust enum order)
@@ -20,19 +19,20 @@ const FG_MODE_METADATA : u32 = 3u;
 
 // Metaballs params + big arrays remain vec4-packed already.
 struct MetaballsData {
-    // v0: (ball_count, cluster_color_count, radius_scale, iso)
+    // v0: (ball_count_exposed, cluster_color_count, radius_scale, iso)
     v0: vec4<f32>,
     // v1: (normal_z_scale, foreground_mode, background_mode, debug_view)
     v1: vec4<f32>,
     // v2: (viewport_w, viewport_h, time_seconds, radius_multiplier)
     v2: vec4<f32>,
-    // Arrays are vec4 aligned; fixed sizes keep UBO valid for WebGPU.
-    balls:          array<vec4<f32>, MAX_BALLS>,     // (x, y, radius, cluster_index)
-    cluster_colors: array<vec4<f32>, MAX_CLUSTERS>,  // (r, g, b, _)
+    // v3: (tiles_x, tiles_y, tile_size_px, balls_len_actual)
+    v3: vec4<f32>,
+    // v4: (enable_early_exit, needs_gradient, reserved0, reserved1)
+    v4: vec4<f32>,
+    cluster_colors: array<vec4<f32>, MAX_CLUSTERS>,
 };
 
-@group(2) @binding(0)
-var<uniform> metaballs: MetaballsData;
+@group(2) @binding(0) var<uniform> metaballs: MetaballsData;
 
 // Noise params, packed into three vec4 "slots":
 // v0 = (base_scale, warp_amp, warp_freq, speed_x)
@@ -44,8 +44,7 @@ struct NoiseParamsStd140 {
     v2: vec4<u32>,
 };
 
-@group(2) @binding(1)
-var<uniform> noise_params: NoiseParamsStd140;
+@group(2) @binding(1) var<uniform> noise_params: NoiseParamsStd140;
 
 // Surface noise params, 4 slots total (64B):
 // v0 = (amp, base_scale, speed_x, speed_y)
@@ -59,8 +58,16 @@ struct SurfaceNoiseParamsStd140 {
     v3: vec4<u32>,
 };
 
-@group(2) @binding(2)
-var<uniform> surface_noise: SurfaceNoiseParamsStd140;
+@group(2) @binding(2) var<uniform> surface_noise: SurfaceNoiseParamsStd140;
+
+// =============================
+// Storage Buffers
+// =============================
+struct GpuBall { data: vec4<f32>, }; // (x,y,radius,cluster_slot)
+struct TileHeader { offset: u32, count: u32, _pad0: u32, _pad1: u32, };
+@group(2) @binding(3) var<storage, read> balls: array<GpuBall>;
+@group(2) @binding(4) var<storage, read> tile_headers: array<TileHeader>;
+@group(2) @binding(5) var<storage, read> tile_ball_indices: array<u32>;
 
 
 // =============================
@@ -242,12 +249,17 @@ struct AccumResult {
     grad:    array<vec2<f32>, K_MAX>,
 };
 
-fn accumulate_clusters(
+fn accumulate_clusters_tile(
     p: vec2<f32>,
-    ball_count: u32,
+    tile: TileHeader,
+    ball_count_exposed: u32,
+    balls_len_actual: u32,
     cluster_color_count: u32,
     radius_scale: f32,
-    radius_multiplier: f32
+    radius_multiplier: f32,
+    enable_early_exit: bool,
+    needs_gradient: bool,
+    effective_iso: f32
 ) -> AccumResult {
     var res: AccumResult;
 
@@ -259,8 +271,11 @@ fn accumulate_clusters(
         res.grad[k]    = vec2<f32>(0.0, 0.0);
     }
 
-    for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
-        let b = metaballs.balls[i];
+    let safe_ball_count = min(ball_count_exposed, balls_len_actual);
+    for (var j: u32 = 0u; j < tile.count; j = j + 1u) {
+        let bi = tile_ball_indices[tile.offset + j];
+        if (bi >= safe_ball_count) { break; }
+        let b = balls[bi].data;
         let center = b.xy;
         let radius = b.z * radius_multiplier;
         if (radius <= 0.0) { continue; }
@@ -305,6 +320,12 @@ fn accumulate_clusters(
                     res.field[smallest_i]   = fi;
                     res.grad[smallest_i]    = g;
                 }
+            }
+            // Early-exit: if dominant field already >= iso and no gradient needed.
+            if (enable_early_exit && !needs_gradient) {
+                var best_field: f32 = 0.0;
+                for (var kk: u32 = 0u; kk < res.used; kk = kk + 1u) { if (res.field[kk] > best_field) { best_field = res.field[kk]; } }
+                if (best_field >= effective_iso) { break; }
             }
         }
     }
@@ -397,7 +418,7 @@ struct ForegroundContext {
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     // Unpack scalar params from packed vec4 lanes (add 0.5 then u32 cast for safety)
     let p = v.world_pos;
-    let ball_count          = u32(metaballs.v0.x + 0.5);
+    let ball_count_exposed  = u32(metaballs.v0.x + 0.5);
     let cluster_color_count = u32(metaballs.v0.y + 0.5);
     let radius_scale        = metaballs.v0.z;
     let iso                 = metaballs.v0.w;
@@ -407,8 +428,25 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let debug_view          = u32(metaballs.v1.w + 0.5);
     let time_seconds        = metaballs.v2.z;
     let radius_multiplier   = metaballs.v2.w;
+    let tiles_x             = u32(metaballs.v3.x + 0.5);
+    let tiles_y             = u32(metaballs.v3.y + 0.5);
+    let tile_size_px        = metaballs.v3.z;
+    let balls_len_actual    = u32(metaballs.v3.w + 0.5);
+    let enable_early_exit   = (metaballs.v4.x > 0.5);
+    let needs_gradient      = (metaballs.v4.y > 0.5) || (fg_mode == FG_MODE_METADATA);
 
-    var acc = accumulate_clusters(p, ball_count, cluster_color_count, radius_scale, radius_multiplier);
+    // Compute tile coordinate (fragment positions share same space as world_pos; origin -viewport/2 .. +)
+    let half_size = metaballs.v2.xy * 0.5;
+    let origin = -half_size;
+    let rel = p - origin;
+    let tc = clamp(vec2<i32>(floor(rel / tile_size_px)), vec2<i32>(0,0), vec2<i32>(i32(tiles_x)-1, i32(tiles_y)-1));
+    let tile_index = u32(tc.y) * tiles_x + u32(tc.x);
+    let tile = tile_headers[tile_index];
+
+    // We need effective_iso for early-exit and surface noise path; may shift later.
+    var effective_iso = iso;
+
+    var acc = accumulate_clusters_tile(p, tile, ball_count_exposed, balls_len_actual, cluster_color_count, radius_scale, radius_multiplier, enable_early_exit, needs_gradient, effective_iso);
     if (acc.used == 0u) {
         // Metadata mode sentinel when no field contributions: (R=1,G=0,B=0,A=0)
         if (fg_mode == FG_MODE_METADATA) {
@@ -434,7 +472,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // Surface edge modulation (optional)
-    var effective_iso = iso;
+    // effective_iso already declared; may be modified by surface noise below.
     let sn_octaves  = surface_noise.v3.x;
     let sn_mode     = surface_noise.v3.z;
     let sn_enabled  = (surface_noise.v3.w != 0u);
@@ -477,9 +515,17 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         if (g_len <= 1e-5) { r_channel = 0.5; }
         let clickable = mask; // bootstrap: all clickable
         let non_clickable = 0.0;
-        let cluster_u8 = min(cluster_idx, 255u);
-        let a_channel = f32(cluster_u8) / 255.0;
-        return vec4<f32>(r_channel, clickable, non_clickable, a_channel);
+        if (metaballs.v4.z > 0.5) {
+            // Metadata V2 encoding: B = high8, A = low8
+            let cid16 = min(cluster_idx, 65535u);
+            let low = f32(cid16 & 255u) / 255.0;
+            let high = f32((cid16 >> 8u) & 255u) / 255.0;
+            return vec4<f32>(r_channel, clickable, high, low);
+        } else {
+            let cluster_u8 = min(cluster_idx, 255u);
+            let a_channel = f32(cluster_u8) / 255.0;
+            return vec4<f32>(r_channel, clickable, non_clickable, a_channel);
+        }
     }
 
     let fg_ctx = ForegroundContext(

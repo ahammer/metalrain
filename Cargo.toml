@@ -79,3 +79,7 @@ default = ["debug"]
 debug = []
 # Verbose fluid simulation pass logging
 fluid_debug_passes = []
+# Metaballs optimization feature flags
+metaballs_early_exit = []
+metaballs_outline_exit = []
+metaballs_metadata_v2 = []
