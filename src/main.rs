@@ -10,6 +10,7 @@ use bevy_rapier2d::prelude::RapierDebugRenderPlugin;
 
 use ball_matcher::app::game::GamePlugin;
 use ball_matcher::core::config::config::GameConfig;
+use ball_matcher::core::level::LevelLoaderPlugin;
 
 mod webgpu_guard;
 
@@ -119,6 +120,8 @@ fn main() {
             }),
     );
 
+    // Data-driven level loading must occur before core GamePlugin systems (physics, widgets).
+    app.add_plugins(LevelLoaderPlugin);
     app.add_plugins(GamePlugin);
 
     #[cfg(feature = "debug")]

@@ -6,6 +6,7 @@ use rand::Rng;
 
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::config::{GameConfig, SpawnWidgetConfig};
+use crate::core::level::loader::LevelWidgets;
 use crate::rendering::metaballs::metaballs::MetaballsUpdateSet; // for system ordering
 use crate::rendering::materials::materials::{BallDisplayMaterials, BallPhysicsMaterials, BallMaterialIndex};
 use crate::rendering::palette::palette::BASE_COLORS; // for variant index length when not drawing circles
@@ -20,7 +21,9 @@ pub struct SpawnWidget { pub id: u32, pub enabled: bool, pub cfg: SpawnWidgetCon
 pub struct SpawnWidgetsPlugin;
 impl Plugin for SpawnWidgetsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_spawn_widgets)
+        // Run spawn widget instantiation after LevelLoader (which runs in Startup)
+        // so that GameConfig.spawn_widgets.widgets is populated.
+        app.add_systems(PostStartup, spawn_spawn_widgets)
             // Ensure spawns for this frame exist before metaballs / clustering update runs.
             .add_systems(
                 Update,
@@ -35,26 +38,22 @@ fn spawn_spawn_widgets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     cfg: Res<GameConfig>,
+    level_widgets: Option<Res<LevelWidgets>>,
 ) {
-    let mut widgets = cfg.spawn_widgets.widgets.clone();
+    let widgets = cfg.spawn_widgets.widgets.clone();
     if widgets.is_empty() {
-        // Synthesize 4 corner widgets by default
-        let w = cfg.window.width * 0.5 - 80.0;
-        let h = cfg.window.height * 0.5 - 80.0;
-        let base = SpawnWidgetConfig::default();
-        widgets = vec![
-            SpawnWidgetConfig { id: 0, ..base.clone() },
-            SpawnWidgetConfig { id: 1, ..base.clone() },
-            SpawnWidgetConfig { id: 2, ..base.clone() },
-            SpawnWidgetConfig { id: 3, ..base.clone() },
-        ];
-        let positions = [Vec2::new(-w, -h), Vec2::new(w, -h), Vec2::new(-w, h), Vec2::new(w, h)];
-        for (cfg_i, pos) in widgets.iter().zip(positions.iter()) {
-            spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, cfg_i.clone(), *pos);
+        warn!("SpawnWidgets: no spawn widgets present after LevelLoader; no balls will spawn.");
+        return;
+    }
+    // Map id -> position from LevelWidgets (if present)
+    for sw in widgets.into_iter() {
+        let mut pos = Vec2::ZERO;
+        if let Some(lw) = level_widgets.as_ref() {
+            if let Some(sp) = lw.spawn_points.iter().find(|p| p.id == sw.id) {
+                pos = sp.pos;
+            }
         }
-    } else {
-        // Place at origin unless config later gains explicit position (future extension)
-        for sw in widgets.into_iter() { spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, sw, Vec2::ZERO); }
+        spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, sw, pos);
     }
 }
 
@@ -62,8 +61,10 @@ fn spawn_single_spawn_widget(commands: &mut Commands, meshes: &mut ResMut<Assets
     let mesh = meshes.add(Mesh::from(Circle { radius: SPAWN_WIDGET_ICON_RADIUS }));
     let color = Color::srgba(0.25, 0.85, 0.35, 0.85);
     let mat = materials.add(color);
+    // Prime timer so first spawn happens immediately on first Update frame.
+    let interval = sw_cfg.spawn_interval;
     commands.spawn((
-        SpawnWidget { id: sw_cfg.id, enabled: sw_cfg.enabled, cfg: sw_cfg, timer: 0.0 },
+        SpawnWidget { id: sw_cfg.id, enabled: sw_cfg.enabled, cfg: sw_cfg, timer: interval },
         Mesh2d::from(mesh),
         MeshMaterial2d(mat),
         Transform::from_xyz(pos.x, pos.y, SPAWN_WIDGET_Z),

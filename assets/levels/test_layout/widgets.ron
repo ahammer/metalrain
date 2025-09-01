@@ -21,22 +21,22 @@
             type: "SpawnPoint",
             id: 0,
             pos: ( x: -400.0, y: -200.0 ),
-            spawn: (
+            spawn: Some((
                 interval: 0.60,
                 batch: 4,
                 area_radius: 80.0,
                 ball_radius: ( min: 6.0, max: 14.0 ),
                 speed: ( min: 40.0, max: 200.0 ),
-            ),
+            )),
         ),
         (
             type: "Attractor",
             id: 100,
             pos: ( x: 0.0, y: 0.0 ),
-            strength: 600.0,
-            radius: 0.0,            // 0 => infinite
-            falloff: "InverseLinear",
-            enabled: true,
+            strength: Some(600.0),
+            radius: Some(0.0),            // 0 => infinite
+            falloff: Some("InverseLinear"),
+            enabled: Some(true),
         ),
     ],
 )
