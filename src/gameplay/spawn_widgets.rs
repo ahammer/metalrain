@@ -8,6 +8,7 @@ use crate::core::components::{Ball, BallRadius};
 use crate::core::config::config::{GameConfig, SpawnWidgetConfig};
 use crate::rendering::metaballs::metaballs::MetaballsUpdateSet; // for system ordering
 use crate::rendering::materials::materials::{BallDisplayMaterials, BallPhysicsMaterials, BallMaterialIndex};
+use crate::rendering::palette::palette::BASE_COLORS; // for variant index length when not drawing circles
 
 // Visual constants for spawn widgets (distinct from gravity widgets)
 const SPAWN_WIDGET_Z: f32 = 82.0;
@@ -145,7 +146,7 @@ fn spawn_single_ball(
     base_pos: Vec2,
     rng: &mut rand::rngs::ThreadRng,
     display_palette: &Option<Res<BallDisplayMaterials>>,
-    physics_palette: &Option<Res<BallPhysicsMaterials>>,
+    _physics_palette: &Option<Res<BallPhysicsMaterials>>,
     game_cfg: &GameConfig,
 ) {
     // Random radius & position in disk
@@ -156,31 +157,47 @@ fn spawn_single_ball(
     let speed = rng.gen_range(swc.speed_min..swc.speed_max);
     let vel_dir = Vec2::new(rng.gen_range(-1.0..1.0), rng.gen_range(-1.0..1.0)).normalize_or_zero();
     let linvel = vel_dir * speed;
-    // Material selection
-    let (material_handle, _restitution, variant_idx) = if let (Some(disp), Some(phys)) = (display_palette.as_ref(), physics_palette.as_ref()) {
-        if !disp.0.is_empty() && !phys.0.is_empty() { let idx_limit = disp.0.len().min(phys.0.len()); let idx = if idx_limit>1 { rng.gen_range(0..idx_limit) } else {0}; (disp.0[idx].clone(), phys.0[idx].restitution, idx) } else { (materials.add(Color::srgba(rng.gen(), rng.gen(), rng.gen(), 1.0)), 0.85, 0) }
-    } else { (materials.add(Color::srgba(rng.gen(), rng.gen(), rng.gen(), 1.0)), 0.85, 0) };
-    let mesh = meshes.add(Mesh::from(Circle { radius: r_ball }));
+    // Variant (color) index selection (independent of visual rendering)
+    let variant_idx = if let Some(disp) = display_palette.as_ref() {
+        let len = disp.0.len().max(1);
+        if len > 1 { rng.gen_range(0..len) } else { 0 }
+    } else {
+        // Fall back to base palette length
+        let len = BASE_COLORS.len().max(1);
+        if len > 1 { rng.gen_range(0..len) } else { 0 }
+    };
+    // Optional visual (circle mesh) only if draw_circles enabled
+    let want_visual = game_cfg.draw_circles;
+    let (maybe_mesh, maybe_material_handle) = if want_visual {
+        let mesh_handle = meshes.add(Mesh::from(Circle { radius: r_ball }));
+        // Choose material handle if palette exists; else random color
+        let mat_handle = if let Some(disp) = display_palette.as_ref() {
+            if variant_idx < disp.0.len() { disp.0[variant_idx].clone() } else { materials.add(Color::srgba(rng.gen(), rng.gen(), rng.gen(), 1.0)) }
+        } else {
+            materials.add(Color::srgba(rng.gen(), rng.gen(), rng.gen(), 1.0))
+        };
+        (Some(mesh_handle), Some(mat_handle))
+    } else { (None, None) };
     let world_pos = base_pos + offset;
     // Physics material properties
     let bounce = &game_cfg.bounce;
-    commands.spawn((
+    let mut entity = commands.spawn((
         Ball,
         BallRadius(r_ball),
         BallMaterialIndex(variant_idx),
-        // Rapier dynamic body so velocity actually simulates
         RigidBody::Dynamic,
         Velocity { linvel, angvel: 0.0 },
         Damping { linear_damping: bounce.linear_damping, angular_damping: bounce.angular_damping },
         Restitution::coefficient(bounce.restitution),
         Friction::coefficient(bounce.friction),
         Collider::ball(r_ball),
-        Mesh2d::from(mesh),
-        MeshMaterial2d(material_handle),
         Transform::from_xyz(world_pos.x, world_pos.y, 0.0),
         GlobalTransform::default(),
         Visibility::Visible,
     ));
+    if let (Some(mesh_handle), Some(mat_handle)) = (maybe_mesh, maybe_material_handle) {
+        entity.insert((Mesh2d::from(mesh_handle), MeshMaterial2d(mat_handle)));
+    }
 }
 
 #[cfg(test)]
