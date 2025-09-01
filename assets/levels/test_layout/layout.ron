@@ -2,6 +2,6 @@
 (
 	version: 1,
 	walls: [
-		( segment: ( from:(x:0.0,y:-360.0), to:(x:0.0,y:360.0), thickness:20.0 ) ),
+		( segment: ( from:(x:-100.0,y:-100.0), to:(x:100.0,y:100.0), thickness:20.0 ) ),
 	],
 )

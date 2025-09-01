@@ -7,6 +7,9 @@ use super::layout::{LayoutFile, WallSegment};
 use super::registry::{resolve_requested_level_id, LevelRegistry};
 use super::widgets::{extract_widgets, AttractorSpec, SpawnPointSpec, WidgetsFile};
 
+#[derive(Component)]
+struct WallVisual;
+
 /// Resource: final chosen level id
 #[derive(Debug, Resource, Clone)]
 pub struct LevelSelection {
@@ -29,7 +32,8 @@ pub struct LevelLoaderPlugin;
 
 impl Plugin for LevelLoaderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_level_data);
+        app.add_systems(Startup, load_level_data)
+            .add_systems(Update, draw_wall_gizmos);
     }
 }
 
@@ -113,12 +117,12 @@ pub fn load_level_data(
 
     // Spawn static wall colliders (segment; thickness kept for future expansion)
     for (i, w) in filtered.iter().enumerate() {
-        let _e = commands.spawn((
+        commands.spawn((
             Name::new(format!("WallSeg{}", i)),
             Collider::segment(w.from, w.to),
-            Transform::from_xyz(0.0, 0.0, 0.0),
+            Transform::IDENTITY,
             GlobalTransform::default(),
-            Visibility::Hidden, // physics only
+            Visibility::Hidden,
         ));
     }
 
@@ -185,4 +189,13 @@ pub fn load_level_data(
         wall_count,
         game_cfg.spawn_widgets.widgets.len(),
         game_cfg.gravity_widgets.widgets.len());
+}
+
+pub fn draw_wall_gizmos(
+    walls: Res<LevelWalls>,
+    mut gizmos: Gizmos,
+) {
+    for w in &walls.0 {
+        gizmos.line_2d(w.from, w.to, Color::srgba(0.85, 0.75, 0.10, 0.90));
+    }
 }
