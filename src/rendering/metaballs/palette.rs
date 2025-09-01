@@ -38,7 +38,7 @@ pub fn ensure_palette_capacity(
 ) {
     if needed == 0 { return; }
     if storage.capacity >= needed { storage.length = needed; return; }
-    let mut new_cap = if storage.capacity == 0 { PALETTE_INITIAL_CAPACITY } else { storage.capacity }; 
+    let mut new_cap = if storage.capacity == 0 { PALETTE_INITIAL_CAPACITY } else { storage.capacity };
     while new_cap < needed { new_cap = (new_cap * 2).min(PALETTE_MAX_CAPACITY); if new_cap == PALETTE_MAX_CAPACITY { break; } }
     if needed > new_cap { // truncated
         storage.length = new_cap;

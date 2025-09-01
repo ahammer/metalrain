@@ -50,7 +50,7 @@ const SDF_SCALE_MAX        : f32 = 24.0;  // adaptive SDF scale clamp max
 
 // Metaballs params + big arrays remain vec4-packed already.
 struct MetaballsData {
-    // v0: (ball_count_exposed, cluster_color_count, radius_scale, iso)
+    // v0: (ball_count_exposed, group_count, radius_scale, iso)
     v0: vec4<f32>,
     // v1: (normal_z_scale, foreground_mode, background_mode, debug_view)
     v1: vec4<f32>,
@@ -60,7 +60,7 @@ struct MetaballsData {
     v3: vec4<f32>,
     // v4: (enable_early_exit, needs_gradient, metadata_v2_enabled, enable_adaptive_mask)
     v4: vec4<f32>,
-    // v5: (reserved0, cluster_color_count, reserved1, reserved2)
+    // v5: (reserved0, group_count, reserved1, reserved2)
     v5: vec4<f32>,
 };
 
@@ -95,13 +95,13 @@ struct SurfaceNoiseParamsStd140 {
 // =============================
 // Storage Buffers
 // =============================
-struct GpuBall { data: vec4<f32>, }; // (x,y,radius,cluster_slot)
+struct GpuBall { data: vec4<f32>, }; // (x,y,radius,group_id) -- group id encodes fusion cluster or orphan id
 struct TileHeader { offset: u32, count: u32, _pad0: u32, _pad1: u32, };
 @group(2) @binding(3) var<storage, read> balls: array<GpuBall>;
 @group(2) @binding(4) var<storage, read> tile_headers: array<TileHeader>;
 @group(2) @binding(5) var<storage, read> tile_ball_indices: array<u32>;
-struct ClusterColor { value: vec4<f32>, };
-@group(2) @binding(6) var<storage, read> cluster_palette: array<ClusterColor>;
+struct GroupColor { value: vec4<f32>, };
+@group(2) @binding(6) var<storage, read> group_palette: array<GroupColor>; // palette indexed by group id
 
 
 // =============================
@@ -298,12 +298,12 @@ struct AccumResult {
     approx_r:  array<f32, K_MAX>,
 };
 
-fn accumulate_clusters_tile(
+fn accumulate_groups_tile(
     p: vec2<f32>,
     tile: TileHeader,
     ball_count_exposed: u32,
     balls_len_actual: u32,
-    cluster_color_count: u32,
+    group_count: u32,
     radius_scale: f32,
     radius_multiplier: f32,
     allow_early_exit: bool,
@@ -343,7 +343,7 @@ fn accumulate_clusters_tile(
         var g = vec2<f32>(0.0, 0.0);
         if (needs_gradient) { g = (-6.0 * inv_r2) * d * x2; }
         let cluster = u32(b.w + 0.5); // TODO(bitcast for future packed flags)
-        if (cluster >= cluster_color_count) { continue; }
+    if (cluster >= group_count) { continue; }
         var found: i32 = -1;
         for (var k: u32 = 0u; k < res.used; k = k + 1u) {
             if (res.indices[k] == cluster) { found = i32(k); break; }
@@ -515,7 +515,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     //  - Gradient explicitly needed (e.g. metadata mode or bevel lighting). (allow_early_exit already excludes needs_gradient in accumulate routine, but we micro-opt here.)
     let allow_early_exit = enable_early_exit && !(sn_enabled && sn_mode == 0u) && !needs_gradient;
 
-    var acc = accumulate_clusters_tile(p, tile, ball_count_exposed, balls_len_actual, cluster_color_count, radius_scale, radius_multiplier, allow_early_exit, needs_gradient, effective_iso);
+    var acc = accumulate_groups_tile(p, tile, ball_count_exposed, balls_len_actual, cluster_color_count, radius_scale, radius_multiplier, allow_early_exit, needs_gradient, effective_iso);
     if (acc.used == 0u) {
         // Metadata mode sentinel when no field contributions: (R=1,G=0,B=0,A=0)
         if (fg_mode == FG_MODE_METADATA) {
@@ -549,7 +549,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
 
     let cluster_idx = acc.indices[dom];
     let clamped_idx = min(cluster_idx, cluster_color_count - 1u);
-    let base_col = cluster_palette[clamped_idx].value.rgb;
+    let base_col = group_palette[clamped_idx].value.rgb;
     // Adaptive gradient-aware mask (AdaptiveMask) or legacy ramp.
     var mask: f32;
     if (enable_adaptive_mask) {
