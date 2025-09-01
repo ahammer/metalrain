@@ -32,7 +32,7 @@
 // TODO(TEXTURE_PALETTE): Introduce sampler + 1D texture for cluster palette; keep binding indices stable.
 // TODO(STORAGE_METADATA_TEXTURE): Separate structured metadata write path (u32 packed cluster + flags).
 
-const MAX_CLUSTERS        : u32 = 256u;
+// MAX_CLUSTERS legacy removed – dynamic storage buffer now used.
 const K_MAX               : u32 = 12u;
 const FG_MODE_METADATA    : u32 = 3u;
 // Hoisted tuning constants
@@ -60,7 +60,8 @@ struct MetaballsData {
     v3: vec4<f32>,
     // v4: (enable_early_exit, needs_gradient, metadata_v2_enabled, enable_adaptive_mask)
     v4: vec4<f32>,
-    cluster_colors: array<vec4<f32>, MAX_CLUSTERS>,
+    // v5: (reserved0, cluster_color_count, reserved1, reserved2)
+    v5: vec4<f32>,
 };
 
 @group(2) @binding(0) var<uniform> metaballs: MetaballsData;
@@ -99,6 +100,8 @@ struct TileHeader { offset: u32, count: u32, _pad0: u32, _pad1: u32, };
 @group(2) @binding(3) var<storage, read> balls: array<GpuBall>;
 @group(2) @binding(4) var<storage, read> tile_headers: array<TileHeader>;
 @group(2) @binding(5) var<storage, read> tile_ball_indices: array<u32>;
+struct ClusterColor { value: vec4<f32>, };
+@group(2) @binding(6) var<storage, read> cluster_palette: array<ClusterColor>;
 
 
 // =============================
@@ -466,7 +469,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     // Unpack scalar params from packed vec4 lanes (add 0.5 then u32 cast for safety)
     let p = v.world_pos;
     let ball_count_exposed  = u32(metaballs.v0.x + 0.5);
-    let cluster_color_count = u32(metaballs.v0.y + 0.5);
+    let cluster_color_count = u32(metaballs.v5.y + 0.5);
     let radius_scale        = metaballs.v0.z;
     let iso                 = metaballs.v0.w;
     let normal_z_scale      = metaballs.v1.x;
@@ -545,7 +548,8 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let cluster_idx = acc.indices[dom];
-    let base_col = metaballs.cluster_colors[cluster_idx].rgb;
+    let clamped_idx = min(cluster_idx, cluster_color_count - 1u);
+    let base_col = cluster_palette[clamped_idx].value.rgb;
     // Adaptive gradient-aware mask (AdaptiveMask) or legacy ramp.
     var mask: f32;
     if (enable_adaptive_mask) {

@@ -19,7 +19,6 @@ use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
 use crate::physics::clustering::cluster::Clusters;
 use crate::rendering::materials::materials::BallMaterialIndex;
-use crate::rendering::palette::palette::color_for_index;
 
 // =====================================================================================
 // Uniform layout
@@ -29,7 +28,7 @@ use crate::rendering::palette::palette::color_for_index;
 // =====================================================================================
 
 pub const MAX_BALLS: usize = 1024; // Legacy cap; dynamic storage buffer length may exceed but we clamp exposed count.
-pub const MAX_CLUSTERS: usize = 256;
+pub const MAX_CLUSTERS: usize = 0; // legacy removed
 
 // =====================================================================================
 // GPU Data Layout (Refactored)
@@ -49,7 +48,7 @@ pub(crate) struct MetaballsUniform {
     v2: Vec4,
     v3: Vec4,
     v4: Vec4,
-    cluster_colors: [Vec4; MAX_CLUSTERS],
+    v5: Vec4, // (reserved0, dynamic_cluster_count, reserved1, reserved2)
 }
 
 impl Default for MetaballsUniform {
@@ -60,7 +59,7 @@ impl Default for MetaballsUniform {
             v2: Vec4::new(0.0, 0.0, 0.0, 1.0),
             v3: Vec4::new(1.0, 1.0, 64.0, 0.0), // default 1x1 tiles, tile_size=64, balls_len=0
             v4: Vec4::new(1.0, 0.0, 0.0, 0.0), // early-exit enabled by feature flag later; needs_gradient updated per-frame
-            cluster_colors: [Vec4::ZERO; MAX_CLUSTERS],
+            v5: Vec4::new(0.0, 0.0, 0.0, 0.0),
         }
     }
 }
@@ -181,6 +180,8 @@ pub struct MetaballsUnifiedMaterial {
     tile_headers: Handle<ShaderStorageBuffer>,
     #[storage(5, read_only)]
     tile_ball_indices: Handle<ShaderStorageBuffer>,
+    #[storage(6, read_only)]
+    cluster_palette: Handle<ShaderStorageBuffer>, // storage-buffer colors (vec4 RGBA)
 }
 
 impl Default for MetaballsUnifiedMaterial {
@@ -192,6 +193,7 @@ impl Default for MetaballsUnifiedMaterial {
             balls: Handle::default(),
             tile_headers: Handle::default(),
             tile_ball_indices: Handle::default(),
+            cluster_palette: Handle::default(),
         }
     }
 }
@@ -336,6 +338,7 @@ impl Plugin for MetaballsPlugin {
             .init_resource::<BallTilingConfig>()
             .init_resource::<BallTilesMeta>()
             .init_resource::<BallCpuShadow>()
+            .init_resource::<crate::rendering::metaballs::palette::ClusterPaletteStorage>()
             .add_plugins((Material2dPlugin::<MetaballsUnifiedMaterial>::default(),))
             .add_systems(
                 Startup,
@@ -506,6 +509,7 @@ fn update_metaballs_unified_material(
     params: Res<MetaballsParams>,
     cfg: Res<GameConfig>,
     mut shadow: Option<ResMut<BallCpuShadow>>,
+    mut palette_storage: ResMut<crate::rendering::metaballs::palette::ClusterPaletteStorage>,
 ) {
     if !toggle.0 {
         return;
@@ -554,8 +558,27 @@ fn update_metaballs_unified_material(
         mat.surface_noise.enabled = if sn.enabled { 1 } else { 0 };
     }
 
-    // Clear previous cluster colors
-    for c in mat.data.cluster_colors.iter_mut() { *c = Vec4::ZERO; }
+    // Build deterministic palette (sorted by cluster id) and always use storage buffer path.
+    let cpu_palette = crate::rendering::metaballs::palette::build_cpu_palette(&clusters);
+    let dynamic_cluster_count = cpu_palette.colors.len() as u32;
+    ensure_palette_capacity_wrapper(&mut palette_storage, dynamic_cluster_count, &mut buffers, &cpu_palette);
+    // Bind (or re-bind) the palette storage buffer to the material if available.
+    if let Some(h) = &palette_storage.handle { mat.cluster_palette = h.clone(); }
+    mat.data.v5.y = dynamic_cluster_count as f32; // dynamic cluster count
+    mat.data.v0.y = dynamic_cluster_count as f32; // cluster_color_count for shader
+
+    // Map cluster id -> palette slot (index in sorted palette)
+    let mut cluster_slot_by_id: HashMap<u64, u32> = HashMap::with_capacity(cpu_palette.ids.len());
+    for (i, id) in cpu_palette.ids.iter().enumerate() { cluster_slot_by_id.insert(*id, i as u32); }
+    // Map entity -> cluster slot
+    let mut entity_cluster_slot: HashMap<Entity, u32> = HashMap::new();
+    if !cluster_slot_by_id.is_empty() {
+        for cl in clusters.0.iter() {
+            if let Some(slot) = cluster_slot_by_id.get(&cl.id) {
+                for e in cl.entities.iter() { entity_cluster_slot.insert(*e, *slot); }
+            }
+        }
+    }
 
     // Prepare balls CPU staging vector
     let mut balls_cpu: Vec<GpuBall> = Vec::with_capacity(q_balls.iter().len().min(MAX_BALLS));
@@ -568,42 +591,13 @@ fn update_metaballs_unified_material(
         ball_tf.insert(e, (tf.translation.truncate(), r.0, color_idx.0));
     }
 
-    // Cluster to slot mapping (simple, sequential)
-    let mut slot_map: HashMap<Entity, usize> = HashMap::with_capacity(ball_tf.len());
-    let mut slot_count = 0usize;
-    for cl in clusters.0.iter() {
-        if slot_count >= MAX_CLUSTERS {
-            break;
-        }
-        let slot = slot_count;
-        slot_count += 1;
-        let c = color_for_index(cl.color_index).to_srgba();
-        mat.data.cluster_colors[slot] = Vec4::new(c.red, c.green, c.blue, 1.0);
-        for &e in &cl.entities {
-            slot_map.insert(e, slot);
-        }
-    }
-    // Do NOT finalize v0.y yet; popped (orphan) balls may add extra color slots.
-
-    // Balls array (with stable color fallback for orphan / popped balls)
-    use std::collections::HashMap as StdHashMap;
-    let mut orphan_color_slots: StdHashMap<usize, usize> = StdHashMap::new();
-    for (e, (pos, radius, ci)) in ball_tf.iter() {
+    // Balls array: assign per-ball cluster slot from mapping (fallback 0 if missing / no clusters)
+    for (e, (pos, radius, _ci)) in ball_tf.iter() {
         if balls_cpu.len() >= MAX_BALLS { break; }
-        let slot_usize = if let Some(s) = slot_map.get(e) { *s } else {
-            *orphan_color_slots.entry(*ci).or_insert_with(|| {
-                if slot_count < MAX_CLUSTERS {
-                    let slot = slot_count; slot_count += 1;
-                    let c = color_for_index(*ci).to_srgba();
-                    mat.data.cluster_colors[slot] = Vec4::new(c.red, c.green, c.blue, 1.0);
-                    slot
-                } else { 0 }
-            })
-        };
-        balls_cpu.push(GpuBall::new(*pos, *radius, slot_usize as u32));
+        let slot = entity_cluster_slot.get(e).copied().unwrap_or(0);
+        balls_cpu.push(GpuBall::new(*pos, *radius, slot));
     }
-    mat.data.v0.x = balls_cpu.len() as f32; // exposed ball count
-    mat.data.v0.y = slot_count as f32;
+    mat.data.v0.x = balls_cpu.len() as f32;
     mat.data.v3.w = balls_cpu.len() as f32;
 
     // Upload / update storage buffer asset
@@ -632,6 +626,23 @@ fn update_metaballs_unified_material(
     }
 }
 
+fn ensure_palette_capacity_wrapper(
+    storage: &mut crate::rendering::metaballs::palette::ClusterPaletteStorage,
+    needed: u32,
+    buffers: &mut Assets<ShaderStorageBuffer>,
+    cpu: &crate::rendering::metaballs::palette::ClusterPaletteCpu,
+) {
+    use crate::rendering::metaballs::palette::ensure_palette_capacity;
+    if needed == 0 { return; }
+    ensure_palette_capacity(storage, needed, buffers);
+    if let Some(handle) = &storage.handle { if let Some(buf) = buffers.get_mut(handle) {
+        // Rebuild vector (capacity may exceed needed); fill first length then zero rest left from allocation.
+        let mut data: Vec<[f32;4]> = vec![[0.0;4]; storage.capacity as usize];
+        for (i, col) in cpu.colors.iter().enumerate().take(storage.length as usize) { data[i] = *col; }
+        *buf = ShaderStorageBuffer::from(data.as_slice());
+    }}
+}
+
 // =====================================================================================
 // Tile Builder System
 // =====================================================================================
@@ -650,7 +661,7 @@ fn build_metaball_tiles(
     if shadow.0.is_empty() { return; }
 
     // Viewport dims
-    let (vw, vh) = if let Ok(w) = windows.get_single() { (w.width(), w.height()) } else { (mat.data.v2.x, mat.data.v2.y) };
+    let (vw, vh) = if let Ok(w) = windows.single() { (w.width(), w.height()) } else { (mat.data.v2.x, mat.data.v2.y) };
     if vw <= 0.0 || vh <= 0.0 { return; }
     let tile_size = tiling_cfg.tile_size.max(8) as f32; // guard tiny values
     let tiles_x = ((vw / tile_size).ceil() as u32).max(1);
@@ -672,7 +683,7 @@ fn build_metaball_tiles(
 
     // Assign balls to tiles
     for (i, b) in shadow.0.iter().enumerate() {
-        let center = b.data.truncate();
+    // removed unused center var
         let base_r = b.data.z;
         let center3 = b.data.truncate();
         let center = Vec2::new(center3.x, center3.y);
@@ -744,7 +755,7 @@ fn resize_fullscreen_quad(
     q_unified: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
 ) {
-    let Ok(window) = windows.get_single() else { return; }; // keep compatibility until all call sites updated
+    let Ok(window) = windows.single() else { return; }; // keep compatibility until all call sites updated
     if let Ok(handle_comp) = q_unified.single() {
         if let Some(mat) = unified_mats.get_mut(&handle_comp.0) {
             if mat.data.v2.x != window.width() || mat.data.v2.y != window.height() {
