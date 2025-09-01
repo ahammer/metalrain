@@ -1,0 +1,7 @@
+// Minimal test_layout: single dividing wall only (no meta/overrides)
+(
+	version: 1,
+	walls: [
+		( segment: ( from:(x:0.0,y:-360.0), to:(x:0.0,y:360.0), thickness:20.0 ) ),
+	],
+)
