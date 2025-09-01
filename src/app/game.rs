@@ -6,7 +6,6 @@ use bevy::prelude::*;
 
 use crate::core::system::system_order::{PostPhysicsAdjustSet, PrePhysicsSet};
 use crate::debug::DebugPlugin;
-use crate::gameplay::spawn::spawn::BallSpawnPlugin;
 use crate::interaction::cluster_pop::ClusterPopPlugin;
 #[cfg(feature = "debug")]
 use crate::interaction::inputmap::hot_reload::InputMapHotReloadPlugin;
@@ -16,6 +15,7 @@ use crate::interaction::session::config_hot_reload::ConfigHotReloadPlugin;
 use crate::physics::clustering::cluster::ClusterPlugin;
 // use crate::physics::gravity::radial_gravity::RadialGravityPlugin; // legacy
 use crate::physics::gravity::widgets::GravityWidgetsPlugin;
+use crate::gameplay::spawn_widgets::SpawnWidgetsPlugin;
 use crate::physics::rapier::rapier_physics::PhysicsSetupPlugin;
 use crate::rendering::camera::camera::CameraPlugin;
 use crate::rendering::materials::materials::MaterialsPlugin;
@@ -35,8 +35,8 @@ impl Plugin for GamePlugin {
             CameraPlugin,
             MaterialsPlugin,
             PhysicsSetupPlugin,
-            GravityWidgetsPlugin, // replaces RadialGravityPlugin
-            BallSpawnPlugin,
+            GravityWidgetsPlugin, // gravity
+            SpawnWidgetsPlugin,   // new spawn widgets
             ClusterPlugin,
             MetaballsPlugin,
             InputActionsPlugin,

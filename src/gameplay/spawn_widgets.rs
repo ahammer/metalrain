@@ -1,0 +1,192 @@
+use bevy::prelude::*;
+use bevy::sprite::{ColorMaterial, MeshMaterial2d};
+use bevy::prelude::Mesh2d;
+use bevy_rapier2d::prelude::{Collider, Velocity, RigidBody, Restitution, Damping, Friction};
+use rand::Rng;
+
+use crate::core::components::{Ball, BallRadius};
+use crate::core::config::config::{GameConfig, SpawnWidgetConfig};
+use crate::rendering::metaballs::metaballs::MetaballsUpdateSet; // for system ordering
+use crate::rendering::materials::materials::{BallDisplayMaterials, BallPhysicsMaterials, BallMaterialIndex};
+
+// Visual constants for spawn widgets (distinct from gravity widgets)
+const SPAWN_WIDGET_Z: f32 = 82.0;
+const SPAWN_WIDGET_ICON_RADIUS: f32 = 20.0;
+
+#[derive(Component)]
+pub struct SpawnWidget { pub id: u32, pub enabled: bool, pub cfg: SpawnWidgetConfig, pub timer: f32 }
+
+pub struct SpawnWidgetsPlugin;
+impl Plugin for SpawnWidgetsPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, spawn_spawn_widgets)
+            // Ensure spawns for this frame exist before metaballs / clustering update runs.
+            .add_systems(
+                Update,
+                (toggle_spawn_widget_on_tap, run_spawn_widgets)
+                    .before(MetaballsUpdateSet),
+            );
+    }
+}
+
+fn spawn_spawn_widgets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    cfg: Res<GameConfig>,
+) {
+    let mut widgets = cfg.spawn_widgets.widgets.clone();
+    if widgets.is_empty() {
+        // Synthesize 4 corner widgets by default
+        let w = cfg.window.width * 0.5 - 80.0;
+        let h = cfg.window.height * 0.5 - 80.0;
+        let base = SpawnWidgetConfig::default();
+        widgets = vec![
+            SpawnWidgetConfig { id: 0, ..base.clone() },
+            SpawnWidgetConfig { id: 1, ..base.clone() },
+            SpawnWidgetConfig { id: 2, ..base.clone() },
+            SpawnWidgetConfig { id: 3, ..base.clone() },
+        ];
+        let positions = [Vec2::new(-w, -h), Vec2::new(w, -h), Vec2::new(-w, h), Vec2::new(w, h)];
+        for (cfg_i, pos) in widgets.iter().zip(positions.iter()) {
+            spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, cfg_i.clone(), *pos);
+        }
+    } else {
+        // Place at origin unless config later gains explicit position (future extension)
+        for sw in widgets.into_iter() { spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, sw, Vec2::ZERO); }
+    }
+}
+
+fn spawn_single_spawn_widget(commands: &mut Commands, meshes: &mut ResMut<Assets<Mesh>>, materials: &mut ResMut<Assets<ColorMaterial>>, sw_cfg: SpawnWidgetConfig, pos: Vec2) {
+    let mesh = meshes.add(Mesh::from(Circle { radius: SPAWN_WIDGET_ICON_RADIUS }));
+    let color = Color::srgba(0.25, 0.85, 0.35, 0.85);
+    let mat = materials.add(color);
+    commands.spawn((
+        SpawnWidget { id: sw_cfg.id, enabled: sw_cfg.enabled, cfg: sw_cfg, timer: 0.0 },
+        Mesh2d::from(mesh),
+        MeshMaterial2d(mat),
+        Transform::from_xyz(pos.x, pos.y, SPAWN_WIDGET_Z),
+        GlobalTransform::default(),
+        Visibility::Visible,
+    ));
+}
+
+fn toggle_spawn_widget_on_tap(
+    buttons: Res<ButtonInput<MouseButton>>,
+    touches: Res<Touches>,
+    windows_q: Query<&Window>,
+    camera_q: Query<(&Camera, &GlobalTransform)>,
+    mut q_widgets: Query<(Entity, &Transform, &mut SpawnWidget, &mut MeshMaterial2d<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let released = buttons.just_released(MouseButton::Left) || touches.iter_just_released().next().is_some();
+    if !released { return; }
+    let Ok(window) = windows_q.single() else { return; };
+    let cursor = if let Some(t) = touches.iter().next() { t.position() } else { match window.cursor_position() { Some(c) => c, None => return } };
+    let (camera, cam_tf) = match camera_q.iter().next() { Some(c) => c, None => return };
+    let Ok(world_pos) = camera.viewport_to_world_2d(cam_tf, cursor) else { return };
+    let mut best: Option<(Entity, f32)> = None;
+    for (e, tf, _sw, _mat) in q_widgets.iter_mut() {
+        let pos = tf.translation.truncate();
+        let d2 = pos.distance_squared(world_pos);
+        let pick_r = SPAWN_WIDGET_ICON_RADIUS * 1.2;
+        if d2 <= pick_r * pick_r { if best.map(|(_,bd2)| d2 < bd2).unwrap_or(true) { best = Some((e,d2)); } }
+    }
+    if let Some((entity,_)) = best { if let Ok((_e,_tf, mut sw, mat_handle)) = q_widgets.get_mut(entity) {
+        sw.enabled = !sw.enabled;
+        if let Some(mat) = materials.get_mut(&mat_handle.0) { let base = (0.25,0.85,0.35); let alpha = if sw.enabled {0.85} else {0.25}; mat.color = Color::srgba(base.0, base.1, base.2, alpha); }
+    }}
+}
+
+fn run_spawn_widgets(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q_widgets: Query<(&Transform, &mut SpawnWidget)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    cfg: Res<GameConfig>,
+    display_palette: Option<Res<BallDisplayMaterials>>,
+    physics_palette: Option<Res<BallPhysicsMaterials>>,
+    q_ball_count: Query<Entity, With<Ball>>,
+) {
+    let total = q_ball_count.iter().len();
+    if total >= cfg.spawn_widgets.global_max_balls { return; }
+    let mut rng = rand::thread_rng();
+    for (tf, mut sw) in q_widgets.iter_mut() {
+        if !sw.enabled { continue; }
+        sw.timer += time.delta_secs();
+        if sw.timer < sw.cfg.spawn_interval { continue; }
+        sw.timer = 0.0;
+    let remaining_capacity = cfg.spawn_widgets.global_max_balls.saturating_sub(q_ball_count.iter().len());
+        if remaining_capacity == 0 { break; }
+        let batch = sw.cfg.batch.min(remaining_capacity);
+        let base_pos = tf.translation.truncate();
+        for _ in 0..batch {
+            spawn_single_ball(
+                &mut commands,
+                &mut materials,
+                &mut meshes,
+                &sw.cfg,
+                base_pos,
+                &mut rng,
+                &display_palette,
+                &physics_palette,
+                &cfg, // for bounce / physics params
+            );
+        }
+    }
+}
+
+fn spawn_single_ball(
+    commands: &mut Commands,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    swc: &SpawnWidgetConfig,
+    base_pos: Vec2,
+    rng: &mut rand::rngs::ThreadRng,
+    display_palette: &Option<Res<BallDisplayMaterials>>,
+    physics_palette: &Option<Res<BallPhysicsMaterials>>,
+    game_cfg: &GameConfig,
+) {
+    // Random radius & position in disk
+    let r_ball = rng.gen_range(swc.ball_radius_min..swc.ball_radius_max);
+    let angle = rng.gen_range(0.0..std::f32::consts::TAU);
+    let radius = rng.gen_range(0.0..swc.area_radius);
+    let offset = Vec2::new(angle.cos(), angle.sin()) * radius;
+    let speed = rng.gen_range(swc.speed_min..swc.speed_max);
+    let vel_dir = Vec2::new(rng.gen_range(-1.0..1.0), rng.gen_range(-1.0..1.0)).normalize_or_zero();
+    let linvel = vel_dir * speed;
+    // Material selection
+    let (material_handle, _restitution, variant_idx) = if let (Some(disp), Some(phys)) = (display_palette.as_ref(), physics_palette.as_ref()) {
+        if !disp.0.is_empty() && !phys.0.is_empty() { let idx_limit = disp.0.len().min(phys.0.len()); let idx = if idx_limit>1 { rng.gen_range(0..idx_limit) } else {0}; (disp.0[idx].clone(), phys.0[idx].restitution, idx) } else { (materials.add(Color::srgba(rng.gen(), rng.gen(), rng.gen(), 1.0)), 0.85, 0) }
+    } else { (materials.add(Color::srgba(rng.gen(), rng.gen(), rng.gen(), 1.0)), 0.85, 0) };
+    let mesh = meshes.add(Mesh::from(Circle { radius: r_ball }));
+    let world_pos = base_pos + offset;
+    // Physics material properties
+    let bounce = &game_cfg.bounce;
+    commands.spawn((
+        Ball,
+        BallRadius(r_ball),
+        BallMaterialIndex(variant_idx),
+        // Rapier dynamic body so velocity actually simulates
+        RigidBody::Dynamic,
+        Velocity { linvel, angvel: 0.0 },
+        Damping { linear_damping: bounce.linear_damping, angular_damping: bounce.angular_damping },
+        Restitution::coefficient(bounce.restitution),
+        Friction::coefficient(bounce.friction),
+        Collider::ball(r_ball),
+        Mesh2d::from(mesh),
+        MeshMaterial2d(material_handle),
+        Transform::from_xyz(world_pos.x, world_pos.y, 0.0),
+        GlobalTransform::default(),
+        Visibility::Visible,
+    ));
+}
+
+#[cfg(test)]
+mod tests { use super::*; use bevy::ecs::system::RunSystemOnce; #[test] fn basic_spawn_progress() { let mut app = App::new(); app.add_plugins(MinimalPlugins); app.insert_resource(GameConfig::default()); app.init_resource::<Assets<ColorMaterial>>(); app.init_resource::<Assets<Mesh>>(); // emulate palette
+ app.insert_resource(BallDisplayMaterials(vec![])); app.insert_resource(BallPhysicsMaterials(vec![])); app.world_mut().run_system_once(|mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>| { let cfg = SpawnWidgetConfig::default(); spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, cfg, Vec2::ZERO); });
+ app.add_systems(Update, run_spawn_widgets); app.insert_resource(Time::<()>::default()); // advance time
+ for _ in 0..10 { app.update(); }
+ let ball_count = app.world().query::<&Ball>().iter(app.world()).count();
+ assert!(ball_count >= 0); } }

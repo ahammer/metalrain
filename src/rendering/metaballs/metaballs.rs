@@ -305,6 +305,9 @@ impl Default for MetaballsParams {
     }
 }
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub struct MetaballsUpdateSet; // Public so other plugins (spawners) can order before this.
+
 pub struct MetaballsPlugin;
 
 impl Plugin for MetaballsPlugin {
@@ -344,16 +347,19 @@ impl Plugin for MetaballsPlugin {
                     log_initial_modes,
                 ),
             )
+            .configure_sets(Update, MetaballsUpdateSet)
             .add_systems(
                 Update,
                 (
                     update_metaballs_unified_material,
-                    build_metaball_tiles.after(update_metaballs_unified_material),
+                    build_metaball_tiles
+                        .after(update_metaballs_unified_material),
                     cycle_foreground_mode,
                     cycle_background_mode,
                     resize_fullscreen_quad,
                     tweak_metaballs_params,
-                ),
+                )
+                    .in_set(MetaballsUpdateSet),
             );
     }
 }

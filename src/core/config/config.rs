@@ -71,6 +71,36 @@ impl Default for GravityWidgetConfig {
 pub struct GravityWidgetsConfig {
     pub widgets: Vec<GravityWidgetConfig>,
 }
+
+// ---------------------------------------------------------------------------------
+// Spawn Widget Configuration
+// ---------------------------------------------------------------------------------
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct SpawnWidgetConfig {
+    pub id: u32,
+    pub enabled: bool,
+    pub spawn_interval: f32, // seconds between spawn attempts
+    pub batch: usize,        // number of balls per spawn tick
+    pub area_radius: f32,    // spawn area radius around widget center
+    pub ball_radius_min: f32,
+    pub ball_radius_max: f32,
+    pub speed_min: f32,
+    pub speed_max: f32,
+}
+impl Default for SpawnWidgetConfig {
+    fn default() -> Self { Self { id: 0, enabled: true, spawn_interval: 0.25, batch: 2, area_radius: 48.0, ball_radius_min: 10.0, ball_radius_max: 20.0, speed_min: 50.0, speed_max: 200.0 } }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct SpawnWidgetsConfig {
+    pub widgets: Vec<SpawnWidgetConfig>,
+    pub global_max_balls: usize,
+}
+impl Default for SpawnWidgetsConfig {
+    fn default() -> Self { Self { widgets: Vec::new(), global_max_balls: 600 } }
+}
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct BounceConfig {
@@ -87,57 +117,6 @@ impl Default for BounceConfig {
             friction: 0.9,
             linear_damping: 0.25,
             angular_damping: 0.8,
-        }
-    }
-}
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(default)]
-pub struct SpawnRange<T> {
-    pub min: T,
-    pub max: T,
-}
-impl<T: Default> Default for SpawnRange<T> {
-    fn default() -> Self {
-        Self {
-            min: Default::default(),
-            max: Default::default(),
-        }
-    }
-}
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(default)]
-pub struct BallSpawnConfig {
-    pub count: usize,
-    pub radius_range: SpawnRange<f32>,
-    pub x_range: SpawnRange<f32>,
-    pub y_range: SpawnRange<f32>,
-    pub vel_x_range: SpawnRange<f32>,
-    pub vel_y_range: SpawnRange<f32>,
-}
-impl Default for BallSpawnConfig {
-    fn default() -> Self {
-        Self {
-            count: 150,
-            radius_range: SpawnRange {
-                min: 10.0,
-                max: 20.0,
-            },
-            x_range: SpawnRange {
-                min: -576.0,
-                max: 576.0,
-            },
-            y_range: SpawnRange {
-                min: -324.0,
-                max: 324.0,
-            },
-            vel_x_range: SpawnRange {
-                min: -200.0,
-                max: 200.0,
-            },
-            vel_y_range: SpawnRange {
-                min: -50.0,
-                max: 350.0,
-            },
         }
     }
 }
@@ -229,8 +208,9 @@ pub struct GameConfig {
     pub window: WindowConfig,
     pub gravity: GravityConfig,
     pub gravity_widgets: GravityWidgetsConfig, // NEW: widget-based gravity system
+    pub spawn_widgets: SpawnWidgetsConfig, // NEW: spawning widgets system
     pub bounce: BounceConfig,
-    pub balls: BallSpawnConfig,
+    // Legacy spawn config removed. New spawn system will manage entities dynamically.
     pub rapier_debug: bool,
     pub draw_circles: bool,
     pub metaballs_enabled: bool,
@@ -248,8 +228,8 @@ impl Default for GameConfig {
             window: Default::default(),
             gravity: Default::default(),
             gravity_widgets: Default::default(),
+            spawn_widgets: Default::default(),
             bounce: Default::default(),
-            balls: Default::default(),
             rapier_debug: false,
             draw_circles: false,
             metaballs_enabled: true,
@@ -573,34 +553,17 @@ impl GameConfig {
                 self.bounce.angular_damping
             ));
         }
-        if self.balls.count == 0 {
-            w.push("balls.count is 0; nothing will spawn".into());
+        // Spawn widgets validation
+        if self.spawn_widgets.global_max_balls == 0 { w.push("spawn_widgets.global_max_balls == 0 -> no spawning".into()); }
+        for sw in &self.spawn_widgets.widgets {
+            if sw.spawn_interval <= 0.0 { w.push(format!("spawn_widget id {} spawn_interval <= 0", sw.id)); }
+            if sw.batch == 0 { w.push(format!("spawn_widget id {} batch == 0 (no spawn)", sw.id)); }
+            if sw.ball_radius_min <= 0.0 || sw.ball_radius_max <= 0.0 { w.push(format!("spawn_widget id {} ball radius <= 0", sw.id)); }
+            if sw.ball_radius_min > sw.ball_radius_max { w.push(format!("spawn_widget id {} radius_min > radius_max", sw.id)); }
+            if sw.area_radius <= 0.0 { w.push(format!("spawn_widget id {} area_radius <= 0", sw.id)); }
+            if sw.speed_min < 0.0 || sw.speed_max < 0.0 { w.push(format!("spawn_widget id {} speed negative", sw.id)); }
+            if sw.speed_min > sw.speed_max { w.push(format!("spawn_widget id {} speed_min > speed_max", sw.id)); }
         }
-        if self.balls.count > 50_000 {
-            w.push(format!(
-                "balls.count {} very high; performance may suffer",
-                self.balls.count
-            ));
-        }
-        fn check_range_f32(w: &mut Vec<String>, label: &str, r: &SpawnRange<f32>) {
-            if r.min > r.max {
-                w.push(format!(
-                    "{label} min ({}) greater than max ({})",
-                    r.min, r.max
-                ));
-            }
-            if (r.max - r.min).abs() < f32::EPSILON {
-                w.push(format!("{label} min == max ({}) -> zero variation", r.min));
-            }
-        }
-        check_range_f32(&mut w, "balls.radius_range", &self.balls.radius_range);
-        if self.balls.radius_range.min <= 0.0 {
-            w.push("balls.radius_range.min must be > 0".into());
-        }
-        check_range_f32(&mut w, "balls.x_range", &self.balls.x_range);
-        check_range_f32(&mut w, "balls.y_range", &self.balls.y_range);
-        check_range_f32(&mut w, "balls.vel_x_range", &self.balls.vel_x_range);
-        check_range_f32(&mut w, "balls.vel_y_range", &self.balls.vel_y_range);
         if self.interactions.cluster_pop.enabled {
             let cp = &self.interactions.cluster_pop;
             if cp.min_ball_count < 1 {

@@ -16,9 +16,6 @@ pub(crate) struct DebugOverlayText;
 #[derive(Component)]
 pub(crate) struct DebugConfigOverlayText;
 
-#[cfg(feature = "debug")]
-#[derive(Component)]
-pub(crate) struct DebugSpawnButton;
 
 #[cfg(feature = "debug")]
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -71,31 +68,7 @@ pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer
         DebugConfigOverlayText,
     ));
 
-    // Top-right debug extra spawn button
-    commands
-        .spawn((
-            Button,
-            DebugSpawnButton,
-            bevy::ui::Node {
-                position_type: bevy::ui::PositionType::Absolute,
-                top: Val::Px(4.0),
-                right: Val::Px(6.0),
-                ..Default::default()
-            },
-            BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.6)),
-            BorderRadius::all(Val::Px(4.0)),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Text::new("Spawn +100"),
-                TextFont {
-                    font: font_handle.clone(),
-                    font_size: 14.0,
-                    ..Default::default()
-                },
-                TextColor(Color::WHITE),
-            ));
-        });
+    // Legacy spawn button removed.
 }
 
 #[cfg(feature = "debug")]
@@ -204,21 +177,15 @@ pub(crate) fn debug_config_overlay_update(
             return;
         }
         // Compact multi-line representation; keep within ~120 cols.
-        let b = &cfg.balls;
         let cp = &cfg.interactions.cluster_pop;
         let mb = &cfg.metaballs;
         text.0 = format!(
             "CFG window {w:.0}x{h:.0} gravY {gy} rest {rest:.2}\n \
-balls n={bc} r[{rmin:.0}-{rmax:.0}] vx[{vxmin:.0},{vxmax:.0}] vy[{vymin:.0},{vymax:.0}]\n \
  cp {cpen} peak {peak:.2} grow {grow:.2} hold {hold:.2} shrink {shrink:.2} pickR {pickr:.0} minN {minn} minA {mina:.0} curve {curve} freeze {freeze}\n \
-metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
+ metab all={mben} iso {iso:.2} nz {nz:.1} rmul {rmul:.2}",
             w = cfg.window.width, h = cfg.window.height,
             gy = cfg.gravity.y,
             rest = cfg.bounce.restitution,
-            bc = b.count,
-            rmin = b.radius_range.min, rmax = b.radius_range.max,
-            vxmin = b.vel_x_range.min, vxmax = b.vel_x_range.max,
-            vymin = b.vel_y_range.min, vymax = b.vel_y_range.max,
             cpen = if cp.enabled {"on"} else {"off"},
             peak = cp.peak_scale,
             grow = cp.grow_duration,
