@@ -9,6 +9,7 @@ use bevy::prelude::*;
 pub struct ClusterPaletteCpu {
     pub colors: Vec<[f32; 4]>,
     pub ids: Vec<u64>, // parallel array of cluster ids for mapping / debugging
+    pub color_indices: Vec<usize>, // parallel: original logical color indices (BallMaterialIndex values)
 }
 
 impl ClusterPaletteCpu {
@@ -64,7 +65,17 @@ pub fn build_cpu_palette(clusters: &crate::physics::clustering::cluster::Cluster
     let mut out = ClusterPaletteCpu::default();
     out.colors.reserve(pairs.len());
     out.ids.reserve(pairs.len());
-    for (id, col) in pairs.into_iter() { out.ids.push(id); out.colors.push(col); }
+    out.color_indices.reserve(clusters.0.len());
+    // We need cluster.color_index aligned with its sorted position; rebuild sorted list with indices.
+    // Recreate sorted ordering including color_index.
+    // pairs lost color_index, so rebuild using clusters again: build (id, color_index, color) list then sort by id.
+    let mut triples: Vec<(u64, usize, [f32;4])> = Vec::with_capacity(clusters.0.len());
+    for cl in clusters.0.iter() {
+        let c = color_for_index(cl.color_index).to_srgba();
+        triples.push((cl.id, cl.color_index, [c.red, c.green, c.blue, 1.0]));
+    }
+    triples.sort_unstable_by_key(|(id, _, _)| *id);
+    for (id, ci, col) in triples.into_iter() { out.ids.push(id); out.color_indices.push(ci); out.colors.push(col); }
     out
 }
 

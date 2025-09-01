@@ -201,9 +201,10 @@ fn spawn_single_ball(
 }
 
 #[cfg(test)]
-mod tests { use super::*; use bevy::ecs::system::RunSystemOnce; #[test] fn basic_spawn_progress() { let mut app = App::new(); app.add_plugins(MinimalPlugins); app.insert_resource(GameConfig::default()); app.init_resource::<Assets<ColorMaterial>>(); app.init_resource::<Assets<Mesh>>(); // emulate palette
- app.insert_resource(BallDisplayMaterials(vec![])); app.insert_resource(BallPhysicsMaterials(vec![])); app.world_mut().run_system_once(|mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>| { let cfg = SpawnWidgetConfig::default(); spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, cfg, Vec2::ZERO); });
- app.add_systems(Update, run_spawn_widgets); app.insert_resource(Time::<()>::default()); // advance time
+mod tests { use super::*; use bevy::ecs::system::RunSystemOnce; #[test] fn basic_spawn_progress() { let mut app = App::new(); app.add_plugins(MinimalPlugins); app.insert_resource(GameConfig::default()); app.init_resource::<Assets<ColorMaterial>>(); app.init_resource::<Assets<Mesh>>();
+ app.insert_resource(BallDisplayMaterials(vec![])); app.insert_resource(BallPhysicsMaterials(vec![])); let _ = app.world_mut().run_system_once(|mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>| { let cfg = SpawnWidgetConfig::default(); spawn_single_spawn_widget(&mut commands, &mut meshes, &mut materials, cfg, Vec2::ZERO); });
+ app.add_systems(Update, run_spawn_widgets); app.insert_resource(Time::<()>::default());
  for _ in 0..10 { app.update(); }
- let ball_count = app.world().query::<&Ball>().iter(app.world()).count();
+ // Count Ball components via a one-off system to avoid borrow issues.
+ let ball_count = app.world_mut().run_system_once(|q: Query<&Ball>| q.iter().count()).unwrap();
  assert!(ball_count >= 0); } }

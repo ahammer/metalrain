@@ -230,6 +230,7 @@ fn update_widget_visuals() { /* no-op; reserved */ }
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+    use std::time::Duration;
 
     #[test]
     fn attract_vs_repulse_direction() {
@@ -237,6 +238,10 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.init_resource::<AccumulatedForces>();
         app.insert_resource(Time::<()>::default());
+        {
+            let mut t = app.world_mut().resource_mut::<Time<()>>();
+            t.advance_by(Duration::from_millis(16));
+        }
         // Spawn two widgets at origin: one attract, one repulse
         app.world_mut().spawn((Transform::from_xyz(0.0,0.0,0.0), GravityWidget { id:0, strength: 100.0, mode: GravityMode::Attract, radius:0.0, falloff: Falloff::None, enabled:true, physics_collider:false, radius2:0.0 }));
         app.world_mut().spawn((Transform::from_xyz(0.0,0.0,0.0), GravityWidget { id:1, strength: 100.0, mode: GravityMode::Repulse, radius:0.0, falloff: Falloff::None, enabled:true, physics_collider:false, radius2:0.0 }));
