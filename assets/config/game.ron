@@ -15,8 +15,8 @@
         angular_damping: 0.8,
     ),
     balls: (
-        count: 250,
-        radius_range: (min: 10.0, max: 20.0),
+        count: 400,
+        radius_range: (min: 5.0, max: 10.0),
         x_range: (min: -576.0, max: 576.0),
         y_range: (min: -324.0, max: 324.0),
         vel_x_range: (min: -200.0, max: 200.0),
@@ -28,7 +28,7 @@
     metaballs: (
         iso: 0.5,
         normal_z_scale: 0.12,
-        radius_multiplier: 1.0,
+        radius_multiplier: 0.9,
     ),
     metaballs_shader: (
         fg_mode: 1,
@@ -67,7 +67,7 @@
             enabled: true,
             min_ball_count: 4,
             min_total_area: 1200.0,
-            peak_scale: 2.0,
+            peak_scale: 2.5,
             grow_duration: 0.1,
             hold_duration: 0.0,
             shrink_duration: 0.50,

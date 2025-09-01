@@ -17,11 +17,9 @@ static METABALLS_UNIFIED_DEBUG_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLoc
 
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
-use crate::physics::clustering::cluster::Clusters;
-use crate::physics::clustering::cluster::BallClusterIndex;
+// Clustering resources intentionally omitted: renderer now groups purely by color.
 use crate::rendering::materials::materials::BallMaterialIndex;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 // =====================================================================================
 // Uniform layout
@@ -328,7 +326,7 @@ impl Plugin for MetaballsPlugin {
             .init_resource::<BallTilingConfig>()
             .init_resource::<BallTilesMeta>()
             .init_resource::<BallCpuShadow>()
-            .init_resource::<PersistentColorSlots>()
+            // Persistent color slots & cluster-based grouping removed (color-based grouping only)
             .init_resource::<MetaballsGroupDebugTimer>()
             .init_resource::<crate::rendering::metaballs::palette::ClusterPaletteStorage>()
             .add_plugins((Material2dPlugin::<MetaballsUnifiedMaterial>::default(),))
@@ -360,33 +358,7 @@ impl Plugin for MetaballsPlugin {
     }
 }
 
-// =====================================================================================
-// Persistent Per-Entity Color Slots
-// Each ball entity is assigned a stable slot id on first sight. Slots are reused via a free list
-// when entities despawn (future enhancement; currently we only allocate and never reclaim to
-// minimize complexity). Cluster rendering chooses the representative entity's slot; all members
-// of that cluster use that slot for color. Orphan / popped entities retain their own slot.
-// =====================================================================================
-#[derive(Resource, Debug, Default, Clone)]
-pub struct PersistentColorSlots {
-    pub next_slot: u32,
-    pub free: Vec<u32>,
-    pub entity_slot: HashMap<Entity, u32>,
-    pub slot_color_index: Vec<usize>, // logical color index (BallMaterialIndex) per slot
-}
-impl PersistentColorSlots {
-    pub fn assign_slot(&mut self, entity: Entity, color_index: usize) -> u32 {
-        if let Some(&s) = self.entity_slot.get(&entity) { return s; }
-        let slot = if let Some(s) = self.free.pop() { s } else { let s = self.next_slot; self.next_slot += 1; s };
-        // Ensure color index vector size
-        if slot as usize >= self.slot_color_index.len() { self.slot_color_index.push(color_index); } else {
-            // Only set if uninitialized (we don't overwrite existing slot color assignments here)
-            if self.slot_color_index[slot as usize] != color_index { self.slot_color_index[slot as usize] = color_index; }
-        }
-        self.entity_slot.insert(entity, slot);
-        slot
-    }
-}
+// (Removed) PersistentColorSlots: no longer needed with pure color-based grouping.
 
 // =====================================================================================
 // Periodic debug logging of group assignments (fusion id vs persistent slot)
@@ -528,8 +500,6 @@ fn update_metaballs_unified_material(
     time: Res<Time>,
     fg: Res<MetaballForeground>,
     bg: Res<MetaballBackground>,
-    clusters: Res<Clusters>,
-    cluster_index: Res<BallClusterIndex>,
     q_balls: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex), With<Ball>>,
     mut materials: ResMut<Assets<MetaballsUnifiedMaterial>>,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
@@ -539,7 +509,6 @@ fn update_metaballs_unified_material(
     cfg: Res<GameConfig>,
     mut shadow: Option<ResMut<BallCpuShadow>>,
     mut palette_storage: ResMut<crate::rendering::metaballs::palette::ClusterPaletteStorage>,
-    mut persistent_slots: ResMut<PersistentColorSlots>,
     mut dbg_timer: ResMut<MetaballsGroupDebugTimer>,
 ) {
     if !toggle.0 {
@@ -589,105 +558,36 @@ fn update_metaballs_unified_material(
         mat.surface_noise.enabled = if sn.enabled { 1 } else { 0 };
     }
 
-    // ================= Option A: Separate Grouping (fusion) vs Color Slot ==================
-    // 1. Ensure every entity has a persistent color slot.
-    for (e, _tf, _r, color_idx) in q_balls.iter() { persistent_slots.assign_slot(e, color_idx.0); }
-
-    // 2. Build dense group indices.
-    //    - Each cluster gets a dense group id (fusion id)
-    //    - Each orphan entity (not in any cluster) gets its own group id (so it won't fuse with others)
-    let mut cluster_group_index: HashMap<u64, u32> = HashMap::with_capacity(clusters.0.len());
-    // Direct index -> group id lookup to avoid per-entity cluster scanning (perf optimization)
-    let mut cluster_index_to_group: Vec<u32> = Vec::with_capacity(clusters.0.len());
-    // We'll gather orphan entities later.
-
-    // Determine representative slot per cluster (min member slot to keep color deterministic across merges)
-    struct ClusterColorInfo { group_id: u32, rep_slot: u32 }
-    let mut cluster_color_infos: Vec<ClusterColorInfo> = Vec::with_capacity(clusters.0.len());
-    let mut next_group: u32 = 0;
-    for cl in clusters.0.iter() {
-        // Find best (lowest-numbered) slot among members
-        let mut rep_slot: Option<u32> = None;
-        for e in cl.entities.iter() {
-            if let Some(&s) = persistent_slots.entity_slot.get(e) {
-                match rep_slot { Some(cur) if s >= cur => {}, _ => rep_slot = Some(s) }
-            }
-        }
-        let rep_slot = rep_slot.unwrap_or(0);
-        let gid = next_group; next_group += 1;
-        cluster_group_index.insert(cl.id, gid);
-        cluster_index_to_group.push(gid);
-        cluster_color_infos.push(ClusterColorInfo { group_id: gid, rep_slot });
-    }
-
-    // 3. Identify orphan entities (not part of any cluster) and assign them unique group ids.
-    let mut in_cluster: HashSet<Entity> = HashSet::with_capacity(q_balls.iter().len());
-    for cl in clusters.0.iter() { for e in cl.entities.iter() { in_cluster.insert(*e); } }
-    let mut orphan_group_index: HashMap<Entity, u32> = HashMap::new();
-    for (e, _tf, _r, _ci) in q_balls.iter() {
-        if !in_cluster.contains(&e) {
-            let gid = next_group; next_group += 1; orphan_group_index.insert(e, gid);
-        }
-    }
-
-    // 4. Build final palette entries per group id.
-    //    Group id ordering: clusters first (in iteration order), then orphans.
-    //    For clusters we use the color from the representative slot's logical color index.
-    //    For orphans we use their own slot's logical color index.
+    // ================= Color-Based Grouping ==================
+    // Build dense group ids for each encountered BallMaterialIndex color.
     use crate::rendering::palette::palette::color_for_index;
-    let group_count = next_group; // total number of groups
-    let mut palette_colors: Vec<[f32;4]> = vec![[0.0;4]; group_count as usize];
-    // Fill cluster colors.
-    for info in cluster_color_infos.iter() {
-        let slot = info.rep_slot as usize;
-        let logical_idx = persistent_slots.slot_color_index.get(slot).copied().unwrap_or(0);
-        let c = color_for_index(logical_idx).to_srgba();
-        palette_colors[info.group_id as usize] = [c.red, c.green, c.blue, 1.0];
-    }
-    // Fill orphan colors.
-    for (e, gid) in orphan_group_index.iter() {
-        if let Some(&slot) = persistent_slots.entity_slot.get(e) {
-            let logical_idx = persistent_slots.slot_color_index.get(slot as usize).copied().unwrap_or(0);
-            let c = color_for_index(logical_idx).to_srgba();
-            palette_colors[*gid as usize] = [c.red, c.green, c.blue, 1.0];
-        }
-    }
-
-    // 5. Build balls CPU list using GROUP id in w (NOT slot).
+    let mut color_to_group: HashMap<usize, u32> = HashMap::new();
+    let mut palette_colors: Vec<[f32;4]> = Vec::new();
     let mut balls_cpu: Vec<GpuBall> = Vec::with_capacity(q_balls.iter().len().min(MAX_BALLS));
-    // Collect limited debug rows
     let mut debug_rows: Vec<String> = Vec::new();
-    for (e, tf, r, _ci) in q_balls.iter() {
+    for (e, tf, r, color_idx) in q_balls.iter() {
         if balls_cpu.len() >= MAX_BALLS { break; }
+        let gid = *color_to_group.entry(color_idx.0).or_insert_with(|| {
+            let new_gid = palette_colors.len() as u32;
+            let c = color_for_index(color_idx.0).to_srgba();
+            palette_colors.push([c.red, c.green, c.blue, 1.0]);
+            new_gid
+        });
         let pos = tf.translation.truncate();
-        let radius = r.0;
-        // Determine group id: use reverse index for O(1) lookup
-        let gid = if let Some(&ci) = cluster_index.0.get(&e) {
-            // cluster_index_to_group aligned with clusters.0 ordering
-            cluster_index_to_group.get(ci).copied().unwrap_or(0)
-        } else if let Some(gid) = orphan_group_index.get(&e) {
-            *gid
-        } else { 0 };
-        balls_cpu.push(GpuBall::new(pos, radius, gid));
-        if debug_rows.len() < 8 {
-            let slot = persistent_slots.entity_slot.get(&e).copied().unwrap_or(u32::MAX);
-            let kind = if cluster_index.0.get(&e).is_some() { 'C' } else { 'O' };
-            debug_rows.push(format!("e={:?} kind={} gid={} slot={}", e, kind, gid, slot));
-        }
+        balls_cpu.push(GpuBall::new(pos, r.0, gid));
+        if debug_rows.len() < 8 { debug_rows.push(format!("e={:?} color={} gid={}", e, color_idx.0, gid)); }
     }
+    let group_count = palette_colors.len() as u32;
     mat.data.v0.x = balls_cpu.len() as f32;
     mat.data.v3.w = balls_cpu.len() as f32;
-
-    // 6. Upload palette (group_count entries)
+    // Upload palette (group_count entries)
     if group_count > 0 {
-        let cpu_palette_like = crate::rendering::metaballs::palette::ClusterPaletteCpu { colors: palette_colors.clone(), ids: Vec::new(), color_indices: Vec::new() };
-        ensure_palette_capacity_wrapper(&mut palette_storage, group_count, &mut buffers, &cpu_palette_like);
+        let cpu_palette = crate::rendering::metaballs::palette::ClusterPaletteCpu { colors: palette_colors.clone(), ids: Vec::new(), color_indices: Vec::new() };
+        ensure_palette_capacity_wrapper(&mut palette_storage, group_count, &mut buffers, &cpu_palette);
         if let Some(h) = &palette_storage.handle { mat.cluster_palette = h.clone(); }
-        mat.data.v5.y = group_count as f32; // cluster_color_count in shader now means group_count
+        mat.data.v5.y = group_count as f32;
         mat.data.v0.y = group_count as f32;
-    } else {
-        mat.data.v5.y = 0.0; mat.data.v0.y = 0.0;
-    }
+    } else { mat.data.v5.y = 0.0; mat.data.v0.y = 0.0; }
 
     // Upload / update storage buffer asset
     if balls_cpu.is_empty() {
@@ -716,7 +616,7 @@ fn update_metaballs_unified_material(
 
     // Periodic debug log (every ~1s) of first few group assignments for visual verification
     if dbg_timer.0.tick(time.delta()).just_finished() && !debug_rows.is_empty() {
-        info!(target: "metaballs", "GroupDebug: groups={} sample: {}", group_count, debug_rows.join(" | "));
+        info!(target: "metaballs", "ColorGroups: groups={} sample: {}", group_count, debug_rows.join(" | "));
     }
 }
 
@@ -891,16 +791,7 @@ pub fn map_signed_distance(signed_d: f32, d_scale: f32) -> f32 {
 mod tests {
     use super::*;
     #[test]
-    fn persistent_slot_allocation_and_reuse() {
-        let mut pcs = PersistentColorSlots::default();
-        let mut world = World::new();
-        let mut ents = Vec::new();
-        for i in 0..8 { ents.push(world.spawn_empty().id()); pcs.assign_slot(ents[i], i as usize % 3); }
-        assert_eq!(pcs.next_slot, 8, "expected next_slot=8 got {}", pcs.next_slot);
-        let slot_3_first = pcs.entity_slot[&ents[3]];
-        let again = pcs.assign_slot(ents[3], 99);
-        assert_eq!(slot_3_first, again, "re-assignment must not allocate new slot");
-    }
+    // (Removed) persistent_slot_allocation_and_reuse test; color grouping no longer uses per-entity slots.
 
     #[test]
     fn sdf_mapping_basic() {
@@ -949,38 +840,15 @@ mod tests {
     }
 
     #[test]
-    fn cluster_group_assignment_basic() {
-        // Build three entities, first two in a cluster, third orphan; ensure group ids share for cluster.
-        let mut world = World::new();
-        let e1 = world.spawn_empty().id();
-        let e2 = world.spawn_empty().id();
-        let e3 = world.spawn_empty().id();
-        let mut pcs = PersistentColorSlots::default();
-        pcs.assign_slot(e1, 0);
-        pcs.assign_slot(e2, 1);
-        pcs.assign_slot(e3, 2);
-        // Single cluster containing e1,e2
-        let cluster = crate::physics::clustering::cluster::Cluster { color_index: 0, entities: vec![e1,e2], min: Vec2::ZERO, max: Vec2::ZERO, centroid: Vec2::ZERO, total_area: 0.0, id: 99 };
-        let clusters = Clusters(vec![cluster]);
-        // Reproduce group build logic (simplified)
-        let mut rep_slot: u32 = u32::MAX;
-        for &e in clusters.0[0].entities.iter() { if let Some(&s) = pcs.entity_slot.get(&e) { if s < rep_slot { rep_slot = s; } } }
-        if rep_slot == u32::MAX { rep_slot = 0; }
-        let cluster_gid = 0u32; // first group id
-        // orphan gets next gid
-        let orphan_gid = 1u32;
-        // Assert palette length (cluster + orphan)
-        let group_count = 2u32;
-        assert_eq!(group_count, 2);
-        // Map entities to gids via simulated logic
-    let e1_gid = cluster_gid;
-    let e2_gid = cluster_gid;
-    let e3_gid = orphan_gid;
-        assert_eq!(e1_gid, e2_gid, "cluster members must share group id");
-        assert_ne!(e1_gid, e3_gid, "orphan must have distinct group id");
-        // Representative slot must be min of member slots
-        let s1 = pcs.entity_slot.get(&e1).copied().unwrap();
-        let s2 = pcs.entity_slot.get(&e2).copied().unwrap();
-        assert_eq!(rep_slot, s1.min(s2));
+    #[test]
+    fn color_group_assignment_basic() {
+        // Simulate three balls with colors [0,0,2] => two groups.
+        let mut color_to_group: HashMap<usize,u32> = HashMap::new();
+        let colors = [0usize,0,2];
+        let mut palette: Vec<[f32;4]> = Vec::new();
+        for c in colors.iter() { color_to_group.entry(*c).or_insert_with(|| { let gid = palette.len() as u32; palette.push([*c as f32,0.0,0.0,1.0]); gid }); }
+        assert_eq!(palette.len(), 2, "expected 2 distinct color groups");
+        assert_eq!(color_to_group.get(&0).copied(), Some(0));
+        assert_eq!(color_to_group.get(&2).copied(), Some(1));
     }
 }
