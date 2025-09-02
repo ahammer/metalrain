@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::Collider;
+use bevy_rapier2d::prelude::{Collider, RigidBody};
 
 use crate::core::config::config::{GameConfig, GravityWidgetConfig};
 
@@ -32,14 +32,16 @@ pub struct LevelLoaderPlugin;
 
 impl Plugin for LevelLoaderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_level_data)
-            .add_systems(Update, draw_wall_gizmos);
+        // Solid wall visuals are spawned directly during load; gizmo lines no longer required.
+        app.add_systems(Startup, load_level_data);
     }
 }
 
 pub fn load_level_data(
     mut commands: Commands,
     mut game_cfg: ResMut<GameConfig>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // Build absolute paths rooted at crate manifest dir to avoid cwd variance in tests.
     use std::path::PathBuf;
@@ -115,14 +117,38 @@ pub fn load_level_data(
     }
     let wall_count = filtered.len();
 
-    // Spawn static wall colliders (segment; thickness kept for future expansion)
+    // ==================================================================================
+    // Spawn static wall entities with:
+    // - Cuboid collider matching data-driven thickness & length
+    // - Rectangle mesh for visual (solid bar)
+    // Layering: metaballs fullscreen quad at z=50, spawn widgets at z=82 -> choose z=70.
+    // ==================================================================================
+    const WALL_Z: f32 = 70.0; // Above metaballs (50.0), below widgets (82.0)
+    let wall_color = Color::srgba(0.12, 0.12, 0.16, 0.95);
     for (i, w) in filtered.iter().enumerate() {
+        let delta = w.to - w.from;
+        let length = delta.length();
+        if length <= 1e-4 { continue; }
+        let thickness = w.thickness.max(2.0);
+        let center = (w.from + w.to) * 0.5;
+        let angle = delta.y.atan2(delta.x);
+        let mesh = meshes.add(Mesh::from(Rectangle::new(length, thickness)));
+        let material = materials.add(wall_color);
         commands.spawn((
             Name::new(format!("WallSeg{}", i)),
-            Collider::segment(w.from, w.to),
-            Transform::IDENTITY,
+            WallVisual,
+            // Use a fixed body + cuboid collider to match the visual thickness (segment was invisible & zero-width)
+            RigidBody::Fixed,
+            Collider::cuboid(length * 0.5, thickness * 0.5),
+            Mesh2d::from(mesh),
+            MeshMaterial2d(material),
+            Transform {
+                translation: Vec3::new(center.x, center.y, WALL_Z),
+                rotation: Quat::from_rotation_z(angle),
+                scale: Vec3::ONE,
+            },
             GlobalTransform::default(),
-            Visibility::Hidden,
+            Visibility::Visible,
         ));
     }
 
@@ -191,10 +217,9 @@ pub fn load_level_data(
         game_cfg.gravity_widgets.widgets.len());
 }
 
-pub fn draw_wall_gizmos(
-    walls: Res<LevelWalls>,
-    mut gizmos: Gizmos,
-) {
+// Legacy gizmo drawer retained for quick debugging (unused by default). Enable manually if needed.
+#[allow(dead_code)]
+pub fn draw_wall_gizmos(walls: Res<LevelWalls>, mut gizmos: Gizmos) {
     for w in &walls.0 {
         gizmos.line_2d(w.from, w.to, Color::srgba(0.85, 0.75, 0.10, 0.90));
     }
