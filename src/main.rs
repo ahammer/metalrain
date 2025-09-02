@@ -9,8 +9,6 @@ use bevy::render::RenderPlugin;
 use bevy_rapier2d::prelude::RapierDebugRenderPlugin;
 
 use ball_matcher::app::game::GamePlugin;
-use ball_matcher::app::state::{AppState, GameplayState};
-use ball_matcher::app::menu::MenuPlugin;
 use ball_matcher::core::config::config::GameConfig;
 use ball_matcher::core::level::LevelLoaderPlugin;
 
@@ -122,12 +120,9 @@ fn main() {
             }),
     );
 
-    // Register high-level states early so downstream plugins can add state-based systems.
-    app.insert_state(AppState::MainMenu);
-    app.insert_state(GameplayState::Playing);
-
-    // Menu first (reads registry), then level loader (reacts to state transitions), then gameplay.
-    app.add_plugins((MenuPlugin, LevelLoaderPlugin, GamePlugin));
+    // Data-driven level loading must occur before core GamePlugin systems (physics, widgets).
+    app.add_plugins(LevelLoaderPlugin);
+    app.add_plugins(GamePlugin);
 
     #[cfg(feature = "debug")]
     {

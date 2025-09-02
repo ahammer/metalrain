@@ -6,8 +6,7 @@ use rand::Rng;
 
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::config::{GameConfig, SpawnWidgetConfig};
-use crate::core::level::loader::{LevelWidgets, LevelEntity};
-use crate::app::state::AppState; // for gating after level load
+use crate::core::level::loader::LevelWidgets;
 use crate::rendering::metaballs::metaballs::MetaballsUpdateSet; // for system ordering
 use crate::rendering::materials::materials::{BallDisplayMaterials, BallPhysicsMaterials, BallMaterialIndex};
 use crate::rendering::palette::palette::BASE_COLORS; // for variant index length when not drawing circles
@@ -24,13 +23,12 @@ impl Plugin for SpawnWidgetsPlugin {
     fn build(&self, app: &mut App) {
         // Run spawn widget instantiation after LevelLoader (which runs in Startup)
         // so that GameConfig.spawn_widgets.widgets is populated.
-        app.add_systems(OnEnter(AppState::Gameplay), spawn_spawn_widgets)
+        app.add_systems(PostStartup, spawn_spawn_widgets)
             // Ensure spawns for this frame exist before metaballs / clustering update runs.
             .add_systems(
                 Update,
                 (toggle_spawn_widget_on_tap, run_spawn_widgets)
-                    .before(MetaballsUpdateSet)
-                    .run_if(in_state(AppState::Gameplay)),
+                    .before(MetaballsUpdateSet),
             );
     }
 }
@@ -66,7 +64,6 @@ fn spawn_single_spawn_widget(commands: &mut Commands, meshes: &mut ResMut<Assets
     // Prime timer so first spawn happens immediately on first Update frame.
     let interval = sw_cfg.spawn_interval;
     commands.spawn((
-        LevelEntity,
         SpawnWidget { id: sw_cfg.id, enabled: sw_cfg.enabled, cfg: sw_cfg, timer: interval },
         Mesh2d::from(mesh),
         MeshMaterial2d(mat),
@@ -186,7 +183,6 @@ fn spawn_single_ball(
     // Physics material properties
     let bounce = &game_cfg.bounce;
     let mut entity = commands.spawn((
-        LevelEntity,
         Ball,
         BallRadius(r_ball),
         BallMaterialIndex(variant_idx),

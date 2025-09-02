@@ -5,8 +5,6 @@ use bevy::sprite::ColorMaterial;
 use bevy_rapier2d::prelude::*;
 
 use crate::core::components::Ball;
-use crate::app::state::AppState;
-use crate::core::level::loader::LevelEntity;
 use crate::core::config::config::{GameConfig, GravityWidgetConfig};
 use crate::core::system::system_order::PrePhysicsSet;
 
@@ -71,8 +69,7 @@ impl Plugin for GravityWidgetsPlugin {
         app.register_type::<GravityWidget>()
             .add_event::<WidgetToggled>()
             .init_resource::<AccumulatedForces>()
-            // Spawn gravity widgets only when entering Gameplay (after level data integrated)
-            .add_systems(OnEnter(AppState::Gameplay), spawn_configured_gravity_widgets)
+            .add_systems(Startup, spawn_configured_gravity_widgets)
             .add_systems(Update, (
                 toggle_widget_on_tap.in_set(PrePhysicsSet),
                 accumulate_widget_forces.after(toggle_widget_on_tap).in_set(PrePhysicsSet),
@@ -110,7 +107,6 @@ fn spawn_configured_gravity_widgets(
         let x = (i as f32) * 120.0; // simple spread for multiple widgets; user can reposition later
         let mut entity = commands.spawn((
             Widget,
-            LevelEntity,
             gw,
             Mesh2d::from(mesh.clone()),
             MeshMaterial2d(mat.clone()),

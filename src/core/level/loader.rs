@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::prelude::{OnEnter, NextState};
 use bevy_rapier2d::prelude::Collider;
 
 use crate::core::config::config::{GameConfig, GravityWidgetConfig};
@@ -10,15 +9,6 @@ use super::widgets::{extract_widgets, AttractorSpec, SpawnPointSpec, WidgetsFile
 
 #[derive(Component)]
 struct WallVisual;
-
-/// Marker component applied to ALL entities whose lifetime is bound to the
-/// currently loaded level (so we can bulk-despawn when switching levels).
-#[derive(Component, Debug)]
-pub struct LevelEntity;
-
-/// Resource inserted by the menu (or tests) to request a level load.
-#[derive(Resource, Debug, Clone)]
-pub struct PendingLevel { pub id: String }
 
 /// Resource: final chosen level id
 #[derive(Debug, Resource, Clone)]
@@ -42,106 +32,42 @@ pub struct LevelLoaderPlugin;
 
 impl Plugin for LevelLoaderPlugin {
     fn build(&self, app: &mut App) {
-        use crate::app::state::AppState;
-        app.add_systems(Startup, (load_level_registry, fallback_auto_load_if_no_state).chain());
-        app.add_systems(OnEnter(AppState::Loading), (cleanup_level, process_loading));
+        app.add_systems(Startup, load_level_data)
+            .add_systems(Update, draw_wall_gizmos);
     }
 }
 
-/// STARTUP: Load registry only.
-pub fn load_level_registry(mut commands: Commands) {
+pub fn load_level_data(
+    mut commands: Commands,
+    mut game_cfg: ResMut<GameConfig>,
+) {
     // Build absolute paths rooted at crate manifest dir to avoid cwd variance in tests.
     use std::path::PathBuf;
     let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
     let base_levels: PathBuf = PathBuf::from(&crate_root).join("assets").join("levels");
     let registry_path = base_levels.join("levels.ron");
-    match LevelRegistry::load_from_file(&registry_path) {
+    let universal_walls_path = base_levels.join("basic_walls.ron");
+
+    // Load registry
+    let registry = match LevelRegistry::load_from_file(&registry_path) {
         Ok(r) => {
             debug!(target="level", "LevelLoader: registry loaded from {}", registry_path.display());
-            commands.insert_resource(r);
+            r
         },
         Err(e) => {
             println!("[LevelLoader DEBUG] registry load FAILED: {e}");
             error!("LevelLoader: FAILED to load registry: {e}");
-            // Registry missing; menu will show warning.
+            return;
         }
     };
-}
-
-/// Fallback path for environments without states/menu: automatically load default level on Startup.
-fn fallback_auto_load_if_no_state(
-    mut commands: Commands,
-    mut game_cfg: ResMut<GameConfig>,
-    registry: Option<Res<LevelRegistry>>,
-    maybe_state: Option<Res<State<crate::app::state::AppState>>>,
-    existing_selection: Option<Res<LevelSelection>>,
-    pending: Option<Res<PendingLevel>>,
-) {
-    if existing_selection.is_some() || pending.is_some() { return; }
-    if maybe_state.is_some() { return; } // States present => menu flow wanted
-    let Some(reg) = registry else { return; };
-    if let Err(e) = internal_perform_level_load(&mut commands, &mut game_cfg, &reg, None) {
-        error!("LevelLoader: fallback autoload failed: {e}");
-    }
-}
-
-// (Legacy immediate load path removed; loading now always state-driven.)
-
-/// OnEnter(AppState::Loading): despawn prior level.
-pub fn cleanup_level(
-    mut commands: Commands,
-    q_level: Query<Entity, With<LevelEntity>>,
-) {
-    for e in q_level.iter() {
-        commands.entity(e).despawn(); // recursive by default in 0.16
-    }
-}
-
-/// OnEnter(AppState::Loading): perform loading using PendingLevel request, then transition.
-pub fn process_loading(
-    mut commands: Commands,
-    mut game_cfg: ResMut<GameConfig>,
-    registry: Res<LevelRegistry>,
-    pending: Option<Res<PendingLevel>>,
-    mut next: ResMut<NextState<crate::app::state::AppState>>,
-) {
-    use crate::app::state::AppState;
-    let Some(pending) = pending else {
-        error!("LevelLoader: PendingLevel missing in Loading state");
-        next.set(AppState::MainMenu);
-        return;
-    };
-    let requested = Some(pending.id.as_str());
-    match internal_perform_level_load(&mut commands, &mut game_cfg, &registry, requested) {
-        Ok(sel_id) => {
-            info!(target="level", "LevelLoader: transitioned to Gameplay after loading '{}'.", sel_id);
-            next.set(AppState::Gameplay);
-        }
-        Err(e) => {
-            error!("LevelLoader: load failed: {e}");
-            next.set(AppState::MainMenu);
-        }
-    }
-}
-
-/// Shared core logic performing the actual file IO & entity spawning.
-fn internal_perform_level_load(
-    commands: &mut Commands,
-    game_cfg: &mut ResMut<GameConfig>,
-    registry: &LevelRegistry,
-    requested: Option<&str>,
-) -> Result<String, String> {
-    use std::path::PathBuf;
-    let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
-    let base_levels: PathBuf = PathBuf::from(&crate_root).join("assets").join("levels");
-    let universal_walls_path = base_levels.join("basic_walls.ron");
 
     // Resolve requested level id (cli/env) then select
-    let requested_cli_env = requested.map(|s| s.to_string()).or_else(resolve_requested_level_id);
-    let level_entry = match registry.select_level(requested_cli_env.as_deref()) {
+    let requested = resolve_requested_level_id();
+    let level_entry = match registry.select_level(requested.as_deref()) {
         Ok(e) => e,
         Err(e) => {
-            return Err(format!("select level: {e}"));
+            error!("LevelLoader: FAILED to select level: {e}");
+            return;
         }
     };
     info!(target: "level", "LevelLoader: selected level id='{}' (layout='{}', widgets='{}')", level_entry.id, level_entry.layout, level_entry.widgets);
@@ -157,7 +83,8 @@ fn internal_perform_level_load(
         }
         Err(e) => {
             debug!(target="level", "LevelLoader: universal walls load FAILED: {e}");
-            return Err(format!("universal walls load: {e}"));
+            error!("LevelLoader: FAILED to load universal walls file {}: {e}", universal_walls_path.display());
+            return;
         }
     }
 
@@ -172,7 +99,8 @@ fn internal_perform_level_load(
         }
         Err(e) => {
             debug!(target="level", "LevelLoader: layout load FAILED: {e}");
-            return Err(format!("level layout load: {e}"));
+            error!("LevelLoader: FAILED to load level layout '{}': {e}", layout_path.display());
+            return;
         }
     }
 
@@ -190,7 +118,6 @@ fn internal_perform_level_load(
     // Spawn static wall colliders (segment; thickness kept for future expansion)
     for (i, w) in filtered.iter().enumerate() {
         commands.spawn((
-            LevelEntity,
             Name::new(format!("WallSeg{}", i)),
             Collider::segment(w.from, w.to),
             Transform::IDENTITY,
@@ -199,7 +126,7 @@ fn internal_perform_level_load(
         ));
     }
 
-    commands.insert_resource(LevelWalls(filtered.clone()));
+    commands.insert_resource(LevelWalls(filtered));
 
     // Load widgets
     let widgets_path = base_levels.join(&level_entry.widgets);
@@ -210,7 +137,8 @@ fn internal_perform_level_load(
         },
         Err(e) => {
             debug!(target="level", "LevelLoader: widgets load FAILED: {e}");
-            return Err(format!("widgets load: {e}"));
+            error!("LevelLoader: FAILED to load level widgets '{}': {e}", widgets_path.display());
+            return;
         }
     };
     let extracted = extract_widgets(&widgets_file);
@@ -250,8 +178,8 @@ fn internal_perform_level_load(
 
     // Insert LevelWidgets resource with full positional info
     commands.insert_resource(LevelWidgets {
-        spawn_points: extracted.spawn_points.clone(),
-        attractors: extracted.attractors.clone(),
+        spawn_points: extracted.spawn_points,
+        attractors: extracted.attractors,
     });
 
     // Insert selection resource
@@ -261,5 +189,13 @@ fn internal_perform_level_load(
         wall_count,
         game_cfg.spawn_widgets.widgets.len(),
         game_cfg.gravity_widgets.widgets.len());
-    Ok(level_entry.id)
+}
+
+pub fn draw_wall_gizmos(
+    walls: Res<LevelWalls>,
+    mut gizmos: Gizmos,
+) {
+    for w in &walls.0 {
+        gizmos.line_2d(w.from, w.to, Color::srgba(0.85, 0.75, 0.10, 0.90));
+    }
 }
