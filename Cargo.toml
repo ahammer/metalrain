@@ -12,6 +12,7 @@ bevy = { version = "0.16", default-features = false, features = [
     "animation",
     "bevy_asset",
     "bevy_audio",
+    "bevy_state",
     "bevy_core_pipeline",
     "bevy_log",
     "bevy_gizmos",

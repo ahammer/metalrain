@@ -1,3 +1,4 @@
+use bevy::prelude::*; // for Resource derive
 use serde::Deserialize;
 use std::{fs, path::Path};
 
@@ -8,7 +9,7 @@ pub struct LevelEntry {
     pub widgets: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Resource)]
 pub struct LevelRegistry {
     pub version: u32,
     pub default: String,

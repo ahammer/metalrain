@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::prelude::{App, MinimalPlugins};
 use ball_matcher::core::config::config::GameConfig;
 use ball_matcher::core::level::{LevelLoaderPlugin, LevelWalls, LevelWidgets, LevelSelection};
 
@@ -11,7 +11,7 @@ fn level_loader_smoke() {
     app.add_plugins(MinimalPlugins);
     app.insert_resource(GameConfig::default());
     app.add_plugins(LevelLoaderPlugin);
-    // First update runs Startup schedule
+    // First update runs Startup schedule (fallback autoload)
     app.update();
 
     let walls = app.world().get_resource::<LevelWalls>().expect("LevelWalls resource missing");
