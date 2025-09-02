@@ -4,6 +4,8 @@ use bevy_rapier2d::prelude::{Collider, RigidBody};
 use crate::core::config::config::{GameConfig, GravityWidgetConfig};
 
 use super::layout::{LayoutFile, WallSegment};
+// v2 grouped walls/timelines
+use super::wall_timeline::{WallGroupRoot, WallTimeline};
 use super::registry::{resolve_requested_level_id, LevelRegistry};
 use super::widgets::{extract_widgets, AttractorSpec, SpawnPointSpec, WidgetsFile};
 
@@ -92,19 +94,20 @@ pub fn load_level_data(
 
     // Load level layout
     let layout_path = base_levels.join(&level_entry.layout);
-    match LayoutFile::load_from_file(&layout_path) {
+    let layout_loaded = match LayoutFile::load_from_file(&layout_path) {
         Ok(lf) => {
             let segs = lf.to_wall_segments();
             debug!(target="level", "LevelLoader: layout loaded count={}", segs.len());
             info!(target="level", "LevelLoader: loaded {} level-specific wall segments", segs.len());
             all_walls.extend(segs);
+            Some(lf)
         }
         Err(e) => {
             debug!(target="level", "LevelLoader: layout load FAILED: {e}");
             error!("LevelLoader: FAILED to load level layout '{}': {e}", layout_path.display());
             return;
         }
-    }
+    };
 
     // Validate walls (skip zero-length)
     let mut filtered = Vec::with_capacity(all_walls.len());
@@ -142,14 +145,57 @@ pub fn load_level_data(
             Collider::cuboid(length * 0.5, thickness * 0.5),
             Mesh2d::from(mesh),
             MeshMaterial2d(material),
-            Transform {
-                translation: Vec3::new(center.x, center.y, WALL_Z),
-                rotation: Quat::from_rotation_z(angle),
-                scale: Vec3::ONE,
-            },
+            Transform { translation: Vec3::new(center.x, center.y, WALL_Z), rotation: Quat::from_rotation_z(angle), scale: Vec3::ONE },
             GlobalTransform::default(),
             Visibility::Visible,
         ));
+    }
+
+    // Spawn group hierarchies (v2)
+    if let Some(layout) = &layout_loaded {
+        for g in &layout.groups {
+            // Root entity with optional timeline
+            let pivot: Vec2 = g.pivot.clone().into();
+            let mut root_cmd = commands.spawn((
+                Name::new(format!("WallGroup:{}", g.name)),
+                WallGroupRoot { name: g.name.clone(), pivot },
+                // Kinematic body so physics colliders (children) move with animated transform
+                RigidBody::KinematicPositionBased,
+                Transform { translation: Vec3::new(pivot.x, pivot.y, WALL_Z), ..Default::default() },
+                GlobalTransform::default(),
+                Visibility::Visible,
+            ));
+            if let Some(tl) = &g.timeline {
+                root_cmd.insert(WallTimeline::from_def(tl));
+            }
+            let root_entity = root_cmd.id();
+            // Child walls positioned relative to pivot
+            for (wi, w) in g.walls.iter().enumerate() {
+                let seg = &w.segment;
+                let from: Vec2 = seg.from.clone().into();
+                let to: Vec2 = seg.to.clone().into();
+                let delta = to - from;
+                let length = delta.length();
+                if length <= 1e-4 { continue; }
+                let thickness = seg.thickness.max(2.0);
+                let center = (from + to) * 0.5 - pivot; // local offset
+                let angle = delta.y.atan2(delta.x);
+                let mesh = meshes.add(Mesh::from(Rectangle::new(length, thickness)));
+                let material = materials.add(wall_color);
+                commands.entity(root_entity).with_children(|c| {
+                    c.spawn((
+                        Name::new(format!("{}:Seg{}", g.name, wi)),
+                        WallVisual,
+                        Collider::cuboid(length * 0.5, thickness * 0.5),
+                        Mesh2d::from(mesh),
+                        MeshMaterial2d(material),
+                        Transform { translation: Vec3::new(center.x, center.y, 0.0), rotation: Quat::from_rotation_z(angle), scale: Vec3::ONE },
+                        GlobalTransform::default(),
+                        Visibility::Visible,
+                    ));
+                });
+            }
+        }
     }
 
     commands.insert_resource(LevelWalls(filtered));
