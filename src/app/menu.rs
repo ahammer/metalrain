@@ -49,7 +49,7 @@ fn handle_menu_input(
     // Scan digits 1..=9,0 (0 not used unless >9 levels)
     for (i, entry) in reg.list.iter().enumerate() {
         // Support up to 10 via Digit1..Digit0 mapping (0 => index 9)
-        let keycode = match i { 
+        let keycode = match i {
             0 => KeyCode::Digit1,
             1 => KeyCode::Digit2,
             2 => KeyCode::Digit3,
