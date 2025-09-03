@@ -62,7 +62,6 @@ wgpu = { version = "24", default-features = true, features = ["webgpu" ] }
 # Rely on Bevy's internal wgpu (Vulkan / Metal / DX12 backends enforced at runtime in `main.rs`).
 
 [dev-dependencies]
-tempfile = "3"
 
 [profile.dev]
 opt-level = 1
