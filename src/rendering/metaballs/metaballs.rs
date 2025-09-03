@@ -1,4 +1,7 @@
 #![allow(clippy::type_complexity)]
+// Lots of types here are intentionally kept for GPU layout and conditionally used across cfg
+// boundaries. Suppress dead_code to keep layout stable and avoid fallout from cfg-based usage.
+#![allow(dead_code)]
 use bevy::input::keyboard::KeyCode;
 use bevy::input::ButtonInput;
 use bevy::prelude::*;
@@ -139,7 +142,7 @@ pub struct SurfaceNoiseParamsUniform {
     pub _pad2: u32,
 }
 
-#[derive(Asset, AsBindGroup, TypePath, Debug, Clone)]
+#[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
 pub struct MetaballsUnifiedMaterial {
     #[uniform(0)]
     data: MetaballsUniform,
@@ -194,19 +197,7 @@ impl Material2d for MetaballsUnifiedMaterial {
     }
 }
 
-impl Default for MetaballsUnifiedMaterial {
-    fn default() -> Self {
-        Self {
-            data: MetaballsUniform::default(),
-            noise: NoiseParamsUniform::default(),
-            surface_noise: SurfaceNoiseParamsUniform::default(),
-            balls: Default::default(),
-            tile_headers: Default::default(),
-            tile_ball_indices: Default::default(),
-            cluster_palette: Default::default(),
-        }
-    }
-}
+// Default is derived above.
 
 // =====================================================================================
 // CPU Tiling Resources & GPU Tile Header Type
@@ -711,8 +702,7 @@ fn build_metaball_tiles(
     // Build headers & flattened index list
     let mut headers_cpu: Vec<TileHeaderGpu> = Vec::with_capacity(tile_count);
     headers_cpu.resize(tile_count, TileHeaderGpu::default());
-    let mut indices_cpu: Vec<u32> = Vec::new();
-    indices_cpu.reserve(shadow.0.len() * 2); // rough heuristic
+    let mut indices_cpu: Vec<u32> = Vec::with_capacity(shadow.0.len() * 2); // rough heuristic
     let mut running: u32 = 0;
     for (t, bucket) in buckets.iter().enumerate() {
         let count = bucket.len() as u32;
@@ -804,8 +794,8 @@ mod tests {
         let outside = map_signed_distance(4.0, scale);
         assert!(outside < 0.5, "outside expected < 0.5 got {}", outside);
         // Far outside clamps to 0.0
-        let far = map_signed_distance(1e6, scale);
-        assert!(far >= 0.0 && far <= 0.001);
+    let far = map_signed_distance(1e6, scale);
+    assert!((0.0..=0.001).contains(&far));
     }
 
     #[test]

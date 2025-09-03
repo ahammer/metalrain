@@ -28,12 +28,34 @@ pub struct Widget;
 // Gravity widget modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum GravityMode { Attract, Repulse }
-impl GravityMode { pub fn from_str(s: &str) -> Option<Self> { match s { "Attract"=>Some(Self::Attract), "Repulse"=>Some(Self::Repulse), _=>None } } }
+impl std::str::FromStr for GravityMode {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Attract" => Ok(GravityMode::Attract),
+            "Repulse" => Ok(GravityMode::Repulse),
+            _ => Err(()),
+        }
+    }
+}
+// Use std::str::FromStr implementation via `str::parse()` where needed.
 
 // Falloff law
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum Falloff { None, InverseLinear, InverseSquare, SmoothEdge }
-impl Falloff { pub fn from_str(s: &str) -> Option<Self> { match s { "None"=>Some(Self::None), "InverseLinear"=>Some(Self::InverseLinear), "InverseSquare"=>Some(Self::InverseSquare), "SmoothEdge"=>Some(Self::SmoothEdge), _=>None } } }
+impl std::str::FromStr for Falloff {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "None" => Ok(Falloff::None),
+            "InverseLinear" => Ok(Falloff::InverseLinear),
+            "InverseSquare" => Ok(Falloff::InverseSquare),
+            "SmoothEdge" => Ok(Falloff::SmoothEdge),
+            _ => Err(()),
+        }
+    }
+}
+// Use std::str::FromStr implementation via `str::parse()` where needed.
 
 #[derive(Component, Debug, Clone, Reflect)]
 pub struct GravityWidget {
@@ -48,8 +70,8 @@ pub struct GravityWidget {
 }
 impl GravityWidget {
     fn from_config(c: &GravityWidgetConfig) -> Self {
-        let mode = GravityMode::from_str(&c.mode).unwrap_or(GravityMode::Attract);
-        let falloff = Falloff::from_str(&c.falloff).unwrap_or(Falloff::InverseLinear);
+    let mode = c.mode.parse::<GravityMode>().ok().unwrap_or(GravityMode::Attract);
+    let falloff = c.falloff.parse::<Falloff>().ok().unwrap_or(Falloff::InverseLinear);
         let r2 = if c.radius > 0.0 { c.radius * c.radius } else { 0.0 };
         Self { id: c.id, strength: c.strength.max(0.0), mode, radius: c.radius, falloff, enabled: c.enabled, physics_collider: c.physics_collider, radius2: r2 }
     }
@@ -151,9 +173,8 @@ fn toggle_widget_on_tap(
         let pos = tf.translation.truncate();
         let d2 = pos.distance_squared(world_pos);
     let pick_r = GRAVITY_WIDGET_ICON_RADIUS * 1.15; // slight slack for pointer/touch accuracy
-        if d2 <= pick_r * pick_r {
-            if best.map(|(_,bd2)| d2 < bd2).unwrap_or(true) { best = Some((e,d2)); }
-        }
+        if d2 <= pick_r * pick_r
+            && best.map(|(_,bd2)| d2 < bd2).unwrap_or(true) { best = Some((e,d2)); }
     }
     if let Some((entity,_)) = best { if let Ok((_e,_tf, mut gw, mat_handle)) = q_widgets.get_mut(entity) {
     gw.enabled = !gw.enabled; // toggle

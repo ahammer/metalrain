@@ -92,7 +92,7 @@ fn toggle_spawn_widget_on_tap(
         let pos = tf.translation.truncate();
         let d2 = pos.distance_squared(world_pos);
         let pick_r = SPAWN_WIDGET_ICON_RADIUS * 1.2;
-        if d2 <= pick_r * pick_r { if best.map(|(_,bd2)| d2 < bd2).unwrap_or(true) { best = Some((e,d2)); } }
+    if d2 <= pick_r * pick_r && best.map(|(_,bd2)| d2 < bd2).unwrap_or(true) { best = Some((e,d2)); }
     }
     if let Some((entity,_)) = best { if let Ok((_e,_tf, mut sw, mat_handle)) = q_widgets.get_mut(entity) {
         sw.enabled = !sw.enabled;
@@ -207,5 +207,6 @@ mod tests { use super::*; use bevy::ecs::system::RunSystemOnce; #[test] fn basic
  app.add_systems(Update, run_spawn_widgets); app.insert_resource(Time::<()>::default());
  for _ in 0..10 { app.update(); }
  // Count Ball components via a one-off system to avoid borrow issues.
- let ball_count = app.world_mut().run_system_once(|q: Query<&Ball>| q.iter().count()).unwrap();
- assert!(ball_count >= 0); } }
+    let ball_count = app.world_mut().run_system_once(|q: Query<&Ball>| q.iter().count()).unwrap();
+    assert!(ball_count > 0, "expected at least one Ball to be spawned, got {}", ball_count);
+} }

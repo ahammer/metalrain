@@ -20,13 +20,12 @@ impl ClusterPaletteCpu {
 }
 
 // GPU palette storage (capacity doubling strategy)
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct ClusterPaletteStorage {
     pub handle: Option<Handle<bevy::render::storage::ShaderStorageBuffer>>,
     pub capacity: u32,
     pub length: u32,
 }
-impl Default for ClusterPaletteStorage { fn default() -> Self { Self { handle: None, capacity: 0, length: 0 } } }
 
 pub const PALETTE_INITIAL_CAPACITY: u32 = 512;
 pub const PALETTE_MAX_CAPACITY: u32 = 16_384; // safety ceiling
@@ -44,7 +43,7 @@ pub fn ensure_palette_capacity(
         storage.length = new_cap;
     } else { storage.length = needed; }
     // allocate zeroed vec of new_cap entries
-    let mut data: Vec<[f32;4]> = vec![[0.0;4]; new_cap as usize];
+    let data: Vec<[f32;4]> = vec![[0.0;4]; new_cap as usize];
     // Fill first length later by caller
     let ssb = bevy::render::storage::ShaderStorageBuffer::from(data.as_slice());
     if let Some(h) = &storage.handle { if buffers.get(h).is_some() { if let Some(mut_ref) = buffers.get_mut(h) { *mut_ref = ssb; } else { let new_h = buffers.add(ssb); storage.handle = Some(new_h); } } else { let new_h = buffers.add(ssb); storage.handle = Some(new_h); } }

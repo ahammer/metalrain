@@ -131,14 +131,12 @@ pub fn compute_clusters(
         .as_ref()
         .map(|c| c.clustering.distance_buffer_enter_cluster)
         .unwrap_or(1.2)
-        .max(1.0)
-        .min(3.0);
+        .clamp(1.0, 3.0);
     let exit = cfg
         .as_ref()
         .map(|c| c.clustering.distance_buffer_exit_cluster)
         .unwrap_or(1.25)
-        .max(enter)
-        .min(3.0);
+        .clamp(enter, 3.0);
 
 
     // Union-find
@@ -345,7 +343,7 @@ fn debug_draw_clusters(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::*;
+
 
     fn setup_app(enter: f32, exit: f32) -> App {
         let mut app = App::new();
@@ -394,7 +392,7 @@ mod tests {
     fn hysteresis_keeps_pair_until_exit() {
         let mut app = setup_app(1.2, 1.25);
         // Start within enter
-        let e1 = spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
+    let _e1 = spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
         let e2 = spawn_ball(&mut app, Vec2::new(23.0, 0.0), 10.0, 0);
         app.update();
         {

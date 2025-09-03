@@ -1,5 +1,5 @@
 //! Embedded / Disk dual-mode level sourcing.
-//! 
+//!
 //! This module defines the abstraction used by the level loader to obtain
 //! level layout + widget RON contents either from compile-time embedded strings
 //! (via `include_str!`) or from disk (native development workflow).
@@ -64,20 +64,27 @@ mod embedded_impl {
 
     impl EmbeddedLevelSource {
         pub fn new() -> Self {
-            if EMBEDDED_LEVELS.is_empty() {
-                panic!("EmbeddedLevelSource: EMBEDDED_LEVELS empty; at least one level required");
-            }
-            // Detect duplicates
+            // EMBEDDED_LEVELS is a compile-time const slice populated via include_str!.
+            // Rely on the static definition; duplicate detection is useful for logging.
             use std::collections::HashSet;
             let mut seen = HashSet::new();
-            for l in EMBEDDED_LEVELS { if !seen.insert(l.id) { warn!(target="level", "EmbeddedLevelSource: duplicate id '{}' (first wins)", l.id); } }
+            for l in EMBEDDED_LEVELS {
+                if !seen.insert(l.id) {
+                    warn!(target = "level", "EmbeddedLevelSource: duplicate id '{}' (first wins)", l.id);
+                }
+            }
             let default = EMBEDDED_LEVELS[0].id; // first entry defines default id
             let ids: Vec<&'static str> = EMBEDDED_LEVELS.iter().map(|l| l.id).collect();
             // Leak small Vec to produce 'static slice; acceptable (tiny & stable at program init)
             let leaked: &'static [&'static str] = Box::leak(ids.into_boxed_slice());
             Self { ids: leaked, default }
         }
+
         fn find(&self, id: &str) -> Option<&'static EmbeddedLevel> { EMBEDDED_LEVELS.iter().find(|l| l.id == id) }
+    }
+
+    impl Default for EmbeddedLevelSource {
+        fn default() -> Self { EmbeddedLevelSource::new() }
     }
 
     impl super::LevelSource for EmbeddedLevelSource {
@@ -91,8 +98,6 @@ mod embedded_impl {
     pub fn make_source() -> (LevelSourceMode, EmbeddedLevelSource) {
         (LevelSourceMode::Embedded, EmbeddedLevelSource::new())
     }
-
-    pub use EMBEDDED_LEVELS as ALL_EMBEDDED_LEVELS;
     pub use EmbeddedLevelSource as ActiveEmbeddedLevelSource;
 }
 
@@ -111,13 +116,13 @@ mod disk_impl {
         base: PathBuf,
         ids: Vec<&'static str>,
         default: &'static str,
-        live: bool,
+        _live: bool,
     }
 
     impl DiskLevelSource {
-        pub fn new(live: bool) -> Self {
+    pub fn new(live: bool) -> Self {
             // Hard-code recognized ids (no registry file)
-            let mut ids: Vec<&'static str> = vec!["test_layout"]; // Extend here for new disk-only levels
+            let ids: Vec<&'static str> = vec!["test_layout"]; // Extend here for new disk-only levels
             // Duplicate detection not necessary for literals but retain pattern for future extension.
             use std::collections::HashSet;
             let mut seen = HashSet::new();
@@ -125,7 +130,7 @@ mod disk_impl {
             let default = ids[0];
             let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
             let base = PathBuf::from(crate_root).join("assets").join("levels");
-            Self { base, ids, default, live }
+            Self { base, ids, default, _live: live }
         }
         fn path_pair(&self, id: &str) -> (PathBuf, PathBuf) {
             let layout = self.base.join(id).join("layout.ron");
@@ -138,7 +143,7 @@ mod disk_impl {
         fn list_ids(&self) -> &[&'static str] { &self.ids }
         fn default_id(&self) -> &str { self.default }
         fn get_level_owned(&self, id: &str) -> Result<(String, String), String> {
-            let chosen = if self.ids.iter().any(|x| *x == id) { id } else {
+            let chosen = if self.ids.contains(&id) { id } else {
                 warn!(target="level", "DiskLevelSource: requested id '{}' unknown; falling back to default '{}'", id, self.default);
                 self.default
             };
@@ -166,15 +171,15 @@ pub use disk_impl::{make_source as make_disk_source, ActiveDiskLevelSource};
 
 /// Select a level source based on compile-time cfg and feature flags. Feature conflict handling
 /// (embedded + live) is performed in the loader before calling this to decide whether `live` flag is passed.
-pub fn select_level_source(live_requested: bool) -> (LevelSourceMode, Box<dyn LevelSource>) {
+pub fn select_level_source(_live_requested: bool) -> (LevelSourceMode, Box<dyn LevelSource>) {
     #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
     {
-        let (mode, src) = embedded_impl::make_source();
-        return (mode, Box::new(src));
+    let (mode, src) = embedded_impl::make_source();
+    (mode, Box::new(src))
     }
     #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
     {
-        let (mode, src) = disk_impl::make_source(live_requested);
-        return (mode, Box::new(src));
+        let (mode, src) = disk_impl::make_source(_live_requested);
+        (mode, Box::new(src))
     }
 }
