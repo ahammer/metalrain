@@ -36,6 +36,13 @@ pub struct LevelLoaderPlugin;
 impl Plugin for LevelLoaderPlugin {
     fn build(&self, app: &mut App) {
         // Solid wall visuals are spawned directly during load; gizmo lines no longer required.
+        // Tests often run with only MinimalPlugins; ensure required asset storages exist.
+        if app.world().get_resource::<Assets<Mesh>>().is_none() {
+            app.init_resource::<Assets<Mesh>>();
+        }
+        if app.world().get_resource::<Assets<ColorMaterial>>().is_none() {
+            app.init_resource::<Assets<ColorMaterial>>();
+        }
         app.add_systems(Startup, load_level_data);
     }
 }
@@ -62,25 +69,35 @@ pub fn load_level_data(
     // Mode log (single authoritative line prior to any level file parsing except universal walls).
     info!(target="level", "LevelLoader: mode={:?} requested='{:?}' selected level id='{}'", mode, requested, chosen_id);
 
-    // Build base path for universal walls (always disk) and potential disk level loads
-    use std::path::PathBuf;
-    let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
-    let base_levels: PathBuf = PathBuf::from(&crate_root).join("assets").join("levels");
-    let universal_walls_path = base_levels.join("basic_walls.ron");
-
-    // Load universal walls
+    // Universal walls: embed on wasm / embedded feature to ensure zero runtime FS I/O; disk-load otherwise.
     let mut all_walls: Vec<WallSegment> = Vec::new();
-    match LayoutFile::load_from_file(&universal_walls_path) {
-        Ok(lf) => {
-            let segs = lf.to_wall_segments();
-            debug!(target="level", "LevelLoader: universal walls loaded count={}", segs.len());
-            info!(target="level", "LevelLoader: loaded {} universal wall segments", segs.len());
-            all_walls.extend(segs);
-        }
-        Err(e) => {
-            debug!(target="level", "LevelLoader: universal walls load FAILED: {e}");
-            error!("LevelLoader: FAILED to load universal walls file {}: {e}", universal_walls_path.display());
-            return;
+    #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
+    {
+        const UNIVERSAL_WALLS_RON: &str = include_str!("../../../assets/levels/basic_walls.ron");
+        let lf: LayoutFile = ron::from_str(UNIVERSAL_WALLS_RON).expect("parse embedded universal walls failed");
+        let segs = lf.to_wall_segments();
+        debug!(target="level", "LevelLoader: universal walls (embedded) loaded count={}", segs.len());
+        info!(target="level", "LevelLoader: loaded {} universal wall segments", segs.len());
+        all_walls.extend(segs);
+    }
+    #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
+    {
+        use std::path::PathBuf;
+        let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
+        let base_levels: PathBuf = PathBuf::from(&crate_root).join("assets").join("levels");
+        let universal_walls_path = base_levels.join("basic_walls.ron");
+        match LayoutFile::load_from_file(&universal_walls_path) {
+            Ok(lf) => {
+                let segs = lf.to_wall_segments();
+                debug!(target="level", "LevelLoader: universal walls loaded count={}", segs.len());
+                info!(target="level", "LevelLoader: loaded {} universal wall segments", segs.len());
+                all_walls.extend(segs);
+            }
+            Err(e) => {
+                debug!(target="level", "LevelLoader: universal walls load FAILED: {e}");
+                error!("LevelLoader: FAILED to load universal walls file {}: {e}", universal_walls_path.display());
+                return;
+            }
         }
     }
 

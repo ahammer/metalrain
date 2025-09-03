@@ -43,3 +43,16 @@ fn level_loader_env_fallback_to_default() {
     let sel = app.world().get_resource::<LevelSelection>().unwrap();
     assert_eq!(sel.id, "test_layout", "Expected fallback to registry default level id");
 }
+
+#[cfg(all(not(feature = "embedded_levels"), not(target_arch = "wasm32")))]
+#[test]
+fn disk_mode_unknown_id_fallback() {
+    std::env::set_var("LEVEL_ID", "__definitely_unknown__");
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(GameConfig::default());
+    app.add_plugins(LevelLoaderPlugin);
+    app.update();
+    let sel = app.world().get_resource::<LevelSelection>().unwrap();
+    assert_eq!(sel.id, "test_layout", "Disk mode should fallback to default test_layout");
+}
