@@ -1,7 +1,6 @@
 // WASM-only early guard to fail fast if WebGPU is unavailable.
 // We intentionally DO NOT offer a WebGL (webgl) fallback: build requires navigator.gpu.
 #[cfg(target_arch = "wasm32")]
-#[allow(dead_code)]
 pub fn assert_webgpu_available() {
     let win = web_sys::window().expect("no window");
     let nav = win.navigator();
@@ -17,8 +16,3 @@ pub fn assert_webgpu_available() {
         );
     }
 }
-
-// No-op on native.
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-pub fn assert_webgpu_available() {}
