@@ -25,7 +25,11 @@ pub struct EmbeddedLevel {
 
 /// Runtime selected mode (for log output & conditional logic higher layers may add later).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LevelSourceMode { Embedded, Disk, DiskLive }
+pub enum LevelSourceMode {
+    Embedded,
+    Disk,
+    DiskLive,
+}
 
 /// Abstract level source.
 ///
@@ -50,12 +54,16 @@ mod embedded_impl {
 
     // NOTE: path traversal uses relative path from this source file's directory.
     // ../../../ assets/levels/<id>/
-    pub const TEST_LAYOUT_LAYOUT: &str = include_str!("../../../assets/levels/test_layout/layout.ron");
-    pub const TEST_LAYOUT_WIDGETS: &str = include_str!("../../../assets/levels/test_layout/widgets.ron");
+    pub const TEST_LAYOUT_LAYOUT: &str =
+        include_str!("../../../assets/levels/test_layout/layout.ron");
+    pub const TEST_LAYOUT_WIDGETS: &str =
+        include_str!("../../../assets/levels/test_layout/widgets.ron");
 
-    pub const EMBEDDED_LEVELS: &[EmbeddedLevel] = &[
-        EmbeddedLevel { id: "test_layout", layout_ron: TEST_LAYOUT_LAYOUT, widgets_ron: TEST_LAYOUT_WIDGETS },
-    ];
+    pub const EMBEDDED_LEVELS: &[EmbeddedLevel] = &[EmbeddedLevel {
+        id: "test_layout",
+        layout_ron: TEST_LAYOUT_LAYOUT,
+        widgets_ron: TEST_LAYOUT_WIDGETS,
+    }];
 
     pub struct EmbeddedLevelSource {
         ids: &'static [&'static str],
@@ -70,28 +78,46 @@ mod embedded_impl {
             let mut seen = HashSet::new();
             for l in EMBEDDED_LEVELS {
                 if !seen.insert(l.id) {
-                    warn!(target = "level", "EmbeddedLevelSource: duplicate id '{}' (first wins)", l.id);
+                    warn!(
+                        target = "level",
+                        "EmbeddedLevelSource: duplicate id '{}' (first wins)", l.id
+                    );
                 }
             }
             let default = EMBEDDED_LEVELS[0].id; // first entry defines default id
             let ids: Vec<&'static str> = EMBEDDED_LEVELS.iter().map(|l| l.id).collect();
             // Leak small Vec to produce 'static slice; acceptable (tiny & stable at program init)
             let leaked: &'static [&'static str] = Box::leak(ids.into_boxed_slice());
-            Self { ids: leaked, default }
+            Self {
+                ids: leaked,
+                default,
+            }
         }
 
-        fn find(&self, id: &str) -> Option<&'static EmbeddedLevel> { EMBEDDED_LEVELS.iter().find(|l| l.id == id) }
+        fn find(&self, id: &str) -> Option<&'static EmbeddedLevel> {
+            EMBEDDED_LEVELS.iter().find(|l| l.id == id)
+        }
     }
 
     impl Default for EmbeddedLevelSource {
-        fn default() -> Self { EmbeddedLevelSource::new() }
+        fn default() -> Self {
+            EmbeddedLevelSource::new()
+        }
     }
 
     impl super::LevelSource for EmbeddedLevelSource {
-        fn list_ids(&self) -> &[&'static str] { self.ids }
-        fn default_id(&self) -> &str { self.default }
+        fn list_ids(&self) -> &[&'static str] {
+            self.ids
+        }
+        fn default_id(&self) -> &str {
+            self.default
+        }
         fn get_level(&self, id: &str) -> Result<(&'static str, &'static str), String> {
-            if let Some(l) = self.find(id) { Ok((l.layout_ron, l.widgets_ron)) } else { Err(format!("embedded level '{}' not found", id)) }
+            if let Some(l) = self.find(id) {
+                Ok((l.layout_ron, l.widgets_ron))
+            } else {
+                Err(format!("embedded level '{}' not found", id))
+            }
         }
     }
 
@@ -120,17 +146,29 @@ mod disk_impl {
     }
 
     impl DiskLevelSource {
-    pub fn new(live: bool) -> Self {
+        pub fn new(live: bool) -> Self {
             // Hard-code recognized ids (no registry file)
             let ids: Vec<&'static str> = vec!["test_layout"]; // Extend here for new disk-only levels
-            // Duplicate detection not necessary for literals but retain pattern for future extension.
+                                                              // Duplicate detection not necessary for literals but retain pattern for future extension.
             use std::collections::HashSet;
             let mut seen = HashSet::new();
-            for id in &ids { if !seen.insert(*id) { warn!(target="level", "DiskLevelSource: duplicate id '{}' (first wins)", id); } }
+            for id in &ids {
+                if !seen.insert(*id) {
+                    warn!(
+                        target = "level",
+                        "DiskLevelSource: duplicate id '{}' (first wins)", id
+                    );
+                }
+            }
             let default = ids[0];
             let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
             let base = PathBuf::from(crate_root).join("assets").join("levels");
-            Self { base, ids, default, _live: live }
+            Self {
+                base,
+                ids,
+                default,
+                _live: live,
+            }
         }
         fn path_pair(&self, id: &str) -> (PathBuf, PathBuf) {
             let layout = self.base.join(id).join("layout.ron");
@@ -140,22 +178,39 @@ mod disk_impl {
     }
 
     impl super::LevelSource for DiskLevelSource {
-        fn list_ids(&self) -> &[&'static str] { &self.ids }
-        fn default_id(&self) -> &str { self.default }
+        fn list_ids(&self) -> &[&'static str] {
+            &self.ids
+        }
+        fn default_id(&self) -> &str {
+            self.default
+        }
         fn get_level_owned(&self, id: &str) -> Result<(String, String), String> {
-            let chosen = if self.ids.contains(&id) { id } else {
-                warn!(target="level", "DiskLevelSource: requested id '{}' unknown; falling back to default '{}'", id, self.default);
+            let chosen = if self.ids.contains(&id) {
+                id
+            } else {
+                warn!(
+                    target = "level",
+                    "DiskLevelSource: requested id '{}' unknown; falling back to default '{}'",
+                    id,
+                    self.default
+                );
                 self.default
             };
             let (layout_path, widgets_path) = self.path_pair(chosen);
-            let layout_txt = fs::read_to_string(&layout_path).map_err(|e| format!("read layout {:?}: {e}", layout_path))?;
-            let widgets_txt = fs::read_to_string(&widgets_path).map_err(|e| format!("read widgets {:?}: {e}", widgets_path))?;
+            let layout_txt = fs::read_to_string(&layout_path)
+                .map_err(|e| format!("read layout {:?}: {e}", layout_path))?;
+            let widgets_txt = fs::read_to_string(&widgets_path)
+                .map_err(|e| format!("read widgets {:?}: {e}", widgets_path))?;
             Ok((layout_txt, widgets_txt))
         }
     }
 
     pub fn make_source(live: bool) -> (LevelSourceMode, DiskLevelSource) {
-        let mode = if live { LevelSourceMode::DiskLive } else { LevelSourceMode::Disk };
+        let mode = if live {
+            LevelSourceMode::DiskLive
+        } else {
+            LevelSourceMode::Disk
+        };
         (mode, DiskLevelSource::new(live))
     }
 
@@ -174,8 +229,8 @@ pub use disk_impl::{make_source as make_disk_source, ActiveDiskLevelSource};
 pub fn select_level_source(_live_requested: bool) -> (LevelSourceMode, Box<dyn LevelSource>) {
     #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
     {
-    let (mode, src) = embedded_impl::make_source();
-    (mode, Box::new(src))
+        let (mode, src) = embedded_impl::make_source();
+        (mode, Box::new(src))
     }
     #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
     {

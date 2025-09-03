@@ -42,11 +42,12 @@ impl Default for GravityConfig {
 pub struct GravityWidgetConfig {
     pub id: u32,
     pub strength: f32,
-    pub mode: String,      // parsed into enum after load ("Attract"|"Repulse")
-    pub radius: f32,       // influence radius; <= 0 => infinite
-    pub falloff: String,   // ("None"|"InverseLinear"|"InverseSquare"|"SmoothEdge")
+    pub mode: String,    // parsed into enum after load ("Attract"|"Repulse")
+    pub radius: f32,     // influence radius; <= 0 => infinite
+    pub falloff: String, // ("None"|"InverseLinear"|"InverseSquare"|"SmoothEdge")
     pub enabled: bool,
-    #[serde(rename = "physics_collider")] // keep snake_case key; allow camelCase via ron default tolerant
+    #[serde(rename = "physics_collider")]
+    // keep snake_case key; allow camelCase via ron default tolerant
     pub physics_collider: bool,
     #[serde(skip)]
     pub _parsed_ok: bool, // internal flag (not serialized) set true if mode/falloff parsed
@@ -89,7 +90,19 @@ pub struct SpawnWidgetConfig {
     pub speed_max: f32,
 }
 impl Default for SpawnWidgetConfig {
-    fn default() -> Self { Self { id: 0, enabled: true, spawn_interval: 0.25, batch: 2, area_radius: 48.0, ball_radius_min: 10.0, ball_radius_max: 20.0, speed_min: 50.0, speed_max: 200.0 } }
+    fn default() -> Self {
+        Self {
+            id: 0,
+            enabled: true,
+            spawn_interval: 0.25,
+            batch: 2,
+            area_radius: 48.0,
+            ball_radius_min: 10.0,
+            ball_radius_max: 20.0,
+            speed_min: 50.0,
+            speed_max: 200.0,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -99,7 +112,12 @@ pub struct SpawnWidgetsConfig {
     pub global_max_balls: usize,
 }
 impl Default for SpawnWidgetsConfig {
-    fn default() -> Self { Self { widgets: Vec::new(), global_max_balls: 600 } }
+    fn default() -> Self {
+        Self {
+            widgets: Vec::new(),
+            global_max_balls: 600,
+        }
+    }
 }
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(default)]
@@ -208,7 +226,7 @@ pub struct GameConfig {
     pub window: WindowConfig,
     pub gravity: GravityConfig,
     pub gravity_widgets: GravityWidgetsConfig, // NEW: widget-based gravity system
-    pub spawn_widgets: SpawnWidgetsConfig, // NEW: spawning widgets system
+    pub spawn_widgets: SpawnWidgetsConfig,     // NEW: spawning widgets system
     pub bounce: BounceConfig,
     // Legacy spawn config removed. New spawn system will manage entities dynamically.
     pub rapier_debug: bool,
@@ -267,7 +285,6 @@ pub struct MetaballsShaderConfig {
     pub bg_mode: usize,
 }
 
-
 // NEW: Noise configuration mapped to shader NoiseParams UBO
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
@@ -305,14 +322,14 @@ impl Default for NoiseConfig {
 #[serde(default)]
 pub struct SurfaceNoiseConfig {
     pub enabled: bool,
-    pub mode: u32,        // 0 = field add, 1 = iso shift
-    pub amp: f32,         // amplitude in field/iso units
+    pub mode: u32, // 0 = field add, 1 = iso shift
+    pub amp: f32,  // amplitude in field/iso units
     pub base_scale: f32,
     pub warp_amp: f32,
     pub warp_freq: f32,
     pub speed_x: f32,
     pub speed_y: f32,
-    pub octaves: u32,     // 0..6 (0 disables fast path)
+    pub octaves: u32, // 0..6 (0 disables fast path)
     pub gain: f32,
     pub lacunarity: f32,
     pub contrast_pow: f32,
@@ -411,7 +428,9 @@ impl GameConfig {
                                     if let Value::Map(im) = v {
                                         for (ik, _iv) in im.iter() {
                                             if let Value::String(is) = ik {
-                                                if is == "explosion" && !found.contains(&"explosion") {
+                                                if is == "explosion"
+                                                    && !found.contains(&"explosion")
+                                                {
                                                     found.push("explosion");
                                                 } else if is == "drag" && !found.contains(&"drag") {
                                                     found.push("drag");
@@ -500,15 +519,34 @@ impl GameConfig {
                     w.push(format!("Duplicate gravity widget id {}", gw.id));
                 }
                 if gw.strength <= 0.0 {
-                    w.push(format!("gravity_widgets id {} strength {} <= 0 -> no effect", gw.id, gw.strength));
+                    w.push(format!(
+                        "gravity_widgets id {} strength {} <= 0 -> no effect",
+                        gw.id, gw.strength
+                    ));
                 }
                 if gw.radius < 0.0 {
-                    w.push(format!("gravity_widgets id {} radius {} < 0 -> treated as infinite", gw.id, gw.radius));
+                    w.push(format!(
+                        "gravity_widgets id {} radius {} < 0 -> treated as infinite",
+                        gw.id, gw.radius
+                    ));
                 }
-                let mode_ok = matches!(gw.mode.as_str(), "Attract"|"Repulse");
-                if !mode_ok { w.push(format!("gravity_widgets id {} unknown mode '{}'", gw.id, gw.mode)); }
-                let fall_ok = matches!(gw.falloff.as_str(), "None"|"InverseLinear"|"InverseSquare"|"SmoothEdge");
-                if !fall_ok { w.push(format!("gravity_widgets id {} unknown falloff '{}'", gw.id, gw.falloff)); }
+                let mode_ok = matches!(gw.mode.as_str(), "Attract" | "Repulse");
+                if !mode_ok {
+                    w.push(format!(
+                        "gravity_widgets id {} unknown mode '{}'",
+                        gw.id, gw.mode
+                    ));
+                }
+                let fall_ok = matches!(
+                    gw.falloff.as_str(),
+                    "None" | "InverseLinear" | "InverseSquare" | "SmoothEdge"
+                );
+                if !fall_ok {
+                    w.push(format!(
+                        "gravity_widgets id {} unknown falloff '{}'",
+                        gw.id, gw.falloff
+                    ));
+                }
             }
         }
         if !(0.0..=1.5).contains(&self.bounce.restitution) {
@@ -554,15 +592,31 @@ impl GameConfig {
             ));
         }
         // Spawn widgets validation
-        if self.spawn_widgets.global_max_balls == 0 { w.push("spawn_widgets.global_max_balls == 0 -> no spawning".into()); }
+        if self.spawn_widgets.global_max_balls == 0 {
+            w.push("spawn_widgets.global_max_balls == 0 -> no spawning".into());
+        }
         for sw in &self.spawn_widgets.widgets {
-            if sw.spawn_interval <= 0.0 { w.push(format!("spawn_widget id {} spawn_interval <= 0", sw.id)); }
-            if sw.batch == 0 { w.push(format!("spawn_widget id {} batch == 0 (no spawn)", sw.id)); }
-            if sw.ball_radius_min <= 0.0 || sw.ball_radius_max <= 0.0 { w.push(format!("spawn_widget id {} ball radius <= 0", sw.id)); }
-            if sw.ball_radius_min > sw.ball_radius_max { w.push(format!("spawn_widget id {} radius_min > radius_max", sw.id)); }
-            if sw.area_radius <= 0.0 { w.push(format!("spawn_widget id {} area_radius <= 0", sw.id)); }
-            if sw.speed_min < 0.0 || sw.speed_max < 0.0 { w.push(format!("spawn_widget id {} speed negative", sw.id)); }
-            if sw.speed_min > sw.speed_max { w.push(format!("spawn_widget id {} speed_min > speed_max", sw.id)); }
+            if sw.spawn_interval <= 0.0 {
+                w.push(format!("spawn_widget id {} spawn_interval <= 0", sw.id));
+            }
+            if sw.batch == 0 {
+                w.push(format!("spawn_widget id {} batch == 0 (no spawn)", sw.id));
+            }
+            if sw.ball_radius_min <= 0.0 || sw.ball_radius_max <= 0.0 {
+                w.push(format!("spawn_widget id {} ball radius <= 0", sw.id));
+            }
+            if sw.ball_radius_min > sw.ball_radius_max {
+                w.push(format!("spawn_widget id {} radius_min > radius_max", sw.id));
+            }
+            if sw.area_radius <= 0.0 {
+                w.push(format!("spawn_widget id {} area_radius <= 0", sw.id));
+            }
+            if sw.speed_min < 0.0 || sw.speed_max < 0.0 {
+                w.push(format!("spawn_widget id {} speed negative", sw.id));
+            }
+            if sw.speed_min > sw.speed_max {
+                w.push(format!("spawn_widget id {} speed_min > speed_max", sw.id));
+            }
         }
         if self.interactions.cluster_pop.enabled {
             let cp = &self.interactions.cluster_pop;
@@ -633,15 +687,33 @@ impl GameConfig {
             }
             // Detect legacy fields present (ignored)
             let mut legacy = Vec::new();
-            if cp.impulse.is_some() { legacy.push("impulse"); }
-            if cp.outward_bonus.is_some() { legacy.push("outward_bonus"); }
-            if cp.despawn_delay.is_some() { legacy.push("despawn_delay"); }
-            if cp.fade_duration.is_some() { legacy.push("fade_duration"); }
-            if cp.fade_scale_end.is_some() { legacy.push("fade_scale_end"); }
-            if cp.collider_shrink.is_some() { legacy.push("collider_shrink"); }
-            if cp.collider_min_scale.is_some() { legacy.push("collider_min_scale"); }
-            if cp.velocity_damping.is_some() { legacy.push("velocity_damping"); }
-            if cp.spin_jitter.is_some() { legacy.push("spin_jitter"); }
+            if cp.impulse.is_some() {
+                legacy.push("impulse");
+            }
+            if cp.outward_bonus.is_some() {
+                legacy.push("outward_bonus");
+            }
+            if cp.despawn_delay.is_some() {
+                legacy.push("despawn_delay");
+            }
+            if cp.fade_duration.is_some() {
+                legacy.push("fade_duration");
+            }
+            if cp.fade_scale_end.is_some() {
+                legacy.push("fade_scale_end");
+            }
+            if cp.collider_shrink.is_some() {
+                legacy.push("collider_shrink");
+            }
+            if cp.collider_min_scale.is_some() {
+                legacy.push("collider_min_scale");
+            }
+            if cp.velocity_damping.is_some() {
+                legacy.push("velocity_damping");
+            }
+            if cp.spin_jitter.is_some() {
+                legacy.push("spin_jitter");
+            }
             if !legacy.is_empty() {
                 w.push(format!(
                     "Ignoring legacy cluster_pop fields: {}",
@@ -686,7 +758,9 @@ impl GameConfig {
             ));
         }
         if self.surface_noise.octaves == 0 && self.surface_noise.enabled {
-            w.push("surface_noise.octaves == 0 while enabled -> no effect (disable instead)".into());
+            w.push(
+                "surface_noise.octaves == 0 while enabled -> no effect (disable instead)".into(),
+            );
         }
         // Clustering validation warnings (non-mutating)
         let db_enter = self.clustering.distance_buffer_enter_cluster;

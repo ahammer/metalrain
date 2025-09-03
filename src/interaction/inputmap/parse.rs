@@ -15,7 +15,6 @@ struct ActionDecl {
     kind: Option<String>,
 }
 
-
 #[derive(Debug, serde::Deserialize)]
 struct GestureToml {
     tap_max_time: Option<f32>,

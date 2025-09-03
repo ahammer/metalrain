@@ -6,7 +6,7 @@ use bevy_rapier2d::prelude::{Collider, Velocity};
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
 use crate::core::system::system_order::PrePhysicsSet;
-use crate::physics::clustering::cluster::{Clusters, BallClusterIndex};
+use crate::physics::clustering::cluster::{BallClusterIndex, Clusters};
 
 /// Event emitted when a qualifying cluster transitions into the paddle lifecycle
 #[derive(Event, Debug, Clone)]
@@ -62,11 +62,7 @@ pub struct ClusterPopPlugin;
 impl Plugin for ClusterPopPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ClusterPopped>()
-            .add_systems(
-                Update,
-                handle_tap_cluster_pop
-                    .in_set(PrePhysicsSet),
-            )
+            .add_systems(Update, handle_tap_cluster_pop.in_set(PrePhysicsSet))
             // Run after tap selection, still inside PrePhysicsSet so collider size & velocity freeze
             // are applied before the physics step.
             .add_systems(
@@ -109,30 +105,58 @@ pub fn pick_ball_cluster<'a, I>(
     iter: I,
     cp: &crate::core::config::ClusterPopConfig,
 ) -> Option<(Entity, usize, f32, f32)>
-where I: IntoIterator<Item = (Entity, &'a Transform, &'a BallRadius, Option<&'a PaddleLifecycle>)>
+where
+    I: IntoIterator<
+        Item = (
+            Entity,
+            &'a Transform,
+            &'a BallRadius,
+            Option<&'a PaddleLifecycle>,
+        ),
+    >,
 {
     let mut best_ball: Option<(Entity, usize, f32, f32, f32)> = None; // (entity, cluster_idx, d2, radius, cluster_centroid_d2)
     for (entity, tf, radius, lifecycle) in iter.into_iter() {
-        if lifecycle.is_some() { continue; }
-        let cluster_idx = match cluster_index.0.get(&entity) { Some(i) => *i, None => continue };
+        if lifecycle.is_some() {
+            continue;
+        }
+        let cluster_idx = match cluster_index.0.get(&entity) {
+            Some(i) => *i,
+            None => continue,
+        };
         let pos = tf.translation.truncate();
         let delta = world_pos - pos;
-        if !delta.x.is_finite() || !delta.y.is_finite() { continue; }
+        if !delta.x.is_finite() || !delta.y.is_finite() {
+            continue;
+        }
         let d2 = delta.length_squared();
-        if d2.is_nan() { continue; }
+        if d2.is_nan() {
+            continue;
+        }
         let base_pick = cp.ball_pick_radius.max(0.0);
-        let eff_r = if cp.ball_pick_radius_scale_with_ball { base_pick.max(radius.0) } else { base_pick };
-        if d2 > eff_r * eff_r { continue; }
-        let cluster = match clusters.0.get(cluster_idx) { Some(c) => c, None => continue };
+        let eff_r = if cp.ball_pick_radius_scale_with_ball {
+            base_pick.max(radius.0)
+        } else {
+            base_pick
+        };
+        if d2 > eff_r * eff_r {
+            continue;
+        }
+        let cluster = match clusters.0.get(cluster_idx) {
+            Some(c) => c,
+            None => continue,
+        };
         let centroid_d2 = cluster.centroid.distance_squared(world_pos);
         let radius_val = radius.0;
         let replace = match best_ball {
             None => true,
             Some((best_entity, bci, bd2, br, bcent_d2)) => {
-                if d2 + DIST_EPS < bd2 { true }
-                else if (d2 - bd2).abs() <= DIST_EPS {
-                    if cp.prefer_larger_radius_on_tie && (radius_val > br + 1e-6) { true }
-                    else if (radius_val - br).abs() <= 1e-6 {
+                if d2 + DIST_EPS < bd2 {
+                    true
+                } else if (d2 - bd2).abs() <= DIST_EPS {
+                    if cp.prefer_larger_radius_on_tie && (radius_val > br + 1e-6) {
+                        true
+                    } else if (radius_val - br).abs() <= 1e-6 {
                         let bcl = &clusters.0[bci];
                         {
                             use std::cmp::Ordering;
@@ -150,11 +174,17 @@ where I: IntoIterator<Item = (Entity, &'a Transform, &'a BallRadius, Option<&'a 
                                 }
                             }
                         }
-                    } else { false }
-                } else { false }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             }
         };
-        if replace { best_ball = Some((entity, cluster_idx, d2, radius_val, centroid_d2)); }
+        if replace {
+            best_ball = Some((entity, cluster_idx, d2, radius_val, centroid_d2));
+        }
     }
     best_ball.map(|(e, ci, d2, r, _)| (e, ci, r, d2))
 }
@@ -166,7 +196,16 @@ fn handle_tap_cluster_pop(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     clusters: Res<Clusters>,
     cluster_index: Res<BallClusterIndex>,
-    mut q: Query<(Entity, &Transform, &BallRadius, &mut Velocity, Option<&PaddleLifecycle>), With<Ball>>,
+    mut q: Query<
+        (
+            Entity,
+            &Transform,
+            &BallRadius,
+            &mut Velocity,
+            Option<&PaddleLifecycle>,
+        ),
+        With<Ball>,
+    >,
     mut ew: EventWriter<ClusterPopped>,
     mut commands: Commands,
     cfg: Res<GameConfig>,
@@ -188,8 +227,10 @@ fn handle_tap_cluster_pop(
         return;
     };
 
-    let iter = q.iter().map(|(e,t,r,_v,l)| (e,t,r,l));
-    let Some((_ball_entity, cluster_idx, chosen_radius, _d2)) = pick_ball_cluster(world_pos, &clusters, &cluster_index, iter, cp) else {
+    let iter = q.iter().map(|(e, t, r, _v, l)| (e, t, r, l));
+    let Some((_ball_entity, cluster_idx, chosen_radius, _d2)) =
+        pick_ball_cluster(world_pos, &clusters, &cluster_index, iter, cp)
+    else {
         #[cfg(feature = "debug")]
         {
             info!("cluster_pop: no ball hit");
@@ -263,9 +304,9 @@ enum LifecyclePhase {
 fn apply_curve(mode: u32, x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
     match mode {
-        0 => x,                                 // linear
-        1 => x * x * (3.0 - 2.0 * x),           // smoothstep
-        2 => 1.0 - (1.0 - x).powi(3),           // ease-out cubic
+        0 => x,                       // linear
+        1 => x * x * (3.0 - 2.0 * x), // smoothstep
+        2 => 1.0 - (1.0 - x).powi(3), // ease-out cubic
         _ => x,
     }
 }
@@ -296,7 +337,10 @@ fn update_paddle_lifecycle(
 
         // Determine phase & local_t
         let (phase, local_t) = if plc.elapsed < plc.grow_duration {
-            (LifecyclePhase::Grow, plc.elapsed / plc.grow_duration.max(f32::EPSILON))
+            (
+                LifecyclePhase::Grow,
+                plc.elapsed / plc.grow_duration.max(f32::EPSILON),
+            )
         } else if plc.elapsed < plc.grow_duration + plc.hold_duration {
             (LifecyclePhase::Hold, 0.0)
         } else {

@@ -4,12 +4,12 @@
 #![allow(dead_code)]
 use bevy::input::keyboard::KeyCode;
 use bevy::input::ButtonInput;
-use bevy::prelude::*;
 use bevy::prelude::Mesh2d;
+use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::render::storage::ShaderStorageBuffer;
-use bytemuck::{Pod, Zeroable};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
+use bytemuck::{Pod, Zeroable};
 
 #[cfg(target_arch = "wasm32")]
 use std::sync::OnceLock;
@@ -80,7 +80,9 @@ pub struct GpuBall {
 }
 impl GpuBall {
     pub fn new(pos: Vec2, radius: f32, cluster_slot: u32) -> Self {
-        Self { data: Vec4::new(pos.x, pos.y, radius, cluster_slot as f32) }
+        Self {
+            data: Vec4::new(pos.x, pos.y, radius, cluster_slot as f32),
+        }
     }
 }
 
@@ -204,14 +206,29 @@ impl Material2d for MetaballsUnifiedMaterial {
 // =====================================================================================
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable, ShaderType)]
-pub struct TileHeaderGpu { pub offset: u32, pub count: u32, pub _pad0: u32, pub _pad1: u32 }
+pub struct TileHeaderGpu {
+    pub offset: u32,
+    pub count: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+}
 
 #[derive(Resource, Debug, Clone)]
-pub struct BallTilingConfig { pub tile_size: u32 }
-impl Default for BallTilingConfig { fn default() -> Self { Self { tile_size: 64 } } }
+pub struct BallTilingConfig {
+    pub tile_size: u32,
+}
+impl Default for BallTilingConfig {
+    fn default() -> Self {
+        Self { tile_size: 64 }
+    }
+}
 
 #[derive(Resource, Debug, Clone, Default)]
-pub struct BallTilesMeta { pub tiles_x: u32, pub tiles_y: u32, pub last_ball_len: usize }
+pub struct BallTilesMeta {
+    pub tiles_x: u32,
+    pub tiles_y: u32,
+    pub last_ball_len: usize,
+}
 
 // Foreground / Background shader modes
 
@@ -223,7 +240,12 @@ pub enum MetaballForegroundMode {
     Metadata,
 }
 impl MetaballForegroundMode {
-    pub const ALL: [Self; 4] = [Self::ClassicBlend, Self::Bevel, Self::OutlineGlow, Self::Metadata];
+    pub const ALL: [Self; 4] = [
+        Self::ClassicBlend,
+        Self::Bevel,
+        Self::OutlineGlow,
+        Self::Metadata,
+    ];
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -332,13 +354,15 @@ impl Plugin for MetaballsPlugin {
                 ),
             )
             // Ensure metaball GPU buffer build happens after clustering / post-physics adjustments
-            .configure_sets(Update, MetaballsUpdateSet.after(crate::core::system::system_order::PostPhysicsAdjustSet))
+            .configure_sets(
+                Update,
+                MetaballsUpdateSet.after(crate::core::system::system_order::PostPhysicsAdjustSet),
+            )
             .add_systems(
                 Update,
                 (
                     update_metaballs_unified_material,
-                    build_metaball_tiles
-                        .after(update_metaballs_unified_material),
+                    build_metaball_tiles.after(update_metaballs_unified_material),
                     cycle_foreground_mode,
                     cycle_background_mode,
                     resize_fullscreen_quad,
@@ -356,7 +380,11 @@ impl Plugin for MetaballsPlugin {
 // =====================================================================================
 #[derive(Resource)]
 pub struct MetaballsGroupDebugTimer(pub Timer);
-impl Default for MetaballsGroupDebugTimer { fn default() -> Self { Self(Timer::from_seconds(1.0, TimerMode::Repeating)) } }
+impl Default for MetaballsGroupDebugTimer {
+    fn default() -> Self {
+        Self(Timer::from_seconds(1.0, TimerMode::Repeating))
+    }
+}
 
 // Startup / Config
 
@@ -418,7 +446,11 @@ fn setup_metaballs(
     // Surface noise
     let sn = &cfg.surface_noise;
     umat.surface_noise.amp = sn.amp.clamp(0.0, 0.5);
-    umat.surface_noise.base_scale = if sn.base_scale > 0.0 { sn.base_scale } else { 0.008 };
+    umat.surface_noise.base_scale = if sn.base_scale > 0.0 {
+        sn.base_scale
+    } else {
+        0.008
+    };
     umat.surface_noise.speed_x = sn.speed_x;
     umat.surface_noise.speed_y = sn.speed_y;
     umat.surface_noise.warp_amp = sn.warp_amp;
@@ -505,8 +537,12 @@ fn update_metaballs_unified_material(
     if !toggle.0 {
         return;
     }
-    let Ok(handle_comp) = q_mat.single() else { return; };
-    let Some(mat) = materials.get_mut(&handle_comp.0) else { return; };
+    let Ok(handle_comp) = q_mat.single() else {
+        return;
+    };
+    let Some(mat) = materials.get_mut(&handle_comp.0) else {
+        return;
+    };
 
     // Static fields
     mat.data.v0.w = params.iso;
@@ -535,7 +571,11 @@ fn update_metaballs_unified_material(
 
         let sn = &cfg.surface_noise;
         mat.surface_noise.amp = sn.amp.clamp(0.0, 0.5);
-        mat.surface_noise.base_scale = if sn.base_scale > 0.0 { sn.base_scale } else { 0.008 };
+        mat.surface_noise.base_scale = if sn.base_scale > 0.0 {
+            sn.base_scale
+        } else {
+            0.008
+        };
         mat.surface_noise.speed_x = sn.speed_x;
         mat.surface_noise.speed_y = sn.speed_y;
         mat.surface_noise.warp_amp = sn.warp_amp;
@@ -553,11 +593,13 @@ fn update_metaballs_unified_material(
     // Build dense group ids for each encountered BallMaterialIndex color.
     use crate::rendering::palette::palette::color_for_index;
     let mut color_to_group: HashMap<usize, u32> = HashMap::new();
-    let mut palette_colors: Vec<[f32;4]> = Vec::new();
+    let mut palette_colors: Vec<[f32; 4]> = Vec::new();
     let mut balls_cpu: Vec<GpuBall> = Vec::with_capacity(q_balls.iter().len().min(MAX_BALLS));
     let mut debug_rows: Vec<String> = Vec::new();
     for (e, tf, r, color_idx) in q_balls.iter() {
-        if balls_cpu.len() >= MAX_BALLS { break; }
+        if balls_cpu.len() >= MAX_BALLS {
+            break;
+        }
         let gid = *color_to_group.entry(color_idx.0).or_insert_with(|| {
             let new_gid = palette_colors.len() as u32;
             let c = color_for_index(color_idx.0).to_srgba();
@@ -566,19 +608,35 @@ fn update_metaballs_unified_material(
         });
         let pos = tf.translation.truncate();
         balls_cpu.push(GpuBall::new(pos, r.0, gid));
-        if debug_rows.len() < 8 { debug_rows.push(format!("e={:?} color={} gid={}", e, color_idx.0, gid)); }
+        if debug_rows.len() < 8 {
+            debug_rows.push(format!("e={:?} color={} gid={}", e, color_idx.0, gid));
+        }
     }
     let group_count = palette_colors.len() as u32;
     mat.data.v0.x = balls_cpu.len() as f32;
     mat.data.v3.w = balls_cpu.len() as f32;
     // Upload palette (group_count entries)
     if group_count > 0 {
-        let cpu_palette = crate::rendering::metaballs::palette::ClusterPaletteCpu { colors: palette_colors.clone(), ids: Vec::new(), color_indices: Vec::new() };
-        ensure_palette_capacity_wrapper(&mut palette_storage, group_count, &mut buffers, &cpu_palette);
-        if let Some(h) = &palette_storage.handle { mat.cluster_palette = h.clone(); }
+        let cpu_palette = crate::rendering::metaballs::palette::ClusterPaletteCpu {
+            colors: palette_colors.clone(),
+            ids: Vec::new(),
+            color_indices: Vec::new(),
+        };
+        ensure_palette_capacity_wrapper(
+            &mut palette_storage,
+            group_count,
+            &mut buffers,
+            &cpu_palette,
+        );
+        if let Some(h) = &palette_storage.handle {
+            mat.cluster_palette = h.clone();
+        }
         mat.data.v5.y = group_count as f32;
         mat.data.v0.y = group_count as f32;
-    } else { mat.data.v5.y = 0.0; mat.data.v0.y = 0.0; }
+    } else {
+        mat.data.v5.y = 0.0;
+        mat.data.v0.y = 0.0;
+    }
 
     // Upload / update storage buffer asset
     if balls_cpu.is_empty() {
@@ -587,14 +645,31 @@ fn update_metaballs_unified_material(
     }
     // Replace buffer each frame (can optimize with diffing later)
     let new_buf = ShaderStorageBuffer::from(balls_cpu.as_slice());
-    if buffers.get(&mat.balls).is_some() { if let Some(b) = buffers.get_mut(&mat.balls) { *b = new_buf; } } else { mat.balls = buffers.add(new_buf); }
+    if buffers.get(&mat.balls).is_some() {
+        if let Some(b) = buffers.get_mut(&mat.balls) {
+            *b = new_buf;
+        }
+    } else {
+        mat.balls = buffers.add(new_buf);
+    }
 
     // Early-exit enable flag & needs-gradient flag (filled here to avoid shader re-derivation)
     let fg_mode = fg.current();
-    let needs_gradient = matches!(fg_mode, MetaballForegroundMode::Bevel | MetaballForegroundMode::Metadata);
-    mat.data.v4.x = if cfg!(feature = "metaballs_early_exit") { 1.0 } else { 0.0 };
+    let needs_gradient = matches!(
+        fg_mode,
+        MetaballForegroundMode::Bevel | MetaballForegroundMode::Metadata
+    );
+    mat.data.v4.x = if cfg!(feature = "metaballs_early_exit") {
+        1.0
+    } else {
+        0.0
+    };
     mat.data.v4.y = if needs_gradient { 1.0 } else { 0.0 };
-    mat.data.v4.z = if cfg!(feature = "metaballs_metadata_v2") { 1.0 } else { 0.0 }; // metadata v2 encoding flag
+    mat.data.v4.z = if cfg!(feature = "metaballs_metadata_v2") {
+        1.0
+    } else {
+        0.0
+    }; // metadata v2 encoding flag
 
     // Update shadow (replace content)
     if let Some(ref mut s) = shadow {
@@ -618,14 +693,20 @@ fn ensure_palette_capacity_wrapper(
     cpu: &crate::rendering::metaballs::palette::ClusterPaletteCpu,
 ) {
     use crate::rendering::metaballs::palette::ensure_palette_capacity;
-    if needed == 0 { return; }
+    if needed == 0 {
+        return;
+    }
     ensure_palette_capacity(storage, needed, buffers);
-    if let Some(handle) = &storage.handle { if let Some(buf) = buffers.get_mut(handle) {
-        // Rebuild vector (capacity may exceed needed); fill first length then zero rest left from allocation.
-        let mut data: Vec<[f32;4]> = vec![[0.0;4]; storage.capacity as usize];
-        for (i, col) in cpu.colors.iter().enumerate().take(storage.length as usize) { data[i] = *col; }
-        *buf = ShaderStorageBuffer::from(data.as_slice());
-    }}
+    if let Some(handle) = &storage.handle {
+        if let Some(buf) = buffers.get_mut(handle) {
+            // Rebuild vector (capacity may exceed needed); fill first length then zero rest left from allocation.
+            let mut data: Vec<[f32; 4]> = vec![[0.0; 4]; storage.capacity as usize];
+            for (i, col) in cpu.colors.iter().enumerate().take(storage.length as usize) {
+                data[i] = *col;
+            }
+            *buf = ShaderStorageBuffer::from(data.as_slice());
+        }
+    }
 }
 
 // =====================================================================================
@@ -640,14 +721,28 @@ fn build_metaball_tiles(
     mut meta: ResMut<BallTilesMeta>,
     shadow: Option<Res<BallCpuShadow>>,
 ) {
-    let Ok(handle_comp) = q_mat.single() else { return; };
-    let Some(mat) = materials.get_mut(&handle_comp.0) else { return; };
-    let Some(shadow) = shadow else { return; };
-    if shadow.0.is_empty() { return; }
+    let Ok(handle_comp) = q_mat.single() else {
+        return;
+    };
+    let Some(mat) = materials.get_mut(&handle_comp.0) else {
+        return;
+    };
+    let Some(shadow) = shadow else {
+        return;
+    };
+    if shadow.0.is_empty() {
+        return;
+    }
 
     // Viewport dims
-    let (vw, vh) = if let Ok(w) = windows.single() { (w.width(), w.height()) } else { (mat.data.v2.x, mat.data.v2.y) };
-    if vw <= 0.0 || vh <= 0.0 { return; }
+    let (vw, vh) = if let Ok(w) = windows.single() {
+        (w.width(), w.height())
+    } else {
+        (mat.data.v2.x, mat.data.v2.y)
+    };
+    if vw <= 0.0 || vh <= 0.0 {
+        return;
+    }
     let tile_size = tiling_cfg.tile_size.max(8) as f32; // guard tiny values
     let tiles_x = ((vw / tile_size).ceil() as u32).max(1);
     let tiles_y = ((vh / tile_size).ceil() as u32).max(1);
@@ -658,20 +753,24 @@ fn build_metaball_tiles(
 
     // Prepare buckets
     let mut buckets: Vec<Vec<u32>> = Vec::with_capacity(tile_count);
-    for _ in 0..tile_count { buckets.push(Vec::new()); }
+    for _ in 0..tile_count {
+        buckets.push(Vec::new());
+    }
 
     let origin_x = -vw * 0.5;
     let origin_y = -vh * 0.5;
     let radius_scale = mat.data.v0.z; // 1/k
-    let radius_mult = mat.data.v2.w;  // params.radius_multiplier
+    let radius_mult = mat.data.v2.w; // params.radius_multiplier
 
     // Assign balls to tiles
     for (i, b) in shadow.0.iter().enumerate() {
-    // removed unused center var
+        // removed unused center var
         let base_r = b.data.z;
         let center3 = b.data.truncate();
         let center = Vec2::new(center3.x, center3.y);
-        if base_r <= 0.0 { continue; }
+        if base_r <= 0.0 {
+            continue;
+        }
         let scaled_r = base_r * radius_scale * radius_mult;
         // Fudge factor to counteract boundary flooring so tiles adjacent to the circle edge don't miss inclusion.
         let pad = 1.5_f32; // in pixels; tiny vs typical radii but prevents hairline cracks
@@ -693,10 +792,12 @@ fn build_metaball_tiles(
         ty0 = ty0.clamp(0, tiles_y as i32 - 1);
         ty1 = ty1.clamp(0, tiles_y as i32 - 1);
 
-        for ty in ty0..=ty1 { for tx in tx0..=tx1 {
-            let idx = (ty as u32 * tiles_x + tx as u32) as usize;
-            buckets[idx].push(i as u32);
-        }}
+        for ty in ty0..=ty1 {
+            for tx in tx0..=tx1 {
+                let idx = (ty as u32 * tiles_x + tx as u32) as usize;
+                buckets[idx].push(i as u32);
+            }
+        }
     }
 
     // Build headers & flattened index list
@@ -706,19 +807,40 @@ fn build_metaball_tiles(
     let mut running: u32 = 0;
     for (t, bucket) in buckets.iter().enumerate() {
         let count = bucket.len() as u32;
-        headers_cpu[t] = TileHeaderGpu { offset: running, count, _pad0:0, _pad1:0 };
+        headers_cpu[t] = TileHeaderGpu {
+            offset: running,
+            count,
+            _pad0: 0,
+            _pad1: 0,
+        };
         indices_cpu.extend_from_slice(bucket);
         running += count;
     }
 
-    if headers_cpu.is_empty() { headers_cpu.push(TileHeaderGpu::default()); }
-    if indices_cpu.is_empty() { indices_cpu.push(0); }
+    if headers_cpu.is_empty() {
+        headers_cpu.push(TileHeaderGpu::default());
+    }
+    if indices_cpu.is_empty() {
+        indices_cpu.push(0);
+    }
 
     // Upload headers & indices buffers
     let headers_buf = ShaderStorageBuffer::from(headers_cpu.as_slice());
     let indices_buf = ShaderStorageBuffer::from(indices_cpu.as_slice());
-    if buffers.get(&mat.tile_headers).is_some() { if let Some(h) = buffers.get_mut(&mat.tile_headers) { *h = headers_buf; } } else { mat.tile_headers = buffers.add(headers_buf); }
-    if buffers.get(&mat.tile_ball_indices).is_some() { if let Some(h) = buffers.get_mut(&mat.tile_ball_indices) { *h = indices_buf; } } else { mat.tile_ball_indices = buffers.add(indices_buf); }
+    if buffers.get(&mat.tile_headers).is_some() {
+        if let Some(h) = buffers.get_mut(&mat.tile_headers) {
+            *h = headers_buf;
+        }
+    } else {
+        mat.tile_headers = buffers.add(headers_buf);
+    }
+    if buffers.get(&mat.tile_ball_indices).is_some() {
+        if let Some(h) = buffers.get_mut(&mat.tile_ball_indices) {
+            *h = indices_buf;
+        }
+    } else {
+        mat.tile_ball_indices = buffers.add(indices_buf);
+    }
 
     // Update uniform tile meta
     mat.data.v3.x = tiles_x as f32;
@@ -738,7 +860,9 @@ fn resize_fullscreen_quad(
     q_unified: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
 ) {
-    let Ok(window) = windows.single() else { return; }; // keep compatibility until all call sites updated
+    let Ok(window) = windows.single() else {
+        return;
+    }; // keep compatibility until all call sites updated
     if let Ok(handle_comp) = q_unified.single() {
         if let Some(mat) = unified_mats.get_mut(&handle_comp.0) {
             if mat.data.v2.x != window.width() || mat.data.v2.y != window.height() {
@@ -794,8 +918,8 @@ mod tests {
         let outside = map_signed_distance(4.0, scale);
         assert!(outside < 0.5, "outside expected < 0.5 got {}", outside);
         // Far outside clamps to 0.0
-    let far = map_signed_distance(1e6, scale);
-    assert!((0.0..=0.001).contains(&far));
+        let far = map_signed_distance(1e6, scale);
+        assert!((0.0..=0.001).contains(&far));
     }
 
     #[test]
@@ -807,8 +931,10 @@ mod tests {
     fn cycling_wraps_with_metadata() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-    let fg = MetaballForeground { idx: MetaballForegroundMode::ALL.len() - 1 };
-    app.insert_resource(fg);
+        let fg = MetaballForeground {
+            idx: MetaballForegroundMode::ALL.len() - 1,
+        };
+        app.insert_resource(fg);
         // Simulate End key press to wrap around
         let mut keys = ButtonInput::<KeyCode>::default();
         keys.press(KeyCode::End);
@@ -821,19 +947,29 @@ mod tests {
             world_fg.idx = (world_fg.idx + 1) % MetaballForegroundMode::ALL.len();
         }
         if world_keys.just_pressed(KeyCode::Home) {
-            world_fg.idx = (world_fg.idx + MetaballForegroundMode::ALL.len() - 1) % MetaballForegroundMode::ALL.len();
+            world_fg.idx = (world_fg.idx + MetaballForegroundMode::ALL.len() - 1)
+                % MetaballForegroundMode::ALL.len();
         }
         let fg_after = app.world().resource::<MetaballForeground>();
-        assert_eq!(fg_after.current() as u32, MetaballForegroundMode::ClassicBlend as u32);
+        assert_eq!(
+            fg_after.current() as u32,
+            MetaballForegroundMode::ClassicBlend as u32
+        );
     }
 
     #[test]
     fn color_group_assignment_basic() {
         // Simulate three balls with colors [0,0,2] => two groups.
-        let mut color_to_group: HashMap<usize,u32> = HashMap::new();
-        let colors = [0usize,0,2];
-        let mut palette: Vec<[f32;4]> = Vec::new();
-        for c in colors.iter() { color_to_group.entry(*c).or_insert_with(|| { let gid = palette.len() as u32; palette.push([*c as f32,0.0,0.0,1.0]); gid }); }
+        let mut color_to_group: HashMap<usize, u32> = HashMap::new();
+        let colors = [0usize, 0, 2];
+        let mut palette: Vec<[f32; 4]> = Vec::new();
+        for c in colors.iter() {
+            color_to_group.entry(*c).or_insert_with(|| {
+                let gid = palette.len() as u32;
+                palette.push([*c as f32, 0.0, 0.0, 1.0]);
+                gid
+            });
+        }
         assert_eq!(palette.len(), 2, "expected 2 distinct color groups");
         assert_eq!(color_to_group.get(&0).copied(), Some(0));
         assert_eq!(color_to_group.get(&2).copied(), Some(1));

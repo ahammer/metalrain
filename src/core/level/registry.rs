@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 // Deprecated: replaced by embedded_levels LevelSource abstraction (kept for reference during migration)
-#[deprecated(note = "Replaced by embedded_levels LevelSource abstraction; no longer used in loader.")]
+#[deprecated(
+    note = "Replaced by embedded_levels LevelSource abstraction; no longer used in loader."
+)]
 use serde::Deserialize;
 use std::{fs, path::Path};
 
@@ -20,10 +22,15 @@ pub struct LevelRegistry {
 
 impl LevelRegistry {
     pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self, String> {
-        let txt = fs::read_to_string(&path).map_err(|e| format!("read registry {:?}: {e}", path.as_ref()))?;
-        let reg: LevelRegistry = ron::from_str(&txt).map_err(|e| format!("parse registry {:?}: {e}", path.as_ref()))?;
+        let txt = fs::read_to_string(&path)
+            .map_err(|e| format!("read registry {:?}: {e}", path.as_ref()))?;
+        let reg: LevelRegistry =
+            ron::from_str(&txt).map_err(|e| format!("parse registry {:?}: {e}", path.as_ref()))?;
         if reg.version != 1 {
-            return Err(format!("LevelRegistry version {} unsupported (expected 1)", reg.version));
+            return Err(format!(
+                "LevelRegistry version {} unsupported (expected 1)",
+                reg.version
+            ));
         }
         if reg.list.is_empty() {
             return Err("LevelRegistry list empty".into());
@@ -44,7 +51,10 @@ impl LevelRegistry {
         if let Some(found) = self.list.iter().find(|e| e.id == self.default) {
             return Ok(found.clone());
         }
-        Err(format!("Requested level '{sel}' not found and default '{}' missing.", self.default))
+        Err(format!(
+            "Requested level '{sel}' not found and default '{}' missing.",
+            self.default
+        ))
     }
 }
 

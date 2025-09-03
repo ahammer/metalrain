@@ -35,12 +35,17 @@ impl WallTimeline {
     }
 
     fn sample(keys: &[(f32, f32)], t: f32) -> f32 {
-        if keys.is_empty() { return 0.0; }
-        if keys.len() == 1 { return keys[0].1; }
+        if keys.is_empty() {
+            return 0.0;
+        }
+        if keys.len() == 1 {
+            return keys[0].1;
+        }
         // Find two surrounding keys (linear search; small lists expected)
         let mut prev = keys[0];
         for &k in &keys[1..] {
-            if t < k.0 { // between prev and k
+            if t < k.0 {
+                // between prev and k
                 let span = (k.0 - prev.0).max(1e-6);
                 let a = (t - prev.0) / span;
                 return prev.1 + (k.1 - prev.1) * a;
@@ -60,10 +65,15 @@ impl Plugin for WallTimelinePlugin {
     }
 }
 
-fn advance_wall_timelines(time: Res<Time>, mut q: Query<(&mut WallTimeline, &mut Transform), With<WallGroupRoot>>) {
+fn advance_wall_timelines(
+    time: Res<Time>,
+    mut q: Query<(&mut WallTimeline, &mut Transform), With<WallGroupRoot>>,
+) {
     let dt = time.delta_secs();
     for (mut tl, mut tf) in &mut q {
-        if tl.duration <= 0.0 { continue; }
+        if tl.duration <= 0.0 {
+            continue;
+        }
         // Advance time with repeat logic
         match tl.repeat {
             RepeatModeDef::Once => {
@@ -73,14 +83,27 @@ fn advance_wall_timelines(time: Res<Time>, mut q: Query<(&mut WallTimeline, &mut
                 tl.time = (tl.time + dt) % tl.duration;
             }
             RepeatModeDef::PingPong => {
-                if tl.forward { tl.time += dt; } else { tl.time -= dt; }
-                if tl.time >= tl.duration { tl.time = tl.duration; tl.forward = false; }
-                else if tl.time <= 0.0 { tl.time = 0.0; tl.forward = true; }
+                if tl.forward {
+                    tl.time += dt;
+                } else {
+                    tl.time -= dt;
+                }
+                if tl.time >= tl.duration {
+                    tl.time = tl.duration;
+                    tl.forward = false;
+                } else if tl.time <= 0.0 {
+                    tl.time = 0.0;
+                    tl.forward = true;
+                }
             }
         }
         let norm_t = (tl.time / tl.duration).clamp(0.0, 1.0);
         let rot = WallTimeline::sample(&tl.rotation, norm_t);
-        let scl = if tl.scale.is_empty() { 1.0 } else { WallTimeline::sample(&tl.scale, norm_t).max(0.001) };
+        let scl = if tl.scale.is_empty() {
+            1.0
+        } else {
+            WallTimeline::sample(&tl.scale, norm_t).max(0.001)
+        };
         tf.rotation = Quat::from_rotation_z(rot);
         tf.scale = Vec3::splat(scl);
     }

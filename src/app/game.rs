@@ -14,8 +14,8 @@ use crate::interaction::session::auto_close::AutoClosePlugin;
 use crate::interaction::session::config_hot_reload::ConfigHotReloadPlugin;
 use crate::physics::clustering::cluster::ClusterPlugin;
 // use crate::physics::gravity::radial_gravity::RadialGravityPlugin; // legacy
-use crate::physics::gravity::widgets::GravityWidgetsPlugin;
 use crate::gameplay::spawn_widgets::SpawnWidgetsPlugin;
+use crate::physics::gravity::widgets::GravityWidgetsPlugin;
 use crate::physics::rapier::rapier_physics::PhysicsSetupPlugin;
 use crate::rendering::camera::camera::CameraPlugin;
 use crate::rendering::materials::materials::MaterialsPlugin;

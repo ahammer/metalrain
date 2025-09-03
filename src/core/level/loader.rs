@@ -5,9 +5,9 @@ use crate::core::config::config::{GameConfig, GravityWidgetConfig};
 
 use super::layout::{LayoutFile, WallSegment};
 // v2 grouped walls/timelines
-use super::wall_timeline::{WallGroupRoot, WallTimeline};
-use super::registry::resolve_requested_level_id; // still used for CLI/env resolution (registry deprecated for selection list)
 use super::embedded_levels::{select_level_source, LevelSourceMode};
+use super::registry::resolve_requested_level_id; // still used for CLI/env resolution (registry deprecated for selection list)
+use super::wall_timeline::{WallGroupRoot, WallTimeline};
 use super::widgets::{extract_widgets, AttractorSpec, SpawnPointSpec, WidgetsFile};
 
 #[derive(Component)]
@@ -40,7 +40,11 @@ impl Plugin for LevelLoaderPlugin {
         if app.world().get_resource::<Assets<Mesh>>().is_none() {
             app.init_resource::<Assets<Mesh>>();
         }
-        if app.world().get_resource::<Assets<ColorMaterial>>().is_none() {
+        if app
+            .world()
+            .get_resource::<Assets<ColorMaterial>>()
+            .is_none()
+        {
             app.init_resource::<Assets<ColorMaterial>>();
         }
         app.add_systems(Startup, load_level_data);
@@ -54,7 +58,8 @@ pub fn load_level_data(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // Determine desired mode & features
-    let live_requested = cfg!(feature = "live_levels") && !cfg!(any(target_arch = "wasm32", feature = "embedded_levels"));
+    let live_requested = cfg!(feature = "live_levels")
+        && !cfg!(any(target_arch = "wasm32", feature = "embedded_levels"));
     if cfg!(all(feature = "embedded_levels", feature = "live_levels")) {
         warn!(target="level", "LevelLoader: both 'embedded_levels' and 'live_levels' features active; live reload disabled in embedded mode");
     }
@@ -67,17 +72,32 @@ pub fn load_level_data(
     let chosen_id = requested.as_deref().unwrap_or(source.default_id());
 
     // Mode log (single authoritative line prior to any level file parsing except universal walls).
-    info!(target="level", "LevelLoader: mode={:?} requested='{:?}' selected level id='{}'", mode, requested, chosen_id);
+    info!(
+        target = "level",
+        "LevelLoader: mode={:?} requested='{:?}' selected level id='{}'",
+        mode,
+        requested,
+        chosen_id
+    );
 
     // Universal walls: embed on wasm / embedded feature to ensure zero runtime FS I/O; disk-load otherwise.
     let mut all_walls: Vec<WallSegment> = Vec::new();
     #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
     {
         const UNIVERSAL_WALLS_RON: &str = include_str!("../../../assets/levels/basic_walls.ron");
-        let lf: LayoutFile = ron::from_str(UNIVERSAL_WALLS_RON).expect("parse embedded universal walls failed");
+        let lf: LayoutFile =
+            ron::from_str(UNIVERSAL_WALLS_RON).expect("parse embedded universal walls failed");
         let segs = lf.to_wall_segments();
-        debug!(target="level", "LevelLoader: universal walls (embedded) loaded count={}", segs.len());
-        info!(target="level", "LevelLoader: loaded {} universal wall segments", segs.len());
+        debug!(
+            target = "level",
+            "LevelLoader: universal walls (embedded) loaded count={}",
+            segs.len()
+        );
+        info!(
+            target = "level",
+            "LevelLoader: loaded {} universal wall segments",
+            segs.len()
+        );
         all_walls.extend(segs);
     }
     #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
@@ -89,13 +109,27 @@ pub fn load_level_data(
         match LayoutFile::load_from_file(&universal_walls_path) {
             Ok(lf) => {
                 let segs = lf.to_wall_segments();
-                debug!(target="level", "LevelLoader: universal walls loaded count={}", segs.len());
-                info!(target="level", "LevelLoader: loaded {} universal wall segments", segs.len());
+                debug!(
+                    target = "level",
+                    "LevelLoader: universal walls loaded count={}",
+                    segs.len()
+                );
+                info!(
+                    target = "level",
+                    "LevelLoader: loaded {} universal wall segments",
+                    segs.len()
+                );
                 all_walls.extend(segs);
             }
             Err(e) => {
-                debug!(target="level", "LevelLoader: universal walls load FAILED: {e}");
-                error!("LevelLoader: FAILED to load universal walls file {}: {e}", universal_walls_path.display());
+                debug!(
+                    target = "level",
+                    "LevelLoader: universal walls load FAILED: {e}"
+                );
+                error!(
+                    "LevelLoader: FAILED to load universal walls file {}: {e}",
+                    universal_walls_path.display()
+                );
                 return;
             }
         }
@@ -124,8 +158,16 @@ pub fn load_level_data(
     let layout_loaded: Option<LayoutFile> = {
         let lf: LayoutFile = ron::from_str(layout_txt).expect("parse embedded layout failed");
         let segs = lf.to_wall_segments();
-        debug!(target="level", "LevelLoader: layout loaded count={}", segs.len());
-        info!(target="level", "LevelLoader: loaded {} level-specific wall segments", segs.len());
+        debug!(
+            target = "level",
+            "LevelLoader: layout loaded count={}",
+            segs.len()
+        );
+        info!(
+            target = "level",
+            "LevelLoader: loaded {} level-specific wall segments",
+            segs.len()
+        );
         all_walls.extend(segs);
         Some(lf)
     };
@@ -133,15 +175,26 @@ pub fn load_level_data(
     #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
     let layout_loaded: Option<LayoutFile> = match ron::from_str::<LayoutFile>(&layout_owned) {
         Ok(lf) => {
-            if lf.version != 1 && lf.version != 2 { error!("LevelLoader: layout version unsupported"); return; }
+            if lf.version != 1 && lf.version != 2 {
+                error!("LevelLoader: layout version unsupported");
+                return;
+            }
             let segs = lf.to_wall_segments();
-            debug!(target="level", "LevelLoader: layout loaded count={}", segs.len());
-            info!(target="level", "LevelLoader: loaded {} level-specific wall segments", segs.len());
+            debug!(
+                target = "level",
+                "LevelLoader: layout loaded count={}",
+                segs.len()
+            );
+            info!(
+                target = "level",
+                "LevelLoader: loaded {} level-specific wall segments",
+                segs.len()
+            );
             all_walls.extend(segs);
             Some(lf)
         }
         Err(e) => {
-            debug!(target="level", "LevelLoader: layout parse FAILED: {e}");
+            debug!(target = "level", "LevelLoader: layout parse FAILED: {e}");
             error!("LevelLoader: FAILED to parse level layout: {e}");
             return;
         }
@@ -169,7 +222,9 @@ pub fn load_level_data(
     for (i, w) in filtered.iter().enumerate() {
         let delta = w.to - w.from;
         let length = delta.length();
-        if length <= 1e-4 { continue; }
+        if length <= 1e-4 {
+            continue;
+        }
         let thickness = w.thickness.max(2.0);
         let center = (w.from + w.to) * 0.5;
         let angle = delta.y.atan2(delta.x);
@@ -183,7 +238,11 @@ pub fn load_level_data(
             Collider::cuboid(length * 0.5, thickness * 0.5),
             Mesh2d::from(mesh),
             MeshMaterial2d(material),
-            Transform { translation: Vec3::new(center.x, center.y, WALL_Z), rotation: Quat::from_rotation_z(angle), scale: Vec3::ONE },
+            Transform {
+                translation: Vec3::new(center.x, center.y, WALL_Z),
+                rotation: Quat::from_rotation_z(angle),
+                scale: Vec3::ONE,
+            },
             GlobalTransform::default(),
             Visibility::Visible,
         ));
@@ -196,10 +255,16 @@ pub fn load_level_data(
             let pivot: Vec2 = g.pivot.clone().into();
             let mut root_cmd = commands.spawn((
                 Name::new(format!("WallGroup:{}", g.name)),
-                WallGroupRoot { name: g.name.clone(), pivot },
+                WallGroupRoot {
+                    name: g.name.clone(),
+                    pivot,
+                },
                 // Kinematic body so physics colliders (children) move with animated transform
                 RigidBody::KinematicPositionBased,
-                Transform { translation: Vec3::new(pivot.x, pivot.y, WALL_Z), ..Default::default() },
+                Transform {
+                    translation: Vec3::new(pivot.x, pivot.y, WALL_Z),
+                    ..Default::default()
+                },
                 GlobalTransform::default(),
                 Visibility::Visible,
             ));
@@ -214,7 +279,9 @@ pub fn load_level_data(
                 let to: Vec2 = seg.to.clone().into();
                 let delta = to - from;
                 let length = delta.length();
-                if length <= 1e-4 { continue; }
+                if length <= 1e-4 {
+                    continue;
+                }
                 let thickness = seg.thickness.max(2.0);
                 let center = (from + to) * 0.5 - pivot; // local offset
                 let angle = delta.y.atan2(delta.x);
@@ -227,7 +294,11 @@ pub fn load_level_data(
                         Collider::cuboid(length * 0.5, thickness * 0.5),
                         Mesh2d::from(mesh),
                         MeshMaterial2d(material),
-                        Transform { translation: Vec3::new(center.x, center.y, 0.0), rotation: Quat::from_rotation_z(angle), scale: Vec3::ONE },
+                        Transform {
+                            translation: Vec3::new(center.x, center.y, 0.0),
+                            rotation: Quat::from_rotation_z(angle),
+                            scale: Vec3::ONE,
+                        },
                         GlobalTransform::default(),
                         Visibility::Visible,
                     ));
@@ -242,20 +313,39 @@ pub fn load_level_data(
     #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
     let widgets_file: WidgetsFile = {
         let wf: WidgetsFile = ron::from_str(widgets_txt).expect("parse embedded widgets failed");
-        if wf.version != 1 { panic!("WidgetsFile version {} unsupported (expected 1)", wf.version); }
-        debug!(target="level", "LevelLoader: widgets file loaded ({} entries)", wf.widgets.len());
+        if wf.version != 1 {
+            panic!(
+                "WidgetsFile version {} unsupported (expected 1)",
+                wf.version
+            );
+        }
+        debug!(
+            target = "level",
+            "LevelLoader: widgets file loaded ({} entries)",
+            wf.widgets.len()
+        );
         wf
     };
 
     #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
     let widgets_file: WidgetsFile = match ron::from_str::<WidgetsFile>(&widgets_owned) {
         Ok(wf) => {
-            if wf.version != 1 { error!("WidgetsFile version {} unsupported (expected 1)", wf.version); return; }
-            debug!(target="level", "LevelLoader: widgets file loaded ({} entries)", wf.widgets.len());
+            if wf.version != 1 {
+                error!(
+                    "WidgetsFile version {} unsupported (expected 1)",
+                    wf.version
+                );
+                return;
+            }
+            debug!(
+                target = "level",
+                "LevelLoader: widgets file loaded ({} entries)",
+                wf.widgets.len()
+            );
             wf
         }
         Err(e) => {
-            debug!(target="level", "LevelLoader: widgets parse FAILED: {e}");
+            debug!(target = "level", "LevelLoader: widgets parse FAILED: {e}");
             error!("LevelLoader: FAILED to parse widgets: {e}");
             return;
         }
@@ -264,8 +354,12 @@ pub fn load_level_data(
     for w in &extracted.warnings {
         warn!("{w}");
     }
-    info!(target="level", "LevelLoader: extracted {} spawn points, {} attractors",
-        extracted.spawn_points.len(), extracted.attractors.len());
+    info!(
+        target = "level",
+        "LevelLoader: extracted {} spawn points, {} attractors",
+        extracted.spawn_points.len(),
+        extracted.attractors.len()
+    );
 
     // Integrate spawn points into GameConfig.spawn_widgets (overriding any existing list)
     if !extracted.spawn_points.is_empty() {
@@ -302,16 +396,24 @@ pub fn load_level_data(
     });
 
     // Insert selection resource
-    commands.insert_resource(LevelSelection { id: chosen_id.to_string() });
+    commands.insert_resource(LevelSelection {
+        id: chosen_id.to_string(),
+    });
 
-    info!(target="level", "LevelLoader: completed (walls={}, spawn_points={}, attractors={})",
+    info!(
+        target = "level",
+        "LevelLoader: completed (walls={}, spawn_points={}, attractors={})",
         wall_count,
         game_cfg.spawn_widgets.widgets.len(),
-        game_cfg.gravity_widgets.widgets.len());
+        game_cfg.gravity_widgets.widgets.len()
+    );
 
     // Live reload stub warning (only disk live mode)
     if matches!(mode, LevelSourceMode::DiskLive) {
-        warn!(target="level", "LevelLoader: live_levels feature active but watcher not implemented (TODO)");
+        warn!(
+            target = "level",
+            "LevelLoader: live_levels feature active but watcher not implemented (TODO)"
+        );
     }
 }
 

@@ -5,13 +5,21 @@ use std::{fs, path::Path};
 use crate::core::config::config::{GravityWidgetConfig, SpawnWidgetConfig};
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Vec2Def { pub x: f32, pub y: f32 }
+pub struct Vec2Def {
+    pub x: f32,
+    pub y: f32,
+}
 impl From<Vec2Def> for Vec2 {
-    fn from(v: Vec2Def) -> Self { Vec2::new(v.x, v.y) }
+    fn from(v: Vec2Def) -> Self {
+        Vec2::new(v.x, v.y)
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct RangeF32 { pub min: f32, pub max: f32 }
+pub struct RangeF32 {
+    pub min: f32,
+    pub max: f32,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SpawnSpecRaw {
@@ -53,10 +61,15 @@ pub struct WidgetsFile {
 
 impl WidgetsFile {
     pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self, String> {
-        let txt = fs::read_to_string(&path).map_err(|e| format!("read widgets {:?}: {e}", path.as_ref()))?;
-        let wf: WidgetsFile = ron::from_str(&txt).map_err(|e| format!("parse widgets {:?}: {e}", path.as_ref()))?;
+        let txt = fs::read_to_string(&path)
+            .map_err(|e| format!("read widgets {:?}: {e}", path.as_ref()))?;
+        let wf: WidgetsFile =
+            ron::from_str(&txt).map_err(|e| format!("parse widgets {:?}: {e}", path.as_ref()))?;
         if wf.version != 1 {
-            return Err(format!("WidgetsFile version {} unsupported (expected 1)", wf.version));
+            return Err(format!(
+                "WidgetsFile version {} unsupported (expected 1)",
+                wf.version
+            ));
         }
         Ok(wf)
     }
@@ -97,7 +110,12 @@ impl SpawnPointSpec {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FalloffKind { None, InverseLinear, InverseSquare, SmoothEdge }
+pub enum FalloffKind {
+    None,
+    InverseLinear,
+    InverseSquare,
+    SmoothEdge,
+}
 impl FalloffKind {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
@@ -160,7 +178,10 @@ pub fn extract_widgets(file: &WidgetsFile) -> ExtractedWidgets {
     let mut seen_ids: HashSet<u32> = HashSet::new();
     for w in &file.widgets {
         if !seen_ids.insert(w.id) {
-            out.warnings.push(format!("LevelLoader: duplicate widget id {}, skipping subsequent occurrence.", w.id));
+            out.warnings.push(format!(
+                "LevelLoader: duplicate widget id {}, skipping subsequent occurrence.",
+                w.id
+            ));
             continue;
         }
         match w.kind.as_str() {
@@ -168,17 +189,26 @@ pub fn extract_widgets(file: &WidgetsFile) -> ExtractedWidgets {
                 if let Some(spawn) = &w.spawn {
                     let mut interval = spawn.interval;
                     if interval <= 0.0 {
-                        out.warnings.push(format!("LevelLoader: spawn point id {} interval {} <= 0 clamped.", w.id, interval));
+                        out.warnings.push(format!(
+                            "LevelLoader: spawn point id {} interval {} <= 0 clamped.",
+                            w.id, interval
+                        ));
                         interval = 0.05;
                     }
                     let (mut br_min, mut br_max) = (spawn.ball_radius.min, spawn.ball_radius.max);
                     if br_min > br_max {
-                        out.warnings.push(format!("LevelLoader: spawn point id {} ball_radius min {} > max {}, swapped.", w.id, br_min, br_max));
+                        out.warnings.push(format!(
+                            "LevelLoader: spawn point id {} ball_radius min {} > max {}, swapped.",
+                            w.id, br_min, br_max
+                        ));
                         std::mem::swap(&mut br_min, &mut br_max);
                     }
                     let (mut sp_min, mut sp_max) = (spawn.speed.min, spawn.speed.max);
                     if sp_min > sp_max {
-                        out.warnings.push(format!("LevelLoader: spawn point id {} speed min {} > max {}, swapped.", w.id, sp_min, sp_max));
+                        out.warnings.push(format!(
+                            "LevelLoader: spawn point id {} speed min {} > max {}, swapped.",
+                            w.id, sp_min, sp_max
+                        ));
                         std::mem::swap(&mut sp_min, &mut sp_max);
                     }
                     out.spawn_points.push(SpawnPointSpec {
@@ -194,14 +224,20 @@ pub fn extract_widgets(file: &WidgetsFile) -> ExtractedWidgets {
                         enabled: true,
                     });
                 } else {
-                    out.warnings.push(format!("LevelLoader: SpawnPoint id {} missing 'spawn' block.", w.id));
+                    out.warnings.push(format!(
+                        "LevelLoader: SpawnPoint id {} missing 'spawn' block.",
+                        w.id
+                    ));
                 }
             }
             "Attractor" => {
                 let strength = w.strength.unwrap_or(0.0);
                 let mut s = strength;
                 if s < 0.0 {
-                    out.warnings.push(format!("LevelLoader: Attractor id {} negative strength {} clamped to 0.", w.id, s));
+                    out.warnings.push(format!(
+                        "LevelLoader: Attractor id {} negative strength {} clamped to 0.",
+                        w.id, s
+                    ));
                     s = 0.0;
                 }
                 let radius = w.radius.unwrap_or(0.0);
@@ -221,7 +257,10 @@ pub fn extract_widgets(file: &WidgetsFile) -> ExtractedWidgets {
                 });
             }
             other => {
-                out.warnings.push(format!("LevelLoader: unknown widget type '{}' (id {}) skipped.", other, w.id));
+                out.warnings.push(format!(
+                    "LevelLoader: unknown widget type '{}' (id {}) skipped.",
+                    other, w.id
+                ));
             }
         }
     }

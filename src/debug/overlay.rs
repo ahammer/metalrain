@@ -18,7 +18,6 @@ pub(crate) struct DebugOverlayText;
 #[derive(Component)]
 pub(crate) struct DebugConfigOverlayText;
 
-
 #[cfg(feature = "debug")]
 #[allow(dead_code)]
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {

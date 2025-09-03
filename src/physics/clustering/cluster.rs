@@ -1,9 +1,9 @@
 use crate::core::components::{Ball, BallRadius};
 use crate::core::system::system_order::PostPhysicsAdjustSet;
+use crate::interaction::cluster_pop::PaddleLifecycle;
 use crate::rendering::materials::materials::{BallDisplayMaterials, BallMaterialIndex};
 use crate::rendering::palette::palette::color_for_index;
 use bevy::prelude::*;
-use crate::interaction::cluster_pop::PaddleLifecycle;
 
 type ClusterQueryItem<'a> = (
     Entity,
@@ -137,7 +137,6 @@ pub fn compute_clusters(
         .map(|c| c.clustering.distance_buffer_exit_cluster)
         .unwrap_or(1.25)
         .clamp(enter, 3.0);
-
 
     // Union-find
     let mut parent: Vec<usize> = (0..count).collect();
@@ -293,8 +292,7 @@ pub fn compute_clusters(
     }
 
     // Update persistence map to only current entities
-    let current_set: std::collections::HashSet<Entity> =
-        entities.iter().copied().collect();
+    let current_set: std::collections::HashSet<Entity> = entities.iter().copied().collect();
     persistence.map.retain(|e, _| current_set.contains(e));
 
     // Write new persistence entries (merging any old cluster ids automatically reuses chosen id)
@@ -344,7 +342,6 @@ fn debug_draw_clusters(
 mod tests {
     use super::*;
 
-
     fn setup_app(enter: f32, exit: f32) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
@@ -358,13 +355,15 @@ mod tests {
     }
 
     fn spawn_ball(app: &mut App, pos: Vec2, radius: f32, color: usize) -> Entity {
-        app.world_mut().spawn((
-            Ball,
-            BallRadius(radius),
-            BallMaterialIndex(color),
-            Transform::from_xyz(pos.x, pos.y, 0.0),
-            GlobalTransform::default(),
-        )).id()
+        app.world_mut()
+            .spawn((
+                Ball,
+                BallRadius(radius),
+                BallMaterialIndex(color),
+                Transform::from_xyz(pos.x, pos.y, 0.0),
+                GlobalTransform::default(),
+            ))
+            .id()
     }
 
     #[test]
@@ -392,7 +391,7 @@ mod tests {
     fn hysteresis_keeps_pair_until_exit() {
         let mut app = setup_app(1.2, 1.25);
         // Start within enter
-    let _e1 = spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
+        let _e1 = spawn_ball(&mut app, Vec2::new(0.0, 0.0), 10.0, 0);
         let e2 = spawn_ball(&mut app, Vec2::new(23.0, 0.0), 10.0, 0);
         app.update();
         {
@@ -417,7 +416,11 @@ mod tests {
         app.update();
         {
             let clusters = app.world().resource::<Clusters>();
-            assert_eq!(clusters.0.len(), 2, "pair should split after exceeding exit");
+            assert_eq!(
+                clusters.0.len(),
+                2,
+                "pair should split after exceeding exit"
+            );
         }
     }
 

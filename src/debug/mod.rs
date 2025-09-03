@@ -42,7 +42,6 @@ impl Plugin for DebugPlugin {
         use overlay::{debug_config_overlay_update, debug_overlay_spawn, debug_overlay_update};
         use stats::debug_stats_collect_system;
 
-
         #[cfg(feature = "debug")]
         fn toggle_rapier_debug(
             state: Res<modes::DebugState>,
@@ -68,7 +67,6 @@ impl Plugin for DebugPlugin {
                 }
             }
         }
-
 
         app.init_resource::<modes::DebugState>()
             .init_resource::<modes::DebugStats>()
