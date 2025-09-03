@@ -26,5 +26,4 @@ fn setup_ball_materials(mut materials: ResMut<Assets<ColorMaterial>>, mut comman
     commands.insert_resource(BallPhysicsMaterials(physics_defs));
 }
 #[derive(Component, Debug, Copy, Clone)]
-#[allow(dead_code)]
 pub struct BallMaterialIndex(pub usize);

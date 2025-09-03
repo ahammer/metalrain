@@ -663,7 +663,6 @@ fn build_metaball_tiles(
     let tile_count = (tiles_x * tiles_y) as usize;
 
     // Recompute every frame (previous early-out caused visual artifacts when balls crossed tile boundaries).
-    // TODO: Introduce smarter change detection (track per-ball tile span) if CPU cost becomes significant.
     let balls_len = shadow.0.len();
 
     // Prepare buckets
@@ -790,7 +789,6 @@ pub fn map_signed_distance(signed_d: f32, d_scale: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
     // (Removed) persistent_slot_allocation_and_reuse test; color grouping no longer uses per-entity slots.
 
     #[test]
@@ -839,7 +837,6 @@ mod tests {
         assert_eq!(fg_after.current() as u32, MetaballForegroundMode::ClassicBlend as u32);
     }
 
-    #[test]
     #[test]
     fn color_group_assignment_basic() {
         // Simulate three balls with colors [0,0,2] => two groups.

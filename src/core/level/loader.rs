@@ -315,10 +315,4 @@ pub fn load_level_data(
     }
 }
 
-// Legacy gizmo drawer retained for quick debugging (unused by default). Enable manually if needed.
-#[allow(dead_code)]
-pub fn draw_wall_gizmos(walls: Res<LevelWalls>, mut gizmos: Gizmos) {
-    for w in &walls.0 {
-        gizmos.line_2d(w.from, w.to, Color::srgba(0.85, 0.75, 0.10, 0.90));
-    }
-}
+// Legacy gizmo drawer retained for quick debugging was removed as it's unused by default.

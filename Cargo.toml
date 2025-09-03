@@ -77,8 +77,6 @@ opt-level = "z"
 default = ["debug"]
 # Enable with: cargo run --features debug
 debug = []
-# Verbose fluid simulation pass logging
-fluid_debug_passes = []
 # Metaballs optimization feature flags
 metaballs_early_exit = []
 metaballs_outline_exit = []

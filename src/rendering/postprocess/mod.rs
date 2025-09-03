@@ -1,9 +1,6 @@
 // Two-phase metaballs post-process inversion pass (PoC)
 // Phase 1: existing metaballs unified material draw
 // Phase 2: this post-process fullscreen inversion (optional toggle)
-//
-// TODO: extend post-process chain with additional effects (palette, bloom, metadata composite)
-// PERF: evaluate batching multiple simple color ops into single shader before adding >3 passes
 
 use bevy::prelude::*;
 use bevy::render::{
