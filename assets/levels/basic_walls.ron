@@ -1,0 +1,13 @@
+// Universal walls fragment: basic_walls
+// Always applied to every level BEFORE its own layout.
+// Only defines perimeter walls.
+(
+	version: 1,
+	walls: [
+		// Four perimeter segments (thickness purely data; loader can choose how to build actual colliders)
+		( segment: ( from:(x:-640.0,y:-360.0), to:(x: 640.0,y:-360.0), thickness:24.0 ) ),
+		( segment: ( from:(x:-640.0,y: 360.0), to:(x: 640.0,y: 360.0), thickness:24.0 ) ),
+		( segment: ( from:(x:-640.0,y:-360.0), to:(x:-640.0,y: 360.0), thickness:24.0 ) ),
+		( segment: ( from:(x: 640.0,y:-360.0), to:(x: 640.0,y: 360.0), thickness:24.0 ) ),
+	],
+)
