@@ -6,7 +6,8 @@ use crate::core::config::config::{GameConfig, GravityWidgetConfig};
 use super::layout::{LayoutFile, WallSegment};
 // v2 grouped walls/timelines
 use super::wall_timeline::{WallGroupRoot, WallTimeline};
-use super::registry::{resolve_requested_level_id, LevelRegistry};
+use super::registry::resolve_requested_level_id; // still used for CLI/env resolution (registry deprecated for selection list)
+use super::embedded_levels::{select_level_source, LevelSourceMode};
 use super::widgets::{extract_widgets, AttractorSpec, SpawnPointSpec, WidgetsFile};
 
 #[derive(Component)]
@@ -45,36 +46,27 @@ pub fn load_level_data(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    // Build absolute paths rooted at crate manifest dir to avoid cwd variance in tests.
+    // Determine desired mode & features
+    let live_requested = cfg!(feature = "live_levels") && !cfg!(any(target_arch = "wasm32", feature = "embedded_levels"));
+    if cfg!(all(feature = "embedded_levels", feature = "live_levels")) {
+        warn!(target="level", "LevelLoader: both 'embedded_levels' and 'live_levels' features active; live reload disabled in embedded mode");
+    }
+
+    // Select provider (embedded on wasm or embedded feature; else disk/disk+live)
+    let (mode, source) = select_level_source(live_requested);
+
+    // Resolve requested id (CLI/env) or use provider default
+    let requested = resolve_requested_level_id();
+    let chosen_id = requested.as_deref().unwrap_or(source.default_id());
+
+    // Mode log (single authoritative line prior to any level file parsing except universal walls).
+    info!(target="level", "LevelLoader: mode={:?} requested='{:?}' selected level id='{}'", mode, requested, chosen_id);
+
+    // Build base path for universal walls (always disk) and potential disk level loads
     use std::path::PathBuf;
     let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
     let base_levels: PathBuf = PathBuf::from(&crate_root).join("assets").join("levels");
-    let registry_path = base_levels.join("levels.ron");
     let universal_walls_path = base_levels.join("basic_walls.ron");
-
-    // Load registry
-    let registry = match LevelRegistry::load_from_file(&registry_path) {
-        Ok(r) => {
-            debug!(target="level", "LevelLoader: registry loaded from {}", registry_path.display());
-            r
-        },
-        Err(e) => {
-            println!("[LevelLoader DEBUG] registry load FAILED: {e}");
-            error!("LevelLoader: FAILED to load registry: {e}");
-            return;
-        }
-    };
-
-    // Resolve requested level id (cli/env) then select
-    let requested = resolve_requested_level_id();
-    let level_entry = match registry.select_level(requested.as_deref()) {
-        Ok(e) => e,
-        Err(e) => {
-            error!("LevelLoader: FAILED to select level: {e}");
-            return;
-        }
-    };
-    info!(target: "level", "LevelLoader: selected level id='{}' (layout='{}', widgets='{}')", level_entry.id, level_entry.layout, level_entry.widgets);
 
     // Load universal walls
     let mut all_walls: Vec<WallSegment> = Vec::new();
@@ -92,10 +84,39 @@ pub fn load_level_data(
         }
     }
 
-    // Load level layout
-    let layout_path = base_levels.join(&level_entry.layout);
-    let layout_loaded = match LayoutFile::load_from_file(&layout_path) {
+    // Acquire level layout/widgets contents depending on mode
+    #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
+    let (layout_txt, widgets_txt) = match source.get_level(chosen_id) {
+        Ok(p) => p,
+        Err(e) => {
+            panic!("LevelLoader: embedded level retrieval failed: {e}");
+        }
+    };
+
+    #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
+    let (layout_owned, widgets_owned) = match source.get_level_owned(chosen_id) {
+        Ok(p) => p,
+        Err(e) => {
+            error!("LevelLoader: FAILED to load level '{}': {e}", chosen_id);
+            return;
+        }
+    };
+
+    // Parse layout
+    #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
+    let layout_loaded: Option<LayoutFile> = {
+        let lf: LayoutFile = ron::from_str(layout_txt).expect("parse embedded layout failed");
+        let segs = lf.to_wall_segments();
+        debug!(target="level", "LevelLoader: layout loaded count={}", segs.len());
+        info!(target="level", "LevelLoader: loaded {} level-specific wall segments", segs.len());
+        all_walls.extend(segs);
+        Some(lf)
+    };
+
+    #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
+    let layout_loaded: Option<LayoutFile> = match ron::from_str::<LayoutFile>(&layout_owned) {
         Ok(lf) => {
+            if lf.version != 1 && lf.version != 2 { error!("LevelLoader: layout version unsupported"); return; }
             let segs = lf.to_wall_segments();
             debug!(target="level", "LevelLoader: layout loaded count={}", segs.len());
             info!(target="level", "LevelLoader: loaded {} level-specific wall segments", segs.len());
@@ -103,8 +124,8 @@ pub fn load_level_data(
             Some(lf)
         }
         Err(e) => {
-            debug!(target="level", "LevelLoader: layout load FAILED: {e}");
-            error!("LevelLoader: FAILED to load level layout '{}': {e}", layout_path.display());
+            debug!(target="level", "LevelLoader: layout parse FAILED: {e}");
+            error!("LevelLoader: FAILED to parse level layout: {e}");
             return;
         }
     };
@@ -200,16 +221,25 @@ pub fn load_level_data(
 
     commands.insert_resource(LevelWalls(filtered));
 
-    // Load widgets
-    let widgets_path = base_levels.join(&level_entry.widgets);
-    let widgets_file = match WidgetsFile::load_from_file(&widgets_path) {
-        Ok(w) => {
-            debug!(target="level", "LevelLoader: widgets file loaded ({} entries)", w.widgets.len());
-            w
-        },
+    // Load / parse widgets
+    #[cfg(any(target_arch = "wasm32", feature = "embedded_levels"))]
+    let widgets_file: WidgetsFile = {
+        let wf: WidgetsFile = ron::from_str(widgets_txt).expect("parse embedded widgets failed");
+        if wf.version != 1 { panic!("WidgetsFile version {} unsupported (expected 1)", wf.version); }
+        debug!(target="level", "LevelLoader: widgets file loaded ({} entries)", wf.widgets.len());
+        wf
+    };
+
+    #[cfg(not(any(target_arch = "wasm32", feature = "embedded_levels")))]
+    let widgets_file: WidgetsFile = match ron::from_str::<WidgetsFile>(&widgets_owned) {
+        Ok(wf) => {
+            if wf.version != 1 { error!("WidgetsFile version {} unsupported (expected 1)", wf.version); return; }
+            debug!(target="level", "LevelLoader: widgets file loaded ({} entries)", wf.widgets.len());
+            wf
+        }
         Err(e) => {
-            debug!(target="level", "LevelLoader: widgets load FAILED: {e}");
-            error!("LevelLoader: FAILED to load level widgets '{}': {e}", widgets_path.display());
+            debug!(target="level", "LevelLoader: widgets parse FAILED: {e}");
+            error!("LevelLoader: FAILED to parse widgets: {e}");
             return;
         }
     };
@@ -255,12 +285,17 @@ pub fn load_level_data(
     });
 
     // Insert selection resource
-    commands.insert_resource(LevelSelection { id: level_entry.id.clone() });
+    commands.insert_resource(LevelSelection { id: chosen_id.to_string() });
 
     info!(target="level", "LevelLoader: completed (walls={}, spawn_points={}, attractors={})",
         wall_count,
         game_cfg.spawn_widgets.widgets.len(),
         game_cfg.gravity_widgets.widgets.len());
+
+    // Live reload stub warning (only disk live mode)
+    if matches!(mode, LevelSourceMode::DiskLive) {
+        warn!(target="level", "LevelLoader: live_levels feature active but watcher not implemented (TODO)");
+    }
 }
 
 // Legacy gizmo drawer retained for quick debugging (unused by default). Enable manually if needed.

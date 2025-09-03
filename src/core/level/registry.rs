@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+// Deprecated: replaced by embedded_levels LevelSource abstraction (kept for reference during migration)
+#[deprecated(note = "Replaced by embedded_levels LevelSource abstraction; no longer used in loader.")]
 use serde::Deserialize;
 use std::{fs, path::Path};
 

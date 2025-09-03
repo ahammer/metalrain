@@ -83,3 +83,8 @@ fluid_debug_passes = []
 metaballs_early_exit = []
 metaballs_outline_exit = []
 metaballs_metadata_v2 = []
+## Level loading modes
+# Embed level layout/widgets RON into the binary (also auto-active on wasm32 target via cfg checks in code)
+embedded_levels = []
+# Enable disk mode live reload (currently stub warning if not implemented). Ignored when embedded_levels active.
+live_levels = []
