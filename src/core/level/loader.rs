@@ -69,7 +69,31 @@ pub fn load_level_data(
 
     // Resolve requested id (CLI/env) or use provider default
     let requested = resolve_requested_level_id();
-    let chosen_id = requested.as_deref().unwrap_or(source.default_id());
+    // Selection precedence: CLI/env override > game.ron (default_level_id) > registry/source default
+    let cfg_default = game_cfg.default_level_id.trim();
+    let mut chosen_id_string: String = requested
+        .as_deref()
+        .map(|s| s.to_string())
+        .or_else(|| {
+            if !cfg_default.is_empty() {
+                Some(cfg_default.to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| source.default_id().to_string());
+    // Validate presence in source; if missing, warn and fall back to source default
+    if !source.list_ids().iter().any(|id| *id == chosen_id_string) {
+        warn!(
+            target="level",
+            "LevelLoader: configured default level '{}' not found in source ids {:?}; falling back to '{}'",
+            chosen_id_string,
+            source.list_ids(),
+            source.default_id()
+        );
+        chosen_id_string = source.default_id().to_string();
+    }
+    let chosen_id = chosen_id_string.as_str();
 
     // Mode log (single authoritative line prior to any level file parsing except universal walls).
     info!(
@@ -396,9 +420,7 @@ pub fn load_level_data(
     });
 
     // Insert selection resource
-    commands.insert_resource(LevelSelection {
-        id: chosen_id.to_string(),
-    });
+    commands.insert_resource(LevelSelection { id: chosen_id.to_string() });
 
     info!(
         target = "level",

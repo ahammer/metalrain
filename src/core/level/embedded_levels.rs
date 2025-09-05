@@ -138,8 +138,16 @@ mod disk_impl {
     use super::*;
     use std::{fs, path::PathBuf};
 
+    // Single level entry (all &'static so we can satisfy trait returning &'static [&'static str])
+    struct DiskLevelEntry {
+        id: &'static str,
+        layout_rel: &'static str,
+        widgets_rel: &'static str,
+    }
+
     pub struct DiskLevelSource {
         base: PathBuf,
+        entries: Vec<DiskLevelEntry>,
         ids: Vec<&'static str>,
         default: &'static str,
         _live: bool,
@@ -147,58 +155,101 @@ mod disk_impl {
 
     impl DiskLevelSource {
         pub fn new(live: bool) -> Self {
-            // Hard-code recognized ids (registry file `levels.ron` currently NOT consulted in disk mode).
-            // Order matters: first entry becomes the default. Keep this list in sync with assets/levels.
-            // TODO: optionally parse levels.ron to remove duplication.
-            let ids: Vec<&'static str> = vec!["menu", "test_layout"]; // Extend here for new disk-only levels
-                                                              // Duplicate detection not necessary for literals but retain pattern for future extension.
+            let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
+            let base = PathBuf::from(&crate_root).join("assets").join("levels");
+
+            // Attempt to load registry file levels.ron (version 1 schema)
+            let registry_path = base.join("levels.ron");
+            let (entries, default): (Vec<DiskLevelEntry>, &'static str) = match fs::read_to_string(&registry_path) {
+                Ok(txt) => {
+                    #[derive(serde::Deserialize)]
+                    struct RegistryEntry { id: String, layout: String, widgets: String }
+                    #[derive(serde::Deserialize)]
+                    struct RegistryFile { version: u32, default: String, list: Vec<RegistryEntry> }
+                    match ron::from_str::<RegistryFile>(&txt) {
+                        Ok(reg) => {
+                            if reg.version != 1 {
+                                warn!(target="level", "DiskLevelSource: levels.ron version {} unsupported (expected 1); falling back to hard-coded list", reg.version);
+                                Self::hardcoded_fallback()
+                            } else {
+                                let mut leaks: Vec<DiskLevelEntry> = Vec::new();
+                                let mut found_default = false;
+                                for e in reg.list {
+                                    // Leak strings to get &'static str (tiny, bounded by number of levels)
+                                    let id_static: &'static str = Box::leak(e.id.into_boxed_str());
+                                    let layout_static: &'static str = Box::leak(e.layout.into_boxed_str());
+                                    let widgets_static: &'static str = Box::leak(e.widgets.into_boxed_str());
+                                    if id_static == reg.default { found_default = true; }
+                                    leaks.push(DiskLevelEntry { id: id_static, layout_rel: layout_static, widgets_rel: widgets_static });
+                                }
+                                if leaks.is_empty() {
+                                    warn!(target="level", "DiskLevelSource: registry empty; using fallback list");
+                                    Self::hardcoded_fallback()
+                                } else {
+                                    let default_id: &'static str = if found_default { Box::leak(reg.default.into_boxed_str()) } else { leaks[0].id };
+                                    (leaks, default_id)
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(target="level", "DiskLevelSource: parse levels.ron failed: {e}; using fallback list");
+                            Self::hardcoded_fallback()
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!(target="level", "DiskLevelSource: read {:?} failed: {e}; using fallback list", registry_path);
+                    Self::hardcoded_fallback()
+                }
+            };
+
+            // Build ids slice and duplicate detection
             use std::collections::HashSet;
             let mut seen = HashSet::new();
-            for id in &ids {
-                if !seen.insert(*id) {
-                    warn!(
-                        target = "level",
-                        "DiskLevelSource: duplicate id '{}' (first wins)", id
-                    );
+            let mut ids: Vec<&'static str> = Vec::with_capacity(entries.len());
+            for ent in &entries {
+                if !seen.insert(ent.id) {
+                    warn!(target="level", "DiskLevelSource: duplicate id '{}' (first wins)", ent.id);
+                    continue;
                 }
+                ids.push(ent.id);
             }
-            let default = ids[0];
-            let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
-            let base = PathBuf::from(crate_root).join("assets").join("levels");
-            Self {
-                base,
-                ids,
-                default,
-                _live: live,
-            }
+            Self { base, entries, ids, default, _live: live }
         }
+
+        // Fallback to hard-coded list (mirrors previous behavior); returns (entries, default)
+        fn hardcoded_fallback() -> (Vec<DiskLevelEntry>, &'static str) {
+            let mut entries: Vec<DiskLevelEntry> = Vec::new();
+            for (id, layout_rel, widgets_rel) in [
+                ("menu", "menu/layout.ron", "menu/widgets.ron"),
+                ("test_layout", "test_layout/layout.ron", "test_layout/widgets.ron"),
+            ] {
+                entries.push(DiskLevelEntry { id, layout_rel, widgets_rel });
+            }
+            let default = entries[0].id;
+            (entries, default)
+        }
+
         fn path_pair(&self, id: &str) -> (PathBuf, PathBuf) {
-            let layout = self.base.join(id).join("layout.ron");
-            let widgets = self.base.join(id).join("widgets.ron");
-            (layout, widgets)
+            if let Some(e) = self.entries.iter().find(|e| e.id == id) {
+                let layout = self.base.join(e.layout_rel);
+                let widgets = self.base.join(e.widgets_rel);
+                (layout, widgets)
+            } else {
+                // Fallback to default if id not found
+                let def = self.entries.iter().find(|e| e.id == self.default).expect("default entry must exist");
+                let layout = self.base.join(def.layout_rel);
+                let widgets = self.base.join(def.widgets_rel);
+                (layout, widgets)
+            }
         }
     }
 
     impl super::LevelSource for DiskLevelSource {
-        fn list_ids(&self) -> &[&'static str] {
-            &self.ids
-        }
-        fn default_id(&self) -> &str {
-            self.default
-        }
+        fn list_ids(&self) -> &[&'static str] { &self.ids }
+        fn default_id(&self) -> &str { self.default }
         fn get_level_owned(&self, id: &str) -> Result<(String, String), String> {
-            let chosen = if self.ids.contains(&id) {
-                id
-            } else {
-                warn!(
-                    target = "level",
-                    "DiskLevelSource: requested id '{}' unknown; falling back to default '{}'",
-                    id,
-                    self.default
-                );
-                self.default
-            };
-            let (layout_path, widgets_path) = self.path_pair(chosen);
+            let (layout_path, widgets_path) = self.path_pair(id);
             let layout_txt = fs::read_to_string(&layout_path)
                 .map_err(|e| format!("read layout {:?}: {e}", layout_path))?;
             let widgets_txt = fs::read_to_string(&widgets_path)

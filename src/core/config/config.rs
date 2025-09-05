@@ -239,6 +239,9 @@ pub struct GameConfig {
     pub draw_cluster_bounds: bool,
     pub interactions: InteractionConfig,
     pub clustering: ClusteringConfig,
+    /// Preferred default level id (takes precedence over registry default when non-empty).
+    /// If empty or invalid, the level loader falls back to the registry/source default.
+    pub default_level_id: String,
 }
 impl Default for GameConfig {
     fn default() -> Self {
@@ -258,6 +261,7 @@ impl Default for GameConfig {
             draw_cluster_bounds: false,
             interactions: Default::default(),
             clustering: Default::default(),
+            default_level_id: "menu".into(),
         }
     }
 }
