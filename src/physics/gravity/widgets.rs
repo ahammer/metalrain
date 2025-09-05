@@ -140,27 +140,19 @@ impl Plugin for GravityWidgetsPlugin {
     }
 }
 
-// Spawn widgets from config (or synthesize from legacy gravity.y if present and no widgets defined)
+// Spawn widgets from config. Legacy fallback that synthesized a widget from gravity.y has been removed.
 fn spawn_configured_gravity_widgets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     cfg: Res<GameConfig>,
 ) {
-    let mut widgets = cfg.gravity_widgets.widgets.clone();
-    if widgets.is_empty() && cfg.gravity.y.abs() > 0.0 {
-        // Legacy migration: implicit single attract widget at origin using |gravity.y|
-        widgets.push(GravityWidgetConfig {
-            id: 0,
-            strength: cfg.gravity.y.abs(),
-            mode: "Attract".into(),
-            radius: 0.0,
-            falloff: "InverseLinear".into(),
-            enabled: true,
-            physics_collider: false,
-            _parsed_ok: true,
-        });
-        info!(target: "widgets", "Spawned implicit gravity widget from legacy gravity.y = {}", cfg.gravity.y);
+    let widgets = cfg.gravity_widgets.widgets.clone();
+    if widgets.is_empty() {
+        // Explicitly do nothing: absence of gravity widgets now results in no attract/repulse forces.
+        // (Previously an implicit attractor was spawned based on gravity.y.)
+        info!(target: "widgets", "No gravity widgets defined; none spawned (legacy gravity.y={} ignored)", cfg.gravity.y);
+        return;
     }
     for (i, wc) in widgets.iter().enumerate() {
         let mut gw = GravityWidget::from_config(wc);

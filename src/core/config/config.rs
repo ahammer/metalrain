@@ -511,9 +511,9 @@ impl GameConfig {
         // Gravity widgets validation + migration guidance
         if self.gravity_widgets.widgets.is_empty() {
             if self.gravity.y.abs() > 0.0 {
-                w.push(format!("gravity.y legacy field ({:.1}) used to seed implicit gravity widget (id=0). Define gravity_widgets to silence this.", self.gravity.y));
+                w.push(format!("gravity.y legacy field present ({:.1}) but ignored (implicit widget spawning removed). Define gravity_widgets.widgets to enable attract/repulse forces.", self.gravity.y));
             } else {
-                w.push("No gravity widgets defined (gravity_widgets.widgets empty) and legacy gravity.y ~0 -> scene may have no central force".into());
+                w.push("No gravity widgets defined (gravity_widgets.widgets empty) and gravity.y ~0 -> scene will have no attract/repulse forces".into());
             }
         } else {
             use std::collections::HashSet;
