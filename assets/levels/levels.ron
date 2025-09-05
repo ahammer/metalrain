@@ -3,8 +3,10 @@
 // Each level entry provides a layout file and a widgets file.
 (
     version: 1,
-    default: "test_layout",
+    default: "menu",
     list: [
+        // Empty menu level scaffold
+        ( id: "menu", layout: "menu/layout.ron", widgets: "menu/widgets.ron" ),
         ( id: "test_layout", layout: "test_layout/layout.ron", widgets: "test_layout/widgets.ron" ),
     ],
 )

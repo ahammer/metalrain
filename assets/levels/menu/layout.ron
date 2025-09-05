@@ -1,0 +1,8 @@
+// Menu layout v1 (empty)
+// Intentionally empty: no walls or groups; only perimeter walls from universal fragment apply.
+(
+    version: 1,
+    groups: [
+        // Add groups with walls here when the menu scene needs interactive geometry.
+    ],
+)

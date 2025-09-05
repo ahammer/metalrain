@@ -147,8 +147,10 @@ mod disk_impl {
 
     impl DiskLevelSource {
         pub fn new(live: bool) -> Self {
-            // Hard-code recognized ids (no registry file)
-            let ids: Vec<&'static str> = vec!["test_layout"]; // Extend here for new disk-only levels
+            // Hard-code recognized ids (registry file `levels.ron` currently NOT consulted in disk mode).
+            // Order matters: first entry becomes the default. Keep this list in sync with assets/levels.
+            // TODO: optionally parse levels.ron to remove duplication.
+            let ids: Vec<&'static str> = vec!["menu", "test_layout"]; // Extend here for new disk-only levels
                                                               // Duplicate detection not necessary for literals but retain pattern for future extension.
             use std::collections::HashSet;
             let mut seen = HashSet::new();

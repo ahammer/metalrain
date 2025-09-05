@@ -1,0 +1,8 @@
+// Menu widgets v1 (empty)
+// No spawn points or attractors; menu scene should remain static unless populated later.
+(
+    version: 1,
+    widgets: [
+        // Add widget entries (SpawnPoint, Attractor, etc.) here if menu needs dynamic elements.
+    ],
+)
