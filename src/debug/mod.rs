@@ -18,8 +18,6 @@ pub use modes::*;
 #[cfg(feature = "debug")]
 use crate::core::system::system_order::PostPhysicsAdjustSet;
 #[cfg(feature = "debug")]
-use crate::interaction::inputmap::types::InputMap;
-#[cfg(feature = "debug")]
 use bevy::prelude::*;
 // Legacy spawn & spawn-related materials imports removed.
 
@@ -56,17 +54,7 @@ impl Plugin for DebugPlugin {
             }
         }
 
-        #[cfg(feature = "debug")]
-        fn debug_input_gizmos(input_map: Res<InputMap>, mut gizmos: Gizmos) {
-            let rt = &input_map.gesture_rt;
-            if rt.pointer_down {
-                let p = rt.pointer_last;
-                gizmos.circle_2d(p, 8.0, Color::srgb(1.0, 1.0, 0.2));
-                if rt.dragging {
-                    gizmos.line_2d(rt.pointer_start, p, Color::srgb(1.0, 0.5, 0.0));
-                }
-            }
-        }
+        // Removed debug_input_gizmos system (touch circle + drag line) per user request.
 
         app.init_resource::<modes::DebugState>()
             .init_resource::<modes::DebugStats>()
@@ -85,7 +73,6 @@ impl Plugin for DebugPlugin {
                 propagate_metaballs_view_system,
                 toggle_rapier_debug,
                 debug_logging_system,
-                debug_input_gizmos,
                 #[cfg(not(test))]
                 debug_config_overlay_update,
                 #[cfg(not(test))]

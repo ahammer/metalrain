@@ -1,6 +1,6 @@
 (
     // Level loading: preferred default level id (overrides registry default when present)
-    default_level_id: "test_layout",
+    default_level_id: "menu",
     window: (
         width: 1280.0,
         height: 720.0,
