@@ -3,6 +3,19 @@
 (
     version: 1,
     widgets: [
-        // Add widget entries (SpawnPoint, Attractor, etc.) here if menu needs dynamic elements.
+        // Single centered spawn point for menu background activity.
+        // Spawns small batches of balls with random velocities radiating outwards.
+        (
+            type: "SpawnPoint",
+            id: 0,
+            pos: ( x: -400.0, y: -200.0 ),
+            spawn: Some((
+                interval: 0.60,
+                batch: 4,
+                area_radius: 80.0,
+                ball_radius: ( min: 6.0, max: 14.0 ),
+                speed: ( min: 40.0, max: 200.0 ),
+            )),
+        ),
     ],
 )
