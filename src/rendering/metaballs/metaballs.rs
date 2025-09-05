@@ -419,6 +419,9 @@ fn setup_metaballs(
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
     windows: Query<&Window>,
     cfg: Res<GameConfig>,
+    // Ensure we can allocate an initial (even if unused) cluster palette storage buffer so the
+    // bind group layout is always satisfied even with zero balls / zero color groups (e.g. menu level)
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
 ) {
     let (w, h) = if let Ok(window) = windows.single() {
         (window.width(), window.height())
@@ -462,6 +465,15 @@ fn setup_metaballs(
     umat.surface_noise.ridged = if sn.ridged { 1 } else { 0 };
     umat.surface_noise.mode = sn.mode.min(1);
     umat.surface_noise.enabled = if sn.enabled { 1 } else { 0 };
+
+    // Pre-populate a 1-entry dummy palette buffer so binding @group(2) @binding(6) is always valid.
+    // This avoids a black screen when there are zero balls (menu) and no groups thus palette upload path never runs.
+    use bevy::render::storage::ShaderStorageBuffer as Ssb;
+    let dummy_palette: [[f32; 4]; 1] = [[0.0, 0.0, 0.0, 1.0]]; // opaque black (unused by background path)
+    let dummy_handle = buffers.add(Ssb::from(dummy_palette.as_slice()));
+
+    let mut umat = umat; // shadow mutable copy to attach palette handle before insertion
+    umat.cluster_palette = dummy_handle.clone();
 
     let unified_handle = unified_mats.add(umat);
 
@@ -636,6 +648,11 @@ fn update_metaballs_unified_material(
     } else {
         mat.data.v5.y = 0.0;
         mat.data.v0.y = 0.0;
+        // Defensive: ensure cluster_palette still points to a valid (dummy) buffer if no groups.
+        if buffers.get(&mat.cluster_palette).is_none() {
+            let dummy: [[f32; 4]; 1] = [[0.0, 0.0, 0.0, 1.0]];
+            mat.cluster_palette = buffers.add(ShaderStorageBuffer::from(dummy.as_slice()));
+        }
     }
 
     // Upload / update storage buffer asset
