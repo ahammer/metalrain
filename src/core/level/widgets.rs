@@ -31,6 +31,14 @@ pub struct SpawnSpecRaw {
     pub speed: RangeF32,
 }
 
+/// Radius definition that can be either a single scalar (legacy Attractor) or a range (TextSpawn usage).
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum RadiusDef {
+    Single(f32),
+    Range { min: f32, max: f32 },
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct WidgetDef {
     #[serde(rename = "type")]
@@ -42,15 +50,38 @@ pub struct WidgetDef {
     #[serde(default)]
     pub spawn: Option<SpawnSpecRaw>,
 
-    // Attractor-specific
+    // Attractor-specific & (overloaded) TextSpawn: unified radius field supporting number or range.
     #[serde(default)]
     pub strength: Option<f32>,
     #[serde(default)]
-    pub radius: Option<f32>,
+    pub radius: Option<RadiusDef>,
     #[serde(default)]
     pub falloff: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
+
+    // ----------------- TextSpawn optional raw fields (all serde default) -----------------
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub font_px: Option<u32>,
+    #[serde(default)]
+    pub cell: Option<f32>,
+    #[serde(default)]
+    pub jitter: Option<f32>,
+    // NOTE: radius range reuses `radius` field (Range variant) – kept for schema parity with prompt.
+    #[serde(default)]
+    pub speed: Option<RangeF32>,
+    #[serde(default)]
+    pub attraction_strength: Option<f32>,
+    #[serde(default)]
+    pub attraction_damping: Option<f32>,
+    #[serde(default)]
+    pub snap_distance: Option<f32>,
+    #[serde(default)]
+    pub color_mode: Option<String>,
+    #[serde(default)]
+    pub word_colors: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -169,7 +200,38 @@ impl AttractorSpec {
 pub struct ExtractedWidgets {
     pub spawn_points: Vec<SpawnPointSpec>,
     pub attractors: Vec<AttractorSpec>,
+    pub text_spawns: Vec<TextSpawnSpec>,
     pub warnings: Vec<String>,
+}
+
+// -------------------------------- TextSpawn Runtime Spec --------------------------------
+
+/// Text color selection strategy for spawned letter balls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextColorMode {
+    RandomPerBall,
+    WordSolid,
+    Single,
+}
+
+/// Runtime specification for a TextSpawn widget extracted from RON data.
+#[derive(Debug, Clone)]
+pub struct TextSpawnSpec {
+    pub id: u32,
+    pub pos: Vec2,
+    pub text: String,
+    pub font_px: u32,
+    pub cell: f32,
+    pub jitter: f32,
+    pub radius_min: f32,
+    pub radius_max: f32,
+    pub speed_min: f32,
+    pub speed_max: f32,
+    pub attraction_strength: f32,
+    pub attraction_damping: f32,
+    pub snap_distance: f32,
+    pub color_mode: TextColorMode,
+    pub word_palette_indices: Vec<usize>,
 }
 
 pub fn extract_widgets(file: &WidgetsFile) -> ExtractedWidgets {
@@ -240,7 +302,18 @@ pub fn extract_widgets(file: &WidgetsFile) -> ExtractedWidgets {
                     ));
                     s = 0.0;
                 }
-                let radius = w.radius.unwrap_or(0.0);
+                // Accept either scalar or range for backward compatibility (range -> use max as radius, warn).
+                let radius = match w.radius.clone() {
+                    Some(RadiusDef::Single(v)) => v,
+                    Some(RadiusDef::Range { min, max }) => {
+                        out.warnings.push(format!(
+                            "LevelLoader: Attractor id {} provided radius range ({}, {}) – using max as radius.",
+                            w.id, min, max
+                        ));
+                        max
+                    }
+                    None => 0.0,
+                };
                 let falloff_raw = w.falloff.clone().unwrap_or_else(|| "InverseLinear".into());
                 let falloff = FalloffKind::parse(&falloff_raw).unwrap_or_else(|| {
                     out.warnings.push(format!("LevelLoader: Attractor id {} unknown falloff '{}'; defaulting InverseLinear.", w.id, falloff_raw));
@@ -256,6 +329,104 @@ pub fn extract_widgets(file: &WidgetsFile) -> ExtractedWidgets {
                     enabled,
                 });
             }
+                "TextSpawn" => {
+                    // Empty or missing text -> warn & skip
+                    let text_raw = w.text.clone().unwrap_or_default();
+                    if text_raw.trim().is_empty() {
+                        out.warnings.push(format!(
+                            "LevelLoader: TextSpawn id {} has empty text; skipped.",
+                            w.id
+                        ));
+                        continue;
+                    }
+
+                    // Defaults per prompt
+                    let font_px = w.font_px.unwrap_or(140).max(1);
+                    let mut cell = w.cell.unwrap_or(14.0);
+                    if cell <= 1.0 {
+                        out.warnings.push(format!(
+                            "LevelLoader: TextSpawn id {} cell {} <= 1.0 adjusted to 8.0.",
+                            w.id, cell
+                        ));
+                        cell = 8.0;
+                    }
+                    let jitter = w.jitter.unwrap_or(42.0).max(0.0);
+
+                    // Radius range sourced from `radius` field Range variant; fallback to default 7..13
+                    let (mut rmin, mut rmax) = match w.radius.clone() {
+                        Some(RadiusDef::Range { min, max }) => (min, max),
+                        Some(RadiusDef::Single(v)) => (v, v),
+                        None => (7.0, 13.0),
+                    };
+                    if rmin > rmax {
+                        out.warnings.push(format!(
+                            "LevelLoader: TextSpawn id {} radius min {} > max {} swapped.",
+                            w.id, rmin, rmax
+                        ));
+                        std::mem::swap(&mut rmin, &mut rmax);
+                    }
+                    if rmin <= 0.0 {
+                        rmin = 0.01;
+                    }
+                    if rmax <= 0.0 {
+                        rmax = 0.01;
+                    }
+
+                    let (mut smin, mut smax) = match w.speed.clone() {
+                        Some(r) => (r.min, r.max),
+                        None => (0.0, 50.0),
+                    };
+                    if smin > smax {
+                        out.warnings.push(format!(
+                            "LevelLoader: TextSpawn id {} speed min {} > max {} swapped.",
+                            w.id, smin, smax
+                        ));
+                        std::mem::swap(&mut smin, &mut smax);
+                    }
+                    if smin < 0.0 {
+                        smin = 0.0;
+                    }
+                    if smax < 0.0 {
+                        smax = 0.0;
+                    }
+
+                    let attraction_strength = w.attraction_strength.unwrap_or(60.0).max(0.0);
+                    let attraction_damping = w.attraction_damping.unwrap_or(6.5).max(0.0);
+                    let snap_distance = w.snap_distance.unwrap_or(3.2).max(0.0);
+
+                    let color_mode_raw = w.color_mode.clone().unwrap_or_else(|| "RandomPerBall".into());
+                    let color_mode = match color_mode_raw.as_str() {
+                        "RandomPerBall" => TextColorMode::RandomPerBall,
+                        "WordSolid" => TextColorMode::WordSolid,
+                        "Single" => TextColorMode::Single,
+                        other => {
+                            out.warnings.push(format!(
+                                "LevelLoader: TextSpawn id {} unknown color_mode '{}'; defaulting RandomPerBall.",
+                                w.id, other
+                            ));
+                            TextColorMode::RandomPerBall
+                        }
+                    };
+                    let word_palette_indices = w.word_colors.clone().unwrap_or_default();
+
+                    out.text_spawns.push(TextSpawnSpec {
+                        id: w.id,
+                        pos: w.pos.clone().into(),
+                        text: text_raw,
+                        font_px,
+                        cell,
+                        jitter,
+                        radius_min: rmin,
+                        radius_max: rmax,
+                        speed_min: smin,
+                        speed_max: smax,
+                        attraction_strength,
+                        attraction_damping,
+                        snap_distance,
+                        color_mode,
+                        word_palette_indices,
+                    });
+                }
             other => {
                 out.warnings.push(format!(
                     "LevelLoader: unknown widget type '{}' (id {}) skipped.",

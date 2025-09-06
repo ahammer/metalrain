@@ -15,6 +15,7 @@ use crate::interaction::session::config_hot_reload::ConfigHotReloadPlugin;
 use crate::physics::clustering::cluster::ClusterPlugin;
 // use crate::physics::gravity::radial_gravity::RadialGravityPlugin; // legacy
 use crate::gameplay::spawn_widgets::SpawnWidgetsPlugin;
+use crate::gameplay::text_spawn::TextSpawnPlugin;
 use crate::physics::gravity::widgets::GravityWidgetsPlugin;
 use crate::physics::rapier::rapier_physics::PhysicsSetupPlugin;
 use crate::rendering::camera::camera::CameraPlugin;
@@ -37,6 +38,7 @@ impl Plugin for GamePlugin {
             PhysicsSetupPlugin,
             GravityWidgetsPlugin, // gravity
             SpawnWidgetsPlugin,   // new spawn widgets
+            TextSpawnPlugin,      // text->balls widget
             ClusterPlugin,
             MetaballsPlugin,
             InputActionsPlugin,

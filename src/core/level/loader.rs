@@ -8,7 +8,7 @@ use super::layout::{LayoutFile, WallSegment};
 use super::embedded_levels::{select_level_source, LevelSourceMode};
 use super::registry::resolve_requested_level_id; // still used for CLI/env resolution (registry deprecated for selection list)
 use super::wall_timeline::{WallGroupRoot, WallTimeline};
-use super::widgets::{extract_widgets, AttractorSpec, SpawnPointSpec, WidgetsFile};
+use super::widgets::{extract_widgets, AttractorSpec, SpawnPointSpec, TextSpawnSpec, WidgetsFile};
 
 #[derive(Component)]
 struct WallVisual;
@@ -28,6 +28,7 @@ pub struct LevelWalls(pub Vec<WallSegment>);
 pub struct LevelWidgets {
     pub spawn_points: Vec<SpawnPointSpec>,
     pub attractors: Vec<AttractorSpec>,
+    pub text_spawns: Vec<TextSpawnSpec>,
 }
 
 /// Plugin performing data-driven level loading & integration into GameConfig
@@ -380,9 +381,10 @@ pub fn load_level_data(
     }
     info!(
         target = "level",
-        "LevelLoader: extracted {} spawn points, {} attractors",
+        "LevelLoader: extracted {} spawn points, {} attractors, {} text spawns",
         extracted.spawn_points.len(),
-        extracted.attractors.len()
+        extracted.attractors.len(),
+        extracted.text_spawns.len()
     );
 
     // Integrate spawn points into GameConfig.spawn_widgets (overriding any existing list)
@@ -414,9 +416,14 @@ pub fn load_level_data(
     }
 
     // Insert LevelWidgets resource with full positional info
+    let text_spawn_count = extracted.text_spawns.len();
+    let spawn_points_vec = extracted.spawn_points; // move
+    let attractors_vec = extracted.attractors; // move
+    let text_spawns_vec = extracted.text_spawns; // move
     commands.insert_resource(LevelWidgets {
-        spawn_points: extracted.spawn_points,
-        attractors: extracted.attractors,
+        spawn_points: spawn_points_vec,
+        attractors: attractors_vec,
+        text_spawns: text_spawns_vec,
     });
 
     // Insert selection resource
@@ -424,10 +431,11 @@ pub fn load_level_data(
 
     info!(
         target = "level",
-        "LevelLoader: completed (walls={}, spawn_points={}, attractors={})",
+        "LevelLoader: completed (walls={}, spawn_points={}, attractors={}, text_spawns={})",
         wall_count,
         game_cfg.spawn_widgets.widgets.len(),
-        game_cfg.gravity_widgets.widgets.len()
+        game_cfg.gravity_widgets.widgets.len(),
+        text_spawn_count
     );
 
     // Live reload stub warning (only disk live mode)

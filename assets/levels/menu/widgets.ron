@@ -1,21 +1,20 @@
-// Menu widgets v1 (empty)
-// No spawn points or attractors; menu scene should remain static unless populated later.
+// Menu widgets v1 with TextSpawn example
 (
     version: 1,
     widgets: [
-        // Single centered spawn point for menu background activity.
-        // Spawns small batches of balls with random velocities radiating outwards.
         (
-            type: "SpawnPoint",
-            id: 0,
-            pos: ( x: -400.0, y: -200.0 ),
-            spawn: Some((
-                interval: 0.60,
-                batch: 4,
-                area_radius: 80.0,
-                ball_radius: ( min: 6.0, max: 14.0 ),
-                speed: ( min: 40.0, max: 200.0 ),
-            )),
+            type: "TextSpawn",
+            id: 100,
+            pos: ( x: 0.0, y: 0.0 ),
+            text: Some("hello world"),
+            font_px: Some(200),
+            cell: Some(10.0),
+            jitter: Some(20.0),
+            radius: Some(( min: 2.0, max: 5.0 )),
+            speed: Some(( min: 20.0, max: 160.0 )),
+            attraction: Some(( strength: 4.0, damping: 2.2, snap_distance: 4.0 )),
+            color_mode: Some("RandomPerBall"),
+            // word_palette_indices not needed for RandomPerBall
         ),
     ],
 )

@@ -14,15 +14,7 @@ pub fn debug_key_input_system(input_map: Option<Res<InputMap>>, mut state: ResMu
     if input_map.just_pressed("DebugMode1") {
         new_mode = Some(DebugRenderMode::Metaballs);
     }
-    if input_map.just_pressed("DebugMode2") {
-        new_mode = Some(DebugRenderMode::RapierWireframe);
-    }
-    if input_map.just_pressed("DebugMode3") {
-        new_mode = Some(DebugRenderMode::MetaballHeightfield);
-    }
-    if input_map.just_pressed("DebugMode4") {
-        new_mode = Some(DebugRenderMode::MetaballColorInfo);
-    }
+    // Other debug modes removed; only Metaballs remains.
     if let Some(m) = new_mode {
         if m != state.mode {
             state.last_mode = state.mode;

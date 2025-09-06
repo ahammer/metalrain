@@ -41,6 +41,7 @@ bytemuck = { version = "1.15", features = ["derive"] }
 half = "2"
 smallvec = "1.13"
 toml = "0.8"
+fontdue = "0.8"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -73,7 +74,7 @@ strip = true
 opt-level = "z"
 
 [features]
-default = ["debug"]
+default = []
 # Enable with: cargo run --features debug
 debug = []
 # Metaballs optimization feature flags

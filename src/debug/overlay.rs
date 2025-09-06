@@ -22,7 +22,8 @@ pub(crate) struct DebugConfigOverlayText;
 #[allow(dead_code)]
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Top-left anchored UI text node.
-    let font_path = "fonts/FiraSans-Bold.ttf";
+    // Use the new bundled font added to assets. If missing we still proceed with a default handle.
+    let font_path = "fonts/AovelSansRounded-rdDL.ttf";
     let custom_path = format!("assets/{font_path}");
     let (font_handle, initial_text) = if std::path::Path::new(&custom_path).exists() {
         (
@@ -95,12 +96,8 @@ pub(crate) fn debug_overlay_update(
         {
             return;
         }
-        let metaballs_variant = match state.mode {
-            super::modes::DebugRenderMode::Metaballs => MetaballsViewVariant::Normal,
-            super::modes::DebugRenderMode::MetaballHeightfield => MetaballsViewVariant::Heightfield,
-            super::modes::DebugRenderMode::MetaballColorInfo => MetaballsViewVariant::ColorInfo,
-            _ => MetaballsViewVariant::Normal,
-        };
+        // Only a single debug render mode (Metaballs) and single view variant remain.
+        let metaballs_variant = MetaballsViewVariant::Normal;
         let mut base = format!(
             "FPS {:.1} ft {:.1}ms balls {} enc {}/{} trunc {} clusters {} mode {:?} view {:?}",
             stats.fps,

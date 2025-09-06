@@ -8,17 +8,12 @@ use crate::rendering::metaballs::metaballs::MetaballsToggle;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugRenderMode {
     Metaballs,
-    RapierWireframe,
-    MetaballHeightfield,
-    MetaballColorInfo,
 }
 
 #[cfg(feature = "debug")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaballsViewVariant {
     Normal,
-    Heightfield,
-    ColorInfo,
 }
 
 #[cfg(feature = "debug")]
@@ -45,7 +40,7 @@ impl Default for DebugState {
             mode: DebugRenderMode::Metaballs,
             last_mode: DebugRenderMode::Metaballs,
             overlay_visible: true,
-            log_interval: 1.0,
+            log_interval: 10.0,
             time_accum: 0.0,
             frame_counter: 0,
             last_ball_count: 0,
@@ -98,17 +93,10 @@ pub fn apply_mode_visual_overrides_system(
     mut metaballs_toggle: ResMut<MetaballsToggle>,
 ) {
     use DebugRenderMode::*;
-    let variant = match state.mode {
-        Metaballs => MetaballsViewVariant::Normal,
-        RapierWireframe => MetaballsViewVariant::Normal,
-        MetaballHeightfield => MetaballsViewVariant::Heightfield,
-        MetaballColorInfo => MetaballsViewVariant::ColorInfo,
-    };
+    // Single mode -> single view variant.
+    let variant = MetaballsViewVariant::Normal;
     overrides.metaballs_view_variant = variant;
-    metaballs_toggle.0 = matches!(
-        state.mode,
-        Metaballs | MetaballHeightfield | MetaballColorInfo
-    );
+    metaballs_toggle.0 = matches!(state.mode, Metaballs);
 }
 
 #[derive(Resource, Default)]
@@ -127,9 +115,7 @@ pub fn propagate_metaballs_view_system(
 ) {
     // Only run if changed
     let view_id = match overrides.metaballs_view_variant {
-        MetaballsViewVariant::Normal => 0u32,
-        MetaballsViewVariant::Heightfield => 1u32,
-        MetaballsViewVariant::ColorInfo => 2u32,
+    MetaballsViewVariant::Normal => 0u32,
     };
     if view_id == last.0 {
         return;

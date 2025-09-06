@@ -31,7 +31,6 @@ pub struct DebugPlugin;
 impl Plugin for DebugPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "debug")]
-        use bevy_rapier2d::render::DebugRenderContext;
         use keys::debug_key_input_system;
         use logging::debug_logging_system;
         use modes::apply_mode_visual_overrides_system;
@@ -40,19 +39,6 @@ impl Plugin for DebugPlugin {
         use overlay::{debug_config_overlay_update, debug_overlay_spawn, debug_overlay_update};
         use stats::debug_stats_collect_system;
 
-        #[cfg(feature = "debug")]
-        fn toggle_rapier_debug(
-            state: Res<modes::DebugState>,
-            ctx: Option<ResMut<DebugRenderContext>>,
-        ) {
-            if let Some(mut c) = ctx {
-                use modes::DebugRenderMode::*;
-                let enable = matches!(state.mode, RapierWireframe);
-                if c.enabled != enable {
-                    c.enabled = enable;
-                }
-            }
-        }
 
         // Removed debug_input_gizmos system (touch circle + drag line) per user request.
 
@@ -71,7 +57,6 @@ impl Plugin for DebugPlugin {
                 debug_stats_collect_system,
                 apply_mode_visual_overrides_system,
                 propagate_metaballs_view_system,
-                toggle_rapier_debug,
                 debug_logging_system,
                 #[cfg(not(test))]
                 debug_config_overlay_update,
