@@ -23,7 +23,7 @@ pub(crate) struct DebugConfigOverlayText;
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Top-left anchored UI text node.
     // Use the new bundled font added to assets. If missing we still proceed with a default handle.
-    let font_path = "fonts/AovelSansRounded-rdDL.ttf";
+    let font_path = "fonts/DroidSans-Bold.ttf";
     let custom_path = format!("assets/{font_path}");
     let (font_handle, initial_text) = if std::path::Path::new(&custom_path).exists() {
         (

@@ -7,6 +7,7 @@ use crate::core::components::{Ball, BallRadius};
 use crate::core::config::config::GameConfig;
 use crate::core::level::loader::LevelWidgets;
 use crate::core::level::widgets::TextColorMode;
+use fontdue::layout::{Layout, LayoutSettings, CoordinateSystem, TextStyle};
 use crate::core::system::system_order::PrePhysicsSet;
 use crate::rendering::materials::materials::{BallDisplayMaterials, BallMaterialIndex};
 use crate::rendering::palette::palette::BASE_COLORS;
@@ -53,58 +54,91 @@ impl Plugin for TextSpawnPlugin {
 /// Convert text into a deduplicated set of local sample points representing the filled glyph shapes.
 /// Returns a vector of (word_index, charIndex_within_word, local_position).
 pub fn rasterize_text_points(text: &str, font: &fontdue::Font, font_px: u32, cell: f32) -> Vec<(usize, usize, Vec2)> {
-    let cell_px = cell.max(1.0);
+    // Use fontdue's Layout for correct glyph placement (advance, kerning, baseline).
+    // We preserve 'word indices' for color logic by tracking transitions between whitespace and non-whitespace.
     let scale = font_px as f32;
-    // Split into words preserving ordering
-    let words: Vec<&str> = text.split_whitespace().collect();
-    // Track running pen x advance
-    let mut pen_x: f32 = 0.0;
+    let cell_px = cell.max(1.0) as usize;
+
+    // Build layout (single line for now). PositiveYDown then flip later.
+    let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
+    layout.reset(&LayoutSettings {
+        max_width: None,
+        max_height: None,
+        ..Default::default()
+    });
+    layout.append(&[font], &TextStyle::new(text, scale, 0));
+
+    if layout.glyphs().is_empty() { return Vec::new(); }
+
+    // Map each glyph to a word index: increment when entering a non-whitespace run from whitespace.
+    let mut word_indices: Vec<usize> = Vec::with_capacity(layout.glyphs().len());
+    let mut current_word = 0usize;
+    let mut in_whitespace = true;
+    for g in layout.glyphs() {
+        let ch = g.parent; // original char
+        let is_ws = ch.is_whitespace();
+        if !is_ws && in_whitespace {
+            // entering new word
+            if !word_indices.is_empty() || current_word == 0 { /* first word or after space */ }
+            if !in_whitespace { /* handled */ }
+            if !is_ws { current_word += 1; }
+        }
+        in_whitespace = is_ws;
+        // word index should start at 0 for first non-whitespace word
+        let assigned = if is_ws { current_word.saturating_sub(1) } else { current_word.saturating_sub(1) };
+        word_indices.push(assigned);
+    }
+    // Safety: all glyphs should have a word index; if text starts with non-whitespace current_word would become 1, subtract gives 0.
+
     let mut points: Vec<(usize, usize, Vec2)> = Vec::new();
     let mut bbox_min = Vec2::splat(f32::MAX);
     let mut bbox_max = Vec2::splat(f32::MIN);
 
-    for (wi, w) in words.iter().enumerate() {
-        for (ci, ch) in w.chars().enumerate() {
-            let (metrics, bitmap) = font.rasterize(ch, scale);
-            if metrics.width == 0 || metrics.height == 0 { continue; }
-            let step_y = cell_px as usize;
-            let step_x = cell_px as usize;
-            for py in (0..metrics.height).step_by(step_y.max(1)) {
-                for px in (0..metrics.width).step_by(step_x.max(1)) {
-                    let idx = py * metrics.width + px;
-                    if idx >= bitmap.len() { continue; }
-                    let alpha = bitmap[idx] as f32 / 255.0;
-                    if alpha < 0.5 { continue; }
-                    let local_x = pen_x + px as f32 + metrics.xmin as f32;
-                    let local_y = -(py as f32 + metrics.ymin as f32); // y-up
-                    let p = Vec2::new(local_x, local_y);
-                    bbox_min = bbox_min.min(p);
-                    bbox_max = bbox_max.max(p);
-                    points.push((wi, ci, p));
-                }
+    // Iterate glyphs, rasterize each and sample its bitmap.
+    for (gi, glyph) in layout.glyphs().iter().enumerate() {
+        // Skip whitespace glyphs (they often have 0 area) but still maintain layout advance already handled.
+        if glyph.parent.is_whitespace() { continue; }
+        // Derive metrics from font for this glyph key.
+        let metrics = font.metrics(glyph.parent, scale);
+        let width = metrics.width as usize;
+        let height = metrics.height as usize;
+        if width == 0 || height == 0 { continue; }
+        let (_, bitmap) = font.rasterize(glyph.parent, scale);
+        // glyph.x, glyph.y are top-left in PositiveYDown coordinates. We'll flip Y later.
+        for py in (0..height).step_by(cell_px.max(1)) {
+            for px in (0..width).step_by(cell_px.max(1)) {
+                let idx = py * width + px; if idx >= bitmap.len() { continue; }
+                let alpha = bitmap[idx] as f32 / 255.0; if alpha < 0.5 { continue; }
+                let local_x = glyph.x + px as f32;
+                let local_y_down = glyph.y + py as f32; // positive down
+                let p = Vec2::new(local_x, -local_y_down); // convert to y-up
+                bbox_min = bbox_min.min(p); bbox_max = bbox_max.max(p);
+                // char index within its word: derive by counting prior glyphs with same word index
+                let wi = word_indices[gi];
+                let char_index_in_word = layout.glyphs()[..gi]
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, g)| !g.parent.is_whitespace())
+                    .filter(|(idx, _)| word_indices[*idx] == wi)
+                    .count();
+                points.push((wi, char_index_in_word, p));
             }
-            pen_x += metrics.advance_width;
         }
-        // Add space advance (approx) between words
-        if wi + 1 < words.len() { pen_x += scale * 0.4; }
     }
-
     if points.is_empty() { return points; }
 
-    // Recenter to midpoint
+    // Center
     let center = (bbox_min + bbox_max) * 0.5;
-    for (_, _, p) in points.iter_mut() { *p -= center; }
+    for (_,_,p) in points.iter_mut() { *p -= center; }
 
-    // Deduplicate by grid hashing (cell*0.4 threshold)
-    let dedup_thresh = cell * 0.4;
-    let dedup_sq = dedup_thresh * dedup_thresh;
+    // Deduplicate
+    let dedup_thresh = cell * 0.4; let dedup_sq = dedup_thresh * dedup_thresh;
     points.sort_by(|a,b| a.2.x.partial_cmp(&b.2.x).unwrap_or(std::cmp::Ordering::Equal));
     let mut deduped: Vec<(usize, usize, Vec2)> = Vec::with_capacity(points.len());
-    for (wi, ci, p) in points.into_iter() {
-        if let Some(last) = deduped.last() { if (last.2 - p).length_squared() < dedup_sq { continue; } }
-        deduped.push((wi, ci, p));
+    for tup in points.into_iter() {
+        if let Some(last) = deduped.last() { if (last.2 - tup.2).length_squared() < dedup_sq { continue; } }
+        deduped.push(tup);
     }
-
     deduped
 }
 
