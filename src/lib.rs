@@ -7,6 +7,7 @@ pub mod gameplay;
 pub mod interaction;
 pub mod physics;
 pub mod rendering;
+pub mod sdf_atlas; // Unified SDF atlas generation & inspection (formerly multiple binaries)
 
 // Curated re-exports
 pub use app::game::GamePlugin;

@@ -86,7 +86,9 @@ pub struct SdfShapeGpuMeta {
     pub pivot: Vec2,
     // meta.x = tile_size_px, meta.y = distance_range_px (global currently but stored per-shape for future variance)
     // meta.z = reserved (0), meta.w = reserved (0)
-    pub meta: Vec4,
+    // NOTE: field formerly named `meta` in WGSL; renamed to `params` to avoid reserved identifier collision.
+    // params.x = tile_size_px, params.y = distance_range_px, params.z/.w reserved
+    pub params: Vec4,
 }
 
 fn load_sdf_atlas(
@@ -138,14 +140,14 @@ fn load_sdf_atlas(
 
     // Build GPU metadata buffer (index 0 reserved dummy so shape_index==0 => analytic circle fallback)
     let mut gpu_meta: Vec<SdfShapeGpuMeta> = Vec::with_capacity(shapes_meta.len()+1);
-    gpu_meta.push(SdfShapeGpuMeta { uv0: Vec2::ZERO, uv1: Vec2::ZERO, pivot: Vec2::ZERO, meta: Vec4::ZERO }); // index 0 sentinel
+    gpu_meta.push(SdfShapeGpuMeta { uv0: Vec2::ZERO, uv1: Vec2::ZERO, pivot: Vec2::ZERO, params: Vec4::ZERO }); // index 0 sentinel
     for s in &shapes_meta {
         let (u0,v0,u1,v1) = s.uv;
         gpu_meta.push(SdfShapeGpuMeta {
             uv0: Vec2::new(u0, v0),
             uv1: Vec2::new(u1, v1),
             pivot: Vec2::new(s.pivot.0, s.pivot.1),
-            meta: Vec4::new(parsed.tile_size as f32, distance_range, 0.0, 0.0),
+            params: Vec4::new(parsed.tile_size as f32, distance_range, 0.0, 0.0),
         });
     }
     let shape_buffer_handle = buffers.add(ShaderStorageBuffer::from(gpu_meta.as_slice()));

@@ -106,9 +106,10 @@ struct GroupColor { value: vec4<f32>, };
 @group(2) @binding(6) var<storage, read> group_palette: array<GroupColor>; // palette indexed by group id
 // Optional SDF atlas (texture binding index aligned with Rust material). Sampler uses default implicit sampler; if texture not bound runtime path disabled.
 @group(2) @binding(7) var sdf_atlas_tex: texture_2d<f32>;
-// Shape metadata (uv0, uv1, pivot, meta) – index 0 is dummy (analytic circle fallback)
-// meta.x = tile_size_px, meta.y = distance_range_px, meta.z/meta.w reserved
-struct SdfShapeGpuMeta { uv0: vec2<f32>, uv1: vec2<f32>, pivot: vec2<f32>, meta: vec4<f32> };
+// Shape metadata (uv0, uv1, pivot, params) – index 0 is dummy (analytic circle fallback)
+// params.x = tile_size_px, params.y = distance_range_px, params.z/params.w reserved
+// NOTE: field formerly named `meta` but renamed to `params` to avoid WGSL reserved identifier collision on some adapters.
+struct SdfShapeGpuMeta { uv0: vec2<f32>, uv1: vec2<f32>, pivot: vec2<f32>, params: vec4<f32> };
 @group(2) @binding(8) var<storage, read> sdf_shape_meta: array<SdfShapeGpuMeta>;
 // NOTE: explicit sampler binding deferred to avoid pipeline layout break; sampling uses implicit sampler assumption.
 
@@ -393,7 +394,7 @@ fn accumulate_groups_tile(
             fi = norm * norm * norm;
             if (needs_gradient && metaballs.v5.w >= 1.0) {
                 // Gradient step: approximate texel size in world units = scaled_r / (tile_size*0.5)
-                let tile_px = sdf_shape_meta[shape_index].meta.x;
+                let tile_px = sdf_shape_meta[shape_index].params.x;
                 let world_per_px = scaled_r / max(tile_px * 0.5, 1.0);
                 let eps_scale = max(metaballs.v6.w, 0.01);
                 let eps = world_per_px * eps_scale;

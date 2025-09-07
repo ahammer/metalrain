@@ -2,7 +2,8 @@ SDF Atlas JSON Schema (Version 1)
 =================================
 
 This document describes the structure of the `sdf_atlas.json` file produced by the procedural
-builders (`sdf_atlas_build`, `sdf_atlas_gen`) and consumed at runtime.
+builder (now the unified `sdf_atlas build` subcommand; legacy `sdf_atlas_build` / `sdf_atlas_gen`
+utilities have been consolidated) and consumed at runtime.
 
 Root Object Fields
 ------------------
@@ -115,3 +116,4 @@ band, particularly for large, nearly tile-filling shapes.
 Change Log (schema related)
 ---------------------------
 2025-09-07: Added `metadata.padding_px`, uniform glyph scaling & centering description, and lowercase a-z glyph support.
+2025-09-07: Consolidated atlas tooling into single `sdf_atlas` binary with `build`, `inspect`, `schema` subcommands.

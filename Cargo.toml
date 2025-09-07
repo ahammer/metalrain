@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Adam <you@example.com>"]
 license = "GPL-3.0-or-later"
+default-run = "ball_matcher"
 
 [dependencies]
 # Bevy without WebGL: explicitly enumerate features (omit `webgl2` to avoid enabling wgpu/webgl)
