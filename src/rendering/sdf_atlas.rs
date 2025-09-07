@@ -90,15 +90,17 @@ fn load_sdf_atlas(
     // Early exit if disabled in config.
     if !cfg_shapes.enabled { return; }
 
-    // Hard-coded provisional path; could move to config later.
-    let json_path = "assets/shapes/sdf_atlas.json";
-    let png_path = "assets/shapes/sdf_atlas.png";
-    if !Path::new(json_path).exists() || !Path::new(png_path).exists() {
-        info!(target:"sdf", "SDF atlas assets missing ({} / {}); disabling SDF path", json_path, png_path);
+    // Hard-coded provisional paths; could move to config later.
+    // Note: AssetServer expects paths relative to the asset root (i.e. without leading 'assets/').
+    let json_fs_path = "assets/shapes/sdf_atlas.json"; // filesystem check path
+    let png_fs_path = "assets/shapes/sdf_atlas.png";   // filesystem check path
+    let png_asset_path = "shapes/sdf_atlas.png";       // asset server relative path
+    if !Path::new(json_fs_path).exists() || !Path::new(png_fs_path).exists() {
+        info!(target:"sdf", "SDF atlas assets missing ({} / {}); disabling SDF path", json_fs_path, png_fs_path);
         commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None });
         return;
     }
-    let raw_str = match fs::read_to_string(json_path) { Ok(s)=>s, Err(e)=>{ warn!(target:"sdf", "Failed reading atlas json: {e}"); return; } };
+    let raw_str = match fs::read_to_string(json_fs_path) { Ok(s)=>s, Err(e)=>{ warn!(target:"sdf", "Failed reading atlas json: {e}"); return; } };
     let parsed: RawAtlasJson = match serde_json::from_str(&raw_str) { Ok(p)=>p, Err(e)=>{ warn!(target:"sdf", "JSON parse error: {e}"); return; } };
     if parsed.version != 1 { warn!(target:"sdf", "Unsupported SDF atlas version {}; expected 1", parsed.version); return; }
     if parsed.tile_size == 0 { warn!(target:"sdf", "tile_size must be > 0"); return; }
@@ -113,7 +115,7 @@ fn load_sdf_atlas(
     }
 
     // Load texture via asset server so it participates in Bevy's lifecycle; fallback if fails later.
-    let tex_handle: Handle<Image> = asset_server.load(png_path);
+    let tex_handle: Handle<Image> = asset_server.load(png_asset_path);
     let distance_range = parsed.distance_range.unwrap_or(parsed.tile_size as f32 * 0.125);
     let channel_mode = match parsed.channel_mode.as_str() { "sdf_r8"=>SdfChannelMode::SdfR8, "msdf_rgb"=>SdfChannelMode::MsdfRgb, "msdf_rgba"=>SdfChannelMode::MsdfRgba, other=>{ warn!(target:"sdf", "Unknown channel_mode '{}', defaulting to sdf_r8", other); SdfChannelMode::SdfR8 } };
 

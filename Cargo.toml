@@ -44,6 +44,7 @@ toml = "0.8"
 serde_json = "1.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
 anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -65,6 +66,7 @@ wgpu = { version = "24", default-features = true, features = ["webgpu" ] }
 # Rely on Bevy's internal wgpu (Vulkan / Metal / DX12 backends enforced at runtime in `main.rs`).
 
 [dev-dependencies]
+tempfile = "3"
 
 [profile.dev]
 opt-level = 1
