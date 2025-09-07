@@ -198,8 +198,15 @@ pub struct SdfShapesConfig {
     pub max_gradient_samples: u32,
     #[serde(default)] pub gradient_step_scale: f32, // multiplier on adaptive world_per_px step (1.0 = default)
     #[serde(default)] pub use_circle_fallback_when_radius_lt: f32, // if >0, force analytic circle when scaled radius < threshold
+    // ---------------- Glyph Mode (NEW) ----------------
+    #[serde(default)] pub glyph_mode: bool,              // master toggle for glyph-driven assignment
+    #[serde(default)] pub glyph_text: String,            // sequence used for mapping to balls
+    #[serde(default = "default_glyph_wrap")] pub glyph_wrap: String,            // policy token: Repeat | Clamp | None
+    #[serde(default = "default_glyph_skip_whitespace")] pub glyph_skip_whitespace: bool,   // skip whitespace chars when true
 }
-impl Default for SdfShapesConfig { fn default() -> Self { Self { enabled: true, force_fallback: false, max_gradient_samples: 2, gradient_step_scale: 1.0, use_circle_fallback_when_radius_lt: 0.0 } } }
+fn default_glyph_wrap() -> String { "Repeat".to_string() }
+fn default_glyph_skip_whitespace() -> bool { true }
+impl Default for SdfShapesConfig { fn default() -> Self { Self { enabled: true, force_fallback: false, max_gradient_samples: 2, gradient_step_scale: 1.0, use_circle_fallback_when_radius_lt: 0.0, glyph_mode: false, glyph_text: String::new(), glyph_wrap: default_glyph_wrap(), glyph_skip_whitespace: default_glyph_skip_whitespace() } } }
 
 // ---------------- Root GameConfig ----------------
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
@@ -331,6 +338,18 @@ impl GameConfig {
     if self.sdf_shapes.gradient_step_scale <= 0.0 { w.push(format!("sdf_shapes.gradient_step_scale {} <= 0", self.sdf_shapes.gradient_step_scale)); }
     if self.sdf_shapes.use_circle_fallback_when_radius_lt < 0.0 { w.push(format!("sdf_shapes.use_circle_fallback_when_radius_lt {} < 0", self.sdf_shapes.use_circle_fallback_when_radius_lt)); }
         if !self.sdf_shapes.enabled && self.sdf_shapes.force_fallback { w.push("sdf_shapes.force_fallback true while disabled".into()); }
+        // Glyph mode validation (non-fatal warnings)
+        if self.sdf_shapes.glyph_mode {
+            if self.sdf_shapes.glyph_text.is_empty() { w.push("sdf_shapes.glyph_mode enabled but glyph_text empty".into()); }
+            let wrap_ok = matches!(self.sdf_shapes.glyph_wrap.as_str(), "Repeat" | "Clamp" | "None");
+            if !wrap_ok { w.push(format!("sdf_shapes.glyph_wrap '{}' invalid (expected Repeat|Clamp|None) -> falling back to Repeat", self.sdf_shapes.glyph_wrap)); }
+            // Note: actual unknown glyphs vs atlas reported post-load; we only lightly pre-scan for control chars if not skipping whitespace
+            if !self.sdf_shapes.glyph_skip_whitespace {
+                let mut control: Vec<char> = self.sdf_shapes.glyph_text.chars().filter(|c| c.is_control()).take(8).collect();
+                control.sort(); control.dedup();
+                if !control.is_empty() { w.push(format!("sdf_shapes.glyph_text contains control chars {:?}", control)); }
+            }
+        }
         // Clustering thresholds
         let db_enter = self.clustering.distance_buffer_enter_cluster; let db_exit = self.clustering.distance_buffer_exit_cluster; if db_enter < 1.0 { w.push(format!("clustering.distance_buffer_enter_cluster {} < 1.0", db_enter)); } if db_exit < db_enter { w.push(format!("clustering.distance_buffer_exit_cluster {} < enter {}", db_exit, db_enter)); } if db_exit > 3.0 { w.push(format!("clustering.distance_buffer_exit_cluster {} > 3.0", db_exit)); }
         w
