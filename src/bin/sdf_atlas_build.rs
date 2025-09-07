@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
         impl BBoxCollector { fn upd(&mut self,x:f32,y:f32){ let b=&mut self.bbox; if x<b.0 {b.0=x;} if y<b.1 {b.1=y;} if x>b.2 {b.2=x;} if y>b.3 {b.3=y;} } }
         impl ttf::OutlineBuilder for BBoxCollector {
             fn move_to(&mut self, x:f32,y:f32){ self.started=true; self.last=(x,y); self.first=(x,y); self.upd(x,y); }
-            fn line_to(&mut self, x:f32,y:f32){ self.last=(x,y); self.upd(x,y);} 
+            fn line_to(&mut self, x:f32,y:f32){ self.last=(x,y); self.upd(x,y);}
             fn quad_to(&mut self, x1:f32,y1:f32,x:f32,y:f32){ // simple flatten
                 let (sx,sy)=self.last; const S:usize=8; for i in 1..=S { let t=i as f32/S as f32; let it=1.0-t; let px=it*it*sx+2.0*it*t*x1+t*t*x; let py=it*it*sy+2.0*it*t*y1+t*t*y; self.last=(px,py); self.upd(px,py);} }
             fn curve_to(&mut self, x1:f32,y1:f32,x2:f32,y2:f32,x:f32,y:f32){ let (sx,sy)=self.last; const S:usize=12; for i in 1..=S { let t=i as f32/S as f32; let it=1.0-t; let px=sx*it*it*it + 3.0*x1*it*it*t + 3.0*x2*it*t*t + x*t*t*t; let py=sy*it*it*it + 3.0*y1*it*it*t + 3.0*y2*it*t*t + y*t*t*t; self.last=(px,py); self.upd(px,py);} }
