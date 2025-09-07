@@ -125,6 +125,7 @@ fn main() {
     app.add_plugins(WallTimelinePlugin); // animate grouped wall roots
     app.add_plugins(GamePlugin);
 
+
     #[cfg(feature = "debug")]
     {
         app.add_plugins(RapierDebugRenderPlugin::default());

@@ -22,7 +22,7 @@
         vel_x_range: (min: -200.0, max: 200.0),
         vel_y_range: (min: -50.0, max: 350.0),
     ),
-    rapier_debug: false,
+    rapier_debug: true, // enabled for physics wireframe overlay
     draw_circles: false,
     metaballs_enabled: true,
     metaballs: (
@@ -85,6 +85,19 @@
     clustering: (
         distance_buffer_enter_cluster: 1.3,
         distance_buffer_exit_cluster: 1.6,
+    ),
+
+    // SDF glyph square configuration (all balls use glyph_S via repeated 'S')
+    sdf_shapes: (
+        enabled: true,
+        force_fallback: false,
+        max_gradient_samples: 2,
+        gradient_step_scale: 1.0,
+        use_circle_fallback_when_radius_lt: 0.0,
+        glyph_mode: true,
+        glyph_text: "SSSS",
+        glyph_wrap: "Repeat",
+        glyph_skip_whitespace: true,
     ),
 
 )
