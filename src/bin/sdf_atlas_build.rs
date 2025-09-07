@@ -27,11 +27,8 @@ struct Args {
     #[arg(long)] out_json: PathBuf,
     #[arg(long, default_value = "64")] tile_size: u32,
     #[arg(long, default_value = "sdf_r8")] channel_mode: String,
-    #[arg(long, default_value_t = 0.125)] distance_span_factor: f32, // distance_range_px = tile_size * factor
+    #[arg(long, default_value_t = 0.5)] distance_span_factor: f32, // distance_range_px = tile_size * factor (default widened for better gradient)
     #[arg(long, default_value_t = 1)] supersamples: u32, // 1, 2, or 4 (grid 1x1, 2x2)
-    /// When set, any distance >= 0 (outside or on edge) is encoded as pure black (0),
-    /// while interior distances map (0.5 + |sd|/range) -> (0.5..1]. This yields a solid silhouette.
-    #[arg(long, default_value_t = false)] solid_outside: bool,
 }
 
 #[derive(Serialize)] struct OutPivot { x: f32, y: f32 }
@@ -87,8 +84,7 @@ fn main() -> anyhow::Result<()> {
                     let sd_clamped = sd_px.clamp(-distance_range_px, distance_range_px);
                     // Inverted encoding: inside (sd < 0) becomes brighter than 0.5 ( > 128 ),
                     // outside becomes darker (< 128). This matches desired visual of white interior, black exterior.
-                    let mut n = (0.5 - sd_clamped / distance_range_px).clamp(0.0,1.0); // 0.5 center surface
-                    if args.solid_outside && sd_clamped >= 0.0 { n = 0.0; }
+                    let n = (0.5 - sd_clamped / distance_range_px).clamp(0.0,1.0); // 0.5 center surface
                     accum += n;
                 }
                 let n_avg = accum / (ss as f32);
