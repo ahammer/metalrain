@@ -25,7 +25,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "triangle",
@@ -46,7 +48,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "square",
@@ -67,7 +71,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_0",
@@ -88,7 +94,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_1",
@@ -109,7 +117,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_2",
@@ -130,7 +140,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_3",
@@ -151,7 +163,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_4",
@@ -172,7 +186,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_5",
@@ -193,7 +209,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_6",
@@ -214,7 +232,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_7",
@@ -235,7 +255,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_8",
@@ -256,7 +278,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_9",
@@ -277,7 +301,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_A",
@@ -298,7 +324,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_B",
@@ -319,7 +347,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_C",
@@ -340,7 +370,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_D",
@@ -361,7 +393,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_E",
@@ -382,7 +416,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_F",
@@ -403,7 +439,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_G",
@@ -424,7 +462,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_H",
@@ -445,7 +485,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_I",
@@ -466,7 +508,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_J",
@@ -487,7 +531,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_K",
@@ -508,7 +554,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_L",
@@ -529,7 +577,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_M",
@@ -550,7 +600,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_N",
@@ -571,7 +623,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_O",
@@ -592,7 +646,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_P",
@@ -613,7 +669,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_Q",
@@ -634,7 +692,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_R",
@@ -655,7 +715,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_S",
@@ -676,7 +738,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_T",
@@ -697,7 +761,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_U",
@@ -718,7 +784,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_V",
@@ -739,7 +807,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_W",
@@ -760,7 +830,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_X",
@@ -781,7 +853,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_Y",
@@ -802,7 +876,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     },
     {
       "name": "glyph_Z",
@@ -823,7 +899,9 @@
         "x": 0.5,
         "y": 0.5
       },
-      "metadata": {}
+      "metadata": {
+        "padding_px": 8
+      }
     }
   ]
 }

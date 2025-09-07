@@ -12,7 +12,7 @@ struct Args {
 }
 
 #[derive(Deserialize)]
-struct ShapeEntry { name:String, index:u32, px:Rect }
+struct ShapeEntry { name:String, index:u32, px:Rect, #[serde(default)] metadata: Option<serde_json::Value> }
 #[derive(Deserialize)]
 struct Rect { x:u32, y:u32, w:u32, h:u32 }
 #[derive(Deserialize)]
@@ -45,7 +45,9 @@ fn main() -> Result<()> {
             let mut inside = 0u32; let mut total_px = 0u32;
             for yy in s.px.y..s.px.y + s.px.h { for xx in s.px.x..s.px.x + s.px.w { total_px += 1; if luma.get_pixel(xx,yy)[0] > 128 { inside += 1; } } }
             let ratio = inside as f64 / total_px as f64 * 100.0;
-            println!("Shape {:>2} {:<12} center={} inside>{}: {:.1}%", s.index, s.name, v, 128, ratio);
+            let padding = s.metadata.as_ref().and_then(|m| m.get("padding_px")).and_then(|v| v.as_u64());
+            if let Some(p) = padding { println!("Shape {:>2} {:<12} center={} inside>{}: {:.1}% padding_px={}", s.index, s.name, v, 128, ratio, p); }
+            else { println!("Shape {:>2} {:<12} center={} inside>{}: {:.1}%", s.index, s.name, v, 128, ratio); }
         }
     }
     Ok(())

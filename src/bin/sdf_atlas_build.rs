@@ -33,6 +33,9 @@ struct Args {
     #[arg(long, default_value_t = 1)] supersamples: u32, // 1, 2, or 4 (grid 1x1, 2x2)
     /// TrueType / OpenType font path for alphanumeric glyphs (0-9, A-Z). Defaults to bundled DroidSansMono.
     #[arg(long, default_value = "assets/fonts/DroidSansMono.ttf")] font: String,
+    /// Padding in pixels reserved around each shape/glyph inside its tile (applies to all entries).
+    /// Ensures the signed distance field can fully transition to background (black) without clipping.
+    #[arg(long, default_value_t = 0)] padding_px: u32,
 }
 
 #[derive(Serialize)] struct OutPivot { x: f32, y: f32 }
@@ -40,8 +43,6 @@ struct Args {
 #[derive(Serialize)] struct OutRect { x: u32, y: u32, w: u32, h: u32 }
 #[derive(Serialize)] struct OutShapeEntry { name:String, index:u32, px:OutRect, uv:OutUv, pivot:OutPivot, #[serde(skip_serializing_if="Option::is_none")] advance_scale: Option<f32>, metadata: serde_json::Value }
 #[derive(Serialize)] struct OutRoot { version:u32, distance_range:f32, tile_size:u32, atlas_width:u32, atlas_height:u32, channel_mode:String, shapes:Vec<OutShapeEntry> }
-
-fn sdf_circle(x:f32,y:f32){/* doc stub for future docs generator */}
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -59,6 +60,10 @@ fn main() -> anyhow::Result<()> {
     for c in 'A'..='Z' { shape_names.push(format!("glyph_{}", c)); }
 
     let tile = args.tile_size as i32;
+    if args.padding_px * 2 >= args.tile_size {
+        anyhow::bail!("padding_px*2 >= tile_size ({} * 2 >= {})", args.padding_px, args.tile_size);
+    }
+    let inner_size = (args.tile_size - args.padding_px * 2) as f32; // drawable logical dimension per axis for content
     let grid_cols = 8i32; // adjustable
     let grid_rows = ((shape_names.len() as i32 + grid_cols - 1) / grid_cols).max(1);
     let atlas_w = (grid_cols as u32) * args.tile_size;
@@ -81,12 +86,12 @@ fn main() -> anyhow::Result<()> {
             for px in 0..tile {
                 let mut accum = 0.0f32;
                 for (oxs, oys) in offsets {
-                    // Normalized in-tile (0..1)
-                    let fx = (px as f32 + oxs) / args.tile_size as f32;
-                    let fy = (py as f32 + oys) / args.tile_size as f32;
-                    // Map to canonical shape space [-1,1]
-                    let cx = fx * 2.0 - 1.0;
-                    let cy = fy * 2.0 - 1.0;
+                    // Normalized content space inside padding (0..1). Pixels inside padding map <0 or >1 -> treated as outside shape region.
+                    let fx_content = ((px as f32 + oxs) - args.padding_px as f32) / inner_size;
+                    let fy_content = ((py as f32 + oys) - args.padding_px as f32) / inner_size;
+                    // Canonical shape space [-1,1] over just the content region (avoids warping by guaranteeing square mapping).
+                    let cx = fx_content * 2.0 - 1.0;
+                    let cy = fy_content * 2.0 - 1.0;
                     // Raw normalized signed distance (negative inside, positive outside after normalization step below)
                     let sd_norm = signed_distance(name, cx, cy, &font, &parsed); // negative inside
                     let sd_px = sd_norm * (args.tile_size as f32 * 0.5);
@@ -109,7 +114,13 @@ fn main() -> anyhow::Result<()> {
     // Build JSON metadata entries
     // TODO: capture advance width for glyph entries if text layout in atlas space becomes needed.
     let mut shapes_meta = Vec::new();
-    for (i,name) in shape_names.iter().enumerate() { let col = (i as i32) % grid_cols; let row = (i as i32) / grid_cols; let x = (col * tile) as u32; let y = (row * tile) as u32; let uv0 = x as f32 / atlas_w as f32; let uv1 = (x + args.tile_size) as f32 / atlas_w as f32; let v0 = y as f32 / atlas_h as f32; let v1 = (y + args.tile_size) as f32 / atlas_h as f32; shapes_meta.push(OutShapeEntry { name: name.clone(), index: (i+1) as u32, px: OutRect { x, y, w: args.tile_size, h: args.tile_size }, uv: OutUv { u0: uv0, v0, u1: uv1, v1 }, pivot: OutPivot { x:0.5, y:0.5 }, advance_scale: None, metadata: serde_json::json!({}) }); }
+    for (i,name) in shape_names.iter().enumerate() {
+        let col = (i as i32) % grid_cols; let row = (i as i32) / grid_cols; let x = (col * tile) as u32; let y = (row * tile) as u32; let uv0 = x as f32 / atlas_w as f32; let uv1 = (x + args.tile_size) as f32 / atlas_w as f32; let v0 = y as f32 / atlas_h as f32; let v1 = (y + args.tile_size) as f32 / atlas_h as f32;
+        let meta = serde_json::json!({
+            "padding_px": args.padding_px
+        });
+        shapes_meta.push(OutShapeEntry { name: name.clone(), index: (i+1) as u32, px: OutRect { x, y, w: args.tile_size, h: args.tile_size }, uv: OutUv { u0: uv0, v0, u1: uv1, v1 }, pivot: OutPivot { x:0.5, y:0.5 }, advance_scale: None, metadata: meta });
+    }
     let root = OutRoot { version:1, distance_range: distance_range_px, tile_size: args.tile_size, atlas_width: atlas_w, atlas_height: atlas_h, channel_mode: args.channel_mode, shapes: shapes_meta };
     let json_str = serde_json::to_string_pretty(&root)?; if let Some(p) = args.out_json.parent() { fs::create_dir_all(p)?; } fs::write(&args.out_json, json_str)?;
     println!("Generated procedural SDF atlas: {} ({}x{})", args.out_png.display(), atlas_w, atlas_h);
@@ -216,17 +227,20 @@ fn sdf_glyph_outline(name:&str, x:f32, y:f32, font:&ab_glyph::FontRef<'_>, parse
     parsed.outline_glyph(gid16, &mut col);
     if col.segs.is_empty() { return None; }
     let (min_x,min_y,max_x,max_y)=col.bbox; let bw=(max_x-min_x).max(1.0); let bh=(max_y-min_y).max(1.0);
-    // Map shape space [-1,1] -> glyph box. Font Y grows upward; our shape space treated +Y upward visually, but resulting raster showed flipped glyphs,
-    // so we invert here to correct orientation.
-    let fx = (x*0.5 + 0.5)*bw + min_x;
-    let fy = ((-y)*0.5 + 0.5)*bh + min_y; // flipped vertically
+    // Uniform scale (avoid warping): choose max dimension; center glyph in remaining axis.
+    let scale = bw.max(bh);
+    let cx_g = (min_x + max_x) * 0.5;
+    let cy_g = (min_y + max_y) * 0.5;
+    // Map shape space [-1,1] uniformly into glyph space about center. Invert Y to correct orientation.
+    let fx = cx_g + x * (scale * 0.5);
+    let fy = cy_g + (-y) * (scale * 0.5);
     // Even-odd
     let mut parity=false; for (a,b) in &col.segs { let (ax,ay)=*a; let (bx,by)=*b; if ((ay>fy)!=(by>fy)) && (fx < (bx-ax)*(fy-ay)/(by-ay+1e-6)+ax) { parity = !parity; } }
     let inside=parity;
     // Min distance to segments
     let mut min_d2=f32::MAX; for (a,b) in &col.segs { let (ax,ay)=*a; let (bx,by)=*b; let vx=bx-ax; let vy=by-ay; let wx=fx-ax; let wy=fy-ay; let ll=vx*vx+vy*vy; let t = if ll<=1e-6 {0.0} else {(vx*wx+vy*wy)/ll}; let tt=t.clamp(0.0,1.0); let px=ax+vx*tt; let py=ay+vy*tt; let dx=fx-px; let dy=fy-py; let d2=dx*dx+dy*dy; if d2<min_d2 { min_d2=d2; } }
     let dist = min_d2.sqrt();
-    let norm_half=0.5*bw.max(bh);
+    let norm_half=0.5*scale;
     let sd = dist / norm_half;
     Some(if inside { -sd } else { sd })
 }
