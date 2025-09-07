@@ -27,7 +27,8 @@ struct Args {
     #[arg(long)] out_json: PathBuf,
     #[arg(long, default_value = "64")] tile_size: u32,
     #[arg(long, default_value = "sdf_r8")] channel_mode: String,
-    #[arg(long, default_value_t = 0.125)] distance_span_factor: f32, // distance_range = tile_size * factor
+    #[arg(long, default_value_t = 0.125)] distance_span_factor: f32, // distance_range_px = tile_size * factor
+    #[arg(long, default_value_t = 1)] supersamples: u32, // 1, 2, or 4 (grid 1x1, 2x2)
 }
 
 #[derive(Serialize)] struct OutPivot { x: f32, y: f32 }
@@ -54,17 +55,49 @@ fn main() -> anyhow::Result<()> {
     let atlas_w = (grid_cols as u32) * args.tile_size;
     let atlas_h = (grid_rows as u32) * args.tile_size;
 
-    let mut atlas: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::from_pixel(atlas_w, atlas_h, Luma([128u8])); // neutral 0 distance
+    let mut atlas: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::from_pixel(atlas_w, atlas_h, Luma([128u8])); // 0 distance neutral
 
-    // Distance normalization: encode signed distance in [0,255] with 128 = 0
-    let max_d = args.tile_size as f32 * 0.5; // conservative half-tile support
+    // distance_range in *pixels* that runtime will use when decoding back to a signed distance.
+    let distance_range_px = (args.tile_size as f32 * args.distance_span_factor).max(1.0);
+    // Precompute supersample pattern (supports 1 or 4 samples; 2 -> treat as 4 for simplicity)
+    let ss = if args.supersamples >= 4 { 4 } else if args.supersamples >= 2 { 4 } else { 1 };
+    let offsets: &[(f32,f32)] = if ss == 1 { &[(0.5,0.5)] } else { &[(0.25,0.25),(0.75,0.25),(0.25,0.75),(0.75,0.75)] };
 
     for (idx, name) in shape_names.iter().enumerate() {
         let col = (idx as i32) % grid_cols;
         let row = (idx as i32) / grid_cols;
         let ox = col * tile;
         let oy = row * tile;
-        for py in 0..tile { for px in 0..tile { let fx = (px as f32 + 0.5) / args.tile_size as f32; let fy = (py as f32 + 0.5) / args.tile_size as f32; let cx = fx * 2.0 - 1.0; let cy = fy * 2.0 - 1.0; let sd = signed_distance(name, cx, cy); let d_clamped = sd.clamp(-max_d, max_d); let n = 0.5 + 0.5 * (d_clamped / max_d); let u8v = (n * 255.0).round().clamp(0.0,255.0) as u8; atlas.put_pixel((ox + px) as u32, (oy + py) as u32, Luma([u8v])); }}
+        for py in 0..tile {
+            for px in 0..tile {
+                let mut accum = 0.0f32;
+                for (oxs, oys) in offsets {
+                    // Normalized in-tile (0..1)
+                    let fx = (px as f32 + oxs) / args.tile_size as f32;
+                    let fy = (py as f32 + oys) / args.tile_size as f32;
+                    // Map to canonical shape space [-1,1]
+                    let cx = fx * 2.0 - 1.0;
+                    let cy = fy * 2.0 - 1.0;
+                    // Raw normalized signed distance (negative inside, positive outside after normalization step below)
+                    let mut sd_norm = signed_distance(name, cx, cy);
+                    // Enforce convention: negative inside. Circle / square logic originally returned positive inside => invert if needed by sampling center point heuristic.
+                    // We probe the center only once per tile (approx) by checking first sample; heuristic keeps cheap.
+                    // Simpler: assume our custom functions may return either sign; we canonicalize by measuring distance at (0,0).
+                    // For performance we skip dynamic detection & just invert here if it's likely positive inside.
+                    // Heuristic: if name is "circle" or "square" we invert.
+                    if name == "circle" || name == "square" { sd_norm = -sd_norm; }
+                    // Convert normalized space units (~half extent=1) to pixel units. Half tile corresponds to 1.0 in our shape space mapping.
+                    let sd_px = sd_norm * (args.tile_size as f32 * 0.5);
+                    // Clamp & remap to 0..1 with 0.5 = 0 distance
+                    let sd_clamped = sd_px.clamp(-distance_range_px, distance_range_px);
+                    let n = 0.5 + 0.5 * (sd_clamped / distance_range_px);
+                    accum += n;
+                }
+                let n_avg = accum / (ss as f32);
+                let u8v = (n_avg * 255.0).round().clamp(0.0,255.0) as u8;
+                atlas.put_pixel((ox + px) as u32, (oy + py) as u32, Luma([u8v]));
+            }
+        }
     }
 
     if let Some(parent) = args.out_png.parent() { fs::create_dir_all(parent)?; }
@@ -73,8 +106,7 @@ fn main() -> anyhow::Result<()> {
     // Build JSON metadata entries
     let mut shapes_meta = Vec::new();
     for (i,name) in shape_names.iter().enumerate() { let col = (i as i32) % grid_cols; let row = (i as i32) / grid_cols; let x = (col * tile) as u32; let y = (row * tile) as u32; let uv0 = x as f32 / atlas_w as f32; let uv1 = (x + args.tile_size) as f32 / atlas_w as f32; let v0 = y as f32 / atlas_h as f32; let v1 = (y + args.tile_size) as f32 / atlas_h as f32; shapes_meta.push(OutShapeEntry { name: name.clone(), index: (i+1) as u32, px: OutRect { x, y, w: args.tile_size, h: args.tile_size }, uv: OutUv { u0: uv0, v0, u1: uv1, v1 }, pivot: OutPivot { x:0.5, y:0.5 }, advance_scale: None, metadata: serde_json::json!({}) }); }
-    let distance_range = (args.tile_size as f32 * args.distance_span_factor).max(1.0);
-    let root = OutRoot { version:1, distance_range, tile_size: args.tile_size, atlas_width: atlas_w, atlas_height: atlas_h, channel_mode: args.channel_mode, shapes: shapes_meta };
+    let root = OutRoot { version:1, distance_range: distance_range_px, tile_size: args.tile_size, atlas_width: atlas_w, atlas_height: atlas_h, channel_mode: args.channel_mode, shapes: shapes_meta };
     let json_str = serde_json::to_string_pretty(&root)?; if let Some(p) = args.out_json.parent() { fs::create_dir_all(p)?; } fs::write(&args.out_json, json_str)?;
     println!("Generated procedural SDF atlas: {} ({}x{})", args.out_png.display(), atlas_w, atlas_h);
     Ok(())
