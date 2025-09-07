@@ -147,6 +147,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.99"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -291,16 +297,19 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 name = "ball_matcher"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bevy",
  "bevy_rapier2d",
  "bytemuck",
  "console_error_panic_hook",
  "getrandom 0.3.3",
  "half",
+ "image",
  "js-sys",
  "rand",
  "ron",
  "serde",
+ "serde_json",
  "smallvec",
  "toml",
  "uuid",

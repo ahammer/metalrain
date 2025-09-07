@@ -161,6 +161,11 @@ pub struct MetaballsUnifiedMaterial {
     tile_ball_indices: Handle<ShaderStorageBuffer>,
     #[storage(6, read_only)]
     cluster_palette: Handle<ShaderStorageBuffer>,
+    // Optional SDF atlas texture binding; sampler will use default for now. When absent, SDF path disabled.
+    #[texture(7)]
+    sdf_atlas_tex: Option<Handle<Image>>,
+    #[storage(8, read_only)]
+    sdf_shape_meta: Handle<ShaderStorageBuffer>,
 }
 
 impl MetaballsUnifiedMaterial {
@@ -417,6 +422,7 @@ fn setup_metaballs(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
     windows: Query<&Window>,
     cfg: Res<GameConfig>,
 ) {
@@ -428,6 +434,11 @@ fn setup_metaballs(
     let mesh_handle = meshes.add(Mesh::from(Rectangle::new(2.0, 2.0)));
 
     let mut umat = MetaballsUnifiedMaterial::default();
+    // Provide dummy shape metadata buffer (1 entry) so binding exists until SDF atlas loads
+    if buffers.get(&umat.sdf_shape_meta).is_none() {
+        let dummy: [f32; 8] = [0.0; 8];
+        umat.sdf_shape_meta = buffers.add(ShaderStorageBuffer::from(&dummy));
+    }
     umat.data.v2.x = w;
     umat.data.v2.y = h;
 
@@ -523,7 +534,7 @@ fn update_metaballs_unified_material(
     time: Res<Time>,
     fg: Res<MetaballForeground>,
     bg: Res<MetaballBackground>,
-    q_balls: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex), With<Ball>>,
+    q_balls: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex, Option<&crate::rendering::materials::materials::BallShapeIndex>), With<Ball>>,
     mut materials: ResMut<Assets<MetaballsUnifiedMaterial>>,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
     q_mat: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
@@ -533,6 +544,7 @@ fn update_metaballs_unified_material(
     mut shadow: Option<ResMut<BallCpuShadow>>,
     mut palette_storage: ResMut<crate::rendering::metaballs::palette::ClusterPaletteStorage>,
     mut dbg_timer: ResMut<MetaballsGroupDebugTimer>,
+    sdf_atlas: Option<Res<crate::rendering::sdf_atlas::SdfAtlas>>,
 ) {
     if !toggle.0 {
         return;
@@ -596,7 +608,7 @@ fn update_metaballs_unified_material(
     let mut palette_colors: Vec<[f32; 4]> = Vec::new();
     let mut balls_cpu: Vec<GpuBall> = Vec::with_capacity(q_balls.iter().len().min(MAX_BALLS));
     let mut debug_rows: Vec<String> = Vec::new();
-    for (e, tf, r, color_idx) in q_balls.iter() {
+    for (e, tf, r, color_idx, shape_idx_opt) in q_balls.iter() {
         if balls_cpu.len() >= MAX_BALLS {
             break;
         }
@@ -607,9 +619,12 @@ fn update_metaballs_unified_material(
             new_gid
         });
         let pos = tf.translation.truncate();
-        balls_cpu.push(GpuBall::new(pos, r.0, gid));
+        // Pack shape index (u16) with color group (u16) => u32 using floats
+        let shape_idx: u32 = shape_idx_opt.map(|s| s.0 as u32).unwrap_or(0);
+        let packed_gid = ((shape_idx & 0xFFFF) << 16) | (gid & 0xFFFF);
+        balls_cpu.push(GpuBall::new(pos, r.0, packed_gid));
         if debug_rows.len() < 8 {
-            debug_rows.push(format!("e={:?} color={} gid={}", e, color_idx.0, gid));
+            debug_rows.push(format!("e={:?} color={} gid={} shape={} packed=0x{:08X}", e, color_idx.0, gid, shape_idx, packed_gid));
         }
     }
     let group_count = palette_colors.len() as u32;
@@ -631,10 +646,9 @@ fn update_metaballs_unified_material(
         if let Some(h) = &palette_storage.handle {
             mat.cluster_palette = h.clone();
         }
-        mat.data.v5.y = group_count as f32;
+        // group count tracked in v0.y; repurpose v5.y for sdf distance_range later
         mat.data.v0.y = group_count as f32;
     } else {
-        mat.data.v5.y = 0.0;
         mat.data.v0.y = 0.0;
     }
 
@@ -670,6 +684,20 @@ fn update_metaballs_unified_material(
     } else {
         0.0
     }; // metadata v2 encoding flag
+    // SDF flags (reuse v5 lanes): v5.x = sdf_enabled, v5.z = channel_mode, v5.w = max_gradient_samples
+    if let Some(atlas) = sdf_atlas.as_ref() {
+        if atlas.enabled && cfg.sdf_shapes.enabled && !cfg.sdf_shapes.force_fallback {
+            mat.data.v5.x = 1.0;
+            mat.data.v5.z = match atlas.channel_mode { crate::rendering::sdf_atlas::SdfChannelMode::SdfR8 => 1.0, crate::rendering::sdf_atlas::SdfChannelMode::MsdfRgb => 2.0, crate::rendering::sdf_atlas::SdfChannelMode::MsdfRgba => 3.0 };
+            mat.data.v5.w = cfg.sdf_shapes.max_gradient_samples as f32;
+            mat.data.v5.y = atlas.distance_range; // reuse lane for distance normalization range
+            // Bind atlas texture handle if material missing one
+            if mat.sdf_atlas_tex.is_none() { mat.sdf_atlas_tex = Some(atlas.texture.clone()); }
+            if let Some(shape_buf) = &atlas.shape_buffer { mat.sdf_shape_meta = shape_buf.clone(); }
+        } else { mat.data.v5.x = 0.0; }
+    } else {
+        mat.data.v5.x = 0.0; // no atlas resource
+    }
 
     // Update shadow (replace content)
     if let Some(ref mut s) = shadow {

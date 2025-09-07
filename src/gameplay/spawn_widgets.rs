@@ -260,6 +260,8 @@ fn spawn_single_ball(
         Ball,
         BallRadius(r_ball),
         BallMaterialIndex(variant_idx),
+        // Default shape index 0 (circle) until SDF atlas loader assigns specific shapes
+        crate::rendering::materials::materials::BallShapeIndex(0),
         RigidBody::Dynamic,
         Velocity {
             linvel,
