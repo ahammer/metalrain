@@ -29,7 +29,8 @@ shapes (array<ShapeEntry>)
 ShapeEntry
 ----------
 name (string)
-  Symbolic name (e.g. `circle`, `triangle`, `glyph_A`).
+  Symbolic name (e.g. `circle`, `triangle`, `glyph_A`, `glyph_a`). Alphanumeric glyphs include
+  digits 0-9, uppercase A-Z, and lowercase a-z when generated via `sdf_atlas_build`.
 
 index (u32)
   Sequential index (1-based) used for GPU lookup / indirection.
@@ -113,4 +114,4 @@ band, particularly for large, nearly tile-filling shapes.
 
 Change Log (schema related)
 ---------------------------
-2025-09-07: Added `metadata.padding_px`, uniform glyph scaling & centering description.
+2025-09-07: Added `metadata.padding_px`, uniform glyph scaling & centering description, and lowercase a-z glyph support.
