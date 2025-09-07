@@ -60,6 +60,36 @@ fn main() -> anyhow::Result<()> {
     for c in 'A'..='Z' { shape_names.push(format!("glyph_{}", c)); }
     for c in 'a'..='z' { shape_names.push(format!("glyph_{}", c)); }
 
+    // Pre-measure glyph global extent (max of per-glyph max(width,height)) so all glyphs share uniform scale.
+    // This preserves typographic relative sizes (x-height vs cap height) instead of stretching each to tile.
+    let glyph_global_extent = {
+        struct BBoxCollector { bbox:(f32,f32,f32,f32), started: bool, last:(f32,f32), first:(f32,f32) }
+        impl BBoxCollector { fn upd(&mut self,x:f32,y:f32){ let b=&mut self.bbox; if x<b.0 {b.0=x;} if y<b.1 {b.1=y;} if x>b.2 {b.2=x;} if y>b.3 {b.3=y;} } }
+        impl ttf::OutlineBuilder for BBoxCollector {
+            fn move_to(&mut self, x:f32,y:f32){ self.started=true; self.last=(x,y); self.first=(x,y); self.upd(x,y); }
+            fn line_to(&mut self, x:f32,y:f32){ self.last=(x,y); self.upd(x,y);} 
+            fn quad_to(&mut self, x1:f32,y1:f32,x:f32,y:f32){ // simple flatten
+                let (sx,sy)=self.last; const S:usize=8; for i in 1..=S { let t=i as f32/S as f32; let it=1.0-t; let px=it*it*sx+2.0*it*t*x1+t*t*x; let py=it*it*sy+2.0*it*t*y1+t*t*y; self.last=(px,py); self.upd(px,py);} }
+            fn curve_to(&mut self, x1:f32,y1:f32,x2:f32,y2:f32,x:f32,y:f32){ let (sx,sy)=self.last; const S:usize=12; for i in 1..=S { let t=i as f32/S as f32; let it=1.0-t; let px=sx*it*it*it + 3.0*x1*it*it*t + 3.0*x2*it*t*t + x*t*t*t; let py=sy*it*it*it + 3.0*y1*it*it*t + 3.0*y2*it*t*t + y*t*t*t; self.last=(px,py); self.upd(px,py);} }
+            fn close(&mut self){ /* bbox only */ }
+        }
+        let mut max_extent = 0.0f32;
+        for ch in ('0'..='9').chain('A'..='Z').chain('a'..='z') {
+            let gid = font.glyph_id(ch);
+            let gid16 = ttf::GlyphId(gid.0);
+            let mut col = BBoxCollector { bbox:(f32::MAX,f32::MAX,-f32::MAX,-f32::MAX), started:false, last:(0.0,0.0), first:(0.0,0.0) };
+            parsed.outline_glyph(gid16, &mut col);
+            if !col.started { continue; } // skip missing outlines
+            let (min_x,min_y,max_x,max_y) = col.bbox;
+            if min_x >= max_x || min_y >= max_y { continue; }
+            let bw = max_x - min_x; let bh = max_y - min_y; let m = bw.max(bh);
+            if m > max_extent { max_extent = m; }
+        }
+        if max_extent <= 0.0 { // fallback: use units_per_em (ttf units per em is non-zero per spec)
+            parsed.units_per_em() as f32
+        } else { max_extent }
+    };
+
     let tile = args.tile_size as i32;
     if args.padding_px * 2 >= args.tile_size {
         anyhow::bail!("padding_px*2 >= tile_size ({} * 2 >= {})", args.padding_px, args.tile_size);
@@ -94,7 +124,7 @@ fn main() -> anyhow::Result<()> {
                     let cx = fx_content * 2.0 - 1.0;
                     let cy = fy_content * 2.0 - 1.0;
                     // Raw normalized signed distance (negative inside, positive outside after normalization step below)
-                    let sd_norm = signed_distance(name, cx, cy, &font, &parsed); // negative inside
+                    let sd_norm = signed_distance(name, cx, cy, &font, &parsed, glyph_global_extent); // negative inside
                     let sd_px = sd_norm * (args.tile_size as f32 * 0.5);
                     let sd_clamped = sd_px.clamp(-distance_range_px, distance_range_px);
                     // Inverted encoding: inside (sd < 0) becomes brighter than 0.5 ( > 128 ),
@@ -128,7 +158,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn signed_distance(name:&str, x: f32, y: f32, font: &ab_glyph::FontRef<'_>, parsed:&ttf::Face<'_>) -> f32 {
+fn signed_distance(name:&str, x: f32, y: f32, font: &ab_glyph::FontRef<'_>, parsed:&ttf::Face<'_>, glyph_global_extent:f32) -> f32 {
     // Canonical SDFs return negative inside, positive outside.
     match name {
         // Circle of radius r (shape space) : sd = length(p) - r (positive outside). We invert sign to keep negative inside.
@@ -136,7 +166,7 @@ fn signed_distance(name:&str, x: f32, y: f32, font: &ab_glyph::FontRef<'_>, pars
         // Square (box) half-size s: standard box SDF (positive outside)
         "square" => { let s = 0.8; let dx = (x.abs() - s).max(0.0); let dy = (y.abs() - s).max(0.0); let outside = (dx*dx + dy*dy).sqrt(); let inside = (x.abs().max(y.abs()) - s).min(0.0); outside + inside },
         "triangle" => sdf_equilateral_triangle(x,y),
-    _ if name.starts_with("glyph_") => sdf_glyph_outline(name, x, y, font, parsed).unwrap_or_else(|| sdf_glyph_placeholder(name, x, y)),
+    _ if name.starts_with("glyph_") => sdf_glyph_outline(name, x, y, font, parsed, glyph_global_extent).unwrap_or_else(|| sdf_glyph_placeholder(name, x, y)),
         _ => 1.0, // far outside by default
     }
 }
@@ -249,7 +279,7 @@ fn sdf_ring_open(x:f32,y:f32,ro:f32,ri:f32,gap:f32,left:bool)->f32{ let base = s
 // 1. Extract glyph outline via ttf-parser (lines, quads, cubics -> flattened to line segments).
 // 2. Compute signed distance using even-odd winding (parity) for inside test + min distance to segments.
 // 3. Normalize by half of max dimension so outer bounds ~= distance 1.
-fn sdf_glyph_outline(name:&str, x:f32, y:f32, font:&ab_glyph::FontRef<'_>, parsed:&ttf::Face<'_>) -> Option<f32> {
+fn sdf_glyph_outline(name:&str, x:f32, y:f32, font:&ab_glyph::FontRef<'_>, parsed:&ttf::Face<'_>, glyph_global_extent:f32) -> Option<f32> {
     let ch = name.strip_prefix("glyph_")?.chars().next()?;
     let gid = font.glyph_id(ch);
     let gid16 = ttf::GlyphId(gid.0);
@@ -297,9 +327,9 @@ fn sdf_glyph_outline(name:&str, x:f32, y:f32, font:&ab_glyph::FontRef<'_>, parse
     let mut col = Collector { segs: Vec::new(), last:(0.0,0.0), contour_start:(0.0,0.0), bbox:(f32::MAX,f32::MAX,-f32::MAX,-f32::MAX), started:false };
     parsed.outline_glyph(gid16, &mut col);
     if col.segs.is_empty() { return None; }
-    let (min_x,min_y,max_x,max_y)=col.bbox; let bw=(max_x-min_x).max(1.0); let bh=(max_y-min_y).max(1.0);
-    // Uniform scale (avoid warping): choose max dimension; center glyph in remaining axis.
-    let scale = bw.max(bh);
+    let (min_x,min_y,max_x,max_y)=col.bbox; // width/height unneeded after global scale chosen
+    // Global uniform scale (avoid per-glyph fitting); use precomputed maximum extent across glyph set.
+    let scale = glyph_global_extent;
     let cx_g = (min_x + max_x) * 0.5;
     let cy_g = (min_y + max_y) * 0.5;
     // Map shape space [-1,1] uniformly into glyph space about center. Invert Y to correct orientation.
