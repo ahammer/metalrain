@@ -62,6 +62,8 @@ struct MetaballsData {
     v4: vec4<f32>,
     // v5: (sdf_enabled, distance_range, channel_mode, max_gradient_samples)
     v5: vec4<f32>,
+    // v6: (atlas_width, atlas_height, atlas_tile_size, atlas_shape_count)
+    v6: vec4<f32>,
 };
 
 @group(2) @binding(0) var<uniform> metaballs: MetaballsData;
@@ -104,8 +106,9 @@ struct GroupColor { value: vec4<f32>, };
 @group(2) @binding(6) var<storage, read> group_palette: array<GroupColor>; // palette indexed by group id
 // Optional SDF atlas (texture binding index aligned with Rust material). Sampler uses default implicit sampler; if texture not bound runtime path disabled.
 @group(2) @binding(7) var sdf_atlas_tex: texture_2d<f32>;
-// Shape metadata (uv0, uv1, pivot, pad) – index 0 is dummy (analytic circle fallback)
-struct SdfShapeGpuMeta { uv0: vec2<f32>, uv1: vec2<f32>, pivot: vec2<f32>, pad: vec2<f32> };
+// Shape metadata (uv0, uv1, pivot, meta) – index 0 is dummy (analytic circle fallback)
+// meta.x = tile_size_px, meta.y = distance_range_px, meta.z/meta.w reserved
+struct SdfShapeGpuMeta { uv0: vec2<f32>, uv1: vec2<f32>, pivot: vec2<f32>, meta: vec4<f32> };
 @group(2) @binding(8) var<storage, read> sdf_shape_meta: array<SdfShapeGpuMeta>;
 // NOTE: explicit sampler binding deferred to avoid pipeline layout break; sampling uses implicit sampler assumption.
 
@@ -304,32 +307,35 @@ struct AccumResult {
     approx_r:  array<f32, K_MAX>,
 };
 
-fn sample_sdf_distance(shape_index: u32, p: vec2<f32>) -> f32 {
-    if (metaballs.v5.x < 0.5) { return 0.0; } // disabled
-    if (shape_index == 0u) { return 0.0; } // analytic circle sentinel
+// Sample signed distance in *pixel* units relative to atlas encoding.
+// p_world: world-space fragment position, center: ball center, scaled_r: ball radius after global scaling.
+fn sample_sdf_distance(shape_index: u32, p_world: vec2<f32>, center: vec2<f32>, scaled_r: f32) -> f32 {
+    if (metaballs.v5.x < 0.5) { return 0.0; }
+    if (shape_index == 0u) { return 0.0; }
     let shape_meta = sdf_shape_meta[shape_index];
-    let uv0 = shape_meta.uv0; let uv1 = shape_meta.uv1; let pivot = shape_meta.pivot;
-    let rect_size = uv1 - uv0;
-    if (rect_size.x <= 0.0 || rect_size.y <= 0.0) { return 0.0; }
-    // Map world position to tile UV: simple translation around pivot, using tile_size_px for scale heuristically.
-    let tile_px = metaballs.v3.z; // tile_size_px reused as approximate scale (improvement: per-shape scale)
-    let local = (p - pivot) / max(tile_px, 1.0) + vec2<f32>(0.5,0.5);
-    let uv_tile = clamp(local, vec2<f32>(0.0), vec2<f32>(1.0));
-    let atlas_uv = uv0 + uv_tile * rect_size;
-    // Derive integer texel coordinate from normalized atlas uv using viewport dims as placeholder (improvement: store atlas dims in uniform)
-    let tex_dim = metaballs.v2.xy; // currently viewport dims; TODO: pass atlas dimensions explicitly
-    let texel = textureLoad(sdf_atlas_tex, vec2<i32>(atlas_uv * tex_dim), 0);
+    let rect_size = shape_meta.uv1 - shape_meta.uv0;
+    if (rect_size.x <= 0.0 || rect_size.y <= 0.0 || scaled_r <= 0.0) { return 0.0; }
+    // Map world point into ball-local normalized space [-1,1]
+    let local = (p_world - center) / scaled_r; // now circle boundary at length=1 (approx)
+    // Early discard if clearly outside shape tile region (add small margin 0.1 to avoid popping)
+    if (abs(local.x) > 1.1 || abs(local.y) > 1.1) { return 1e6; } // far outside large positive distance
+    // Map to tile uv [0,1]
+    let uv_tile = local * 0.5 + vec2<f32>(0.5, 0.5);
+    let atlas_uv = shape_meta.uv0 + clamp(uv_tile, vec2<f32>(0.0), vec2<f32>(1.0)) * rect_size;
+    let atlas_dim = metaballs.v6.xy; // (atlas_w, atlas_h)
+    let texel_coord = vec2<i32>(clamp(atlas_uv * atlas_dim, vec2<f32>(0.0), atlas_dim - vec2<f32>(1.0)));
+    let texel = textureLoad(sdf_atlas_tex, texel_coord, 0);
     let mode = u32(metaballs.v5.z + 0.5);
     var dist_n: f32;
-    if (mode == 1u) {
-        dist_n = texel.r;
-    } else { // MSDF median
+    if (mode == 1u) { dist_n = texel.r; }
+    else { // median for MSDF (rgb) path; rgba variant would refine in future
         let r = texel.r; let g = texel.g; let b = texel.b;
         dist_n = max(min(r,g), min(max(r,g), b));
     }
-    let dr = metaballs.v5.y;
-    let sd = (dist_n - 0.5) * dr; // signed distance (approx) in px units
-    return sd;
+    let dr = metaballs.v5.y; // distance_range in px stored in v5.y
+    // Encoding in atlas now uses n = 0.5 - sd/dr (plus optional clamp for solid outside),
+    // so decode by negating to restore convention: negative inside, positive outside.
+    return -(dist_n - 0.5) * dr; // signed distance in px (negative inside)
 }
 
 fn accumulate_groups_tile(
@@ -380,14 +386,19 @@ fn accumulate_groups_tile(
         var fi: f32;
         var g = vec2<f32>(0.0, 0.0);
         if (metaballs.v5.x >= 0.5 && shape_index != 0u) {
-            let sd = sample_sdf_distance(shape_index, p);
-            // Convert signed distance to soft field: inside -> positive contribution
-            let inside = clamp(0.5 - sd / max(radius, 1e-3), 0.0, 1.0);
-            fi = inside * inside * inside; // cubic falloff
+            // Use scaled radius already computed earlier (scaled_r)
+            let sd = sample_sdf_distance(shape_index, p, center, scaled_r);
+            // Normalize sd by scaled radius in *pixels*: approximate pixel_radius by scaled_r (contract: world unit ~ pixel)
+            let norm = clamp(-sd / max(scaled_r, 1e-4), 0.0, 1.0); // inside => sd negative -> positive contribution
+            fi = norm * norm * norm;
             if (needs_gradient && metaballs.v5.w >= 1.0) {
-                let eps = 1.0; // 1 world unit (improve with screen-space scale)
-                let sd_x = sample_sdf_distance(shape_index, p + vec2<f32>(eps,0.0)) - sd;
-                let sd_y = sample_sdf_distance(shape_index, p + vec2<f32>(0.0,eps)) - sd;
+                // Gradient step: approximate texel size in world units = scaled_r / (tile_size*0.5)
+                let tile_px = sdf_shape_meta[shape_index].meta.x;
+                let world_per_px = scaled_r / max(tile_px * 0.5, 1.0);
+                let eps_scale = max(metaballs.v6.w, 0.01);
+                let eps = world_per_px * eps_scale;
+                let sd_x = sample_sdf_distance(shape_index, p + vec2<f32>(eps,0.0), center, scaled_r) - sd;
+                let sd_y = sample_sdf_distance(shape_index, p + vec2<f32>(0.0,eps), center, scaled_r) - sd;
                 g = -vec2<f32>(sd_x, sd_y);
             }
         } else {

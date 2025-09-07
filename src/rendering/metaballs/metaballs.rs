@@ -52,7 +52,8 @@ pub(crate) struct MetaballsUniform {
     v2: Vec4,
     v3: Vec4,
     v4: Vec4,
-    v5: Vec4, // (reserved0, dynamic_cluster_count, reserved1, reserved2)
+    v5: Vec4, // (sdf_enabled, distance_range, channel_mode, max_gradient_samples)
+    v6: Vec4, // (atlas_width, atlas_height, atlas_tile_size, atlas_shape_count)
 }
 
 impl Default for MetaballsUniform {
@@ -64,6 +65,7 @@ impl Default for MetaballsUniform {
             v3: Vec4::new(1.0, 1.0, 64.0, 0.0), // default 1x1 tiles, tile_size=64, balls_len=0
             v4: Vec4::new(1.0, 0.0, 0.0, 0.0), // early-exit enabled by feature flag later; needs_gradient updated per-frame
             v5: Vec4::new(0.0, 0.0, 0.0, 0.0),
+            v6: Vec4::new(0.0, 0.0, 0.0, 0.0),
         }
     }
 }
@@ -691,6 +693,12 @@ fn update_metaballs_unified_material(
             mat.data.v5.y = atlas.distance_range;
             mat.data.v5.z = atlas.channel_mode.as_uniform();
             mat.data.v5.w = cfg.sdf_shapes.max_gradient_samples as f32;
+            // v6 holds atlas dimensions & shape count (tile size redundant with per-shape meta but convenient)
+            mat.data.v6.x = atlas.atlas_width as f32;
+            mat.data.v6.y = atlas.atlas_height as f32;
+            mat.data.v6.z = atlas.tile_size as f32;
+            // v6.w used for gradient_step_scale (atlas shape count not currently needed in shader)
+            mat.data.v6.w = cfg.sdf_shapes.gradient_step_scale.max(0.01);
             // Bind atlas texture handle if material missing one
             if mat.sdf_atlas_tex.is_none() { mat.sdf_atlas_tex = Some(atlas.texture.clone()); }
             if let Some(shape_buf) = &atlas.shape_buffer { mat.sdf_shape_meta = shape_buf.clone(); }

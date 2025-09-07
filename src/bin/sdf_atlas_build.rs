@@ -29,6 +29,9 @@ struct Args {
     #[arg(long, default_value = "sdf_r8")] channel_mode: String,
     #[arg(long, default_value_t = 0.125)] distance_span_factor: f32, // distance_range_px = tile_size * factor
     #[arg(long, default_value_t = 1)] supersamples: u32, // 1, 2, or 4 (grid 1x1, 2x2)
+    /// When set, any distance >= 0 (outside or on edge) is encoded as pure black (0),
+    /// while interior distances map (0.5 + |sd|/range) -> (0.5..1]. This yields a solid silhouette.
+    #[arg(long, default_value_t = false)] solid_outside: bool,
 }
 
 #[derive(Serialize)] struct OutPivot { x: f32, y: f32 }
@@ -79,18 +82,13 @@ fn main() -> anyhow::Result<()> {
                     let cx = fx * 2.0 - 1.0;
                     let cy = fy * 2.0 - 1.0;
                     // Raw normalized signed distance (negative inside, positive outside after normalization step below)
-                    let mut sd_norm = signed_distance(name, cx, cy);
-                    // Enforce convention: negative inside. Circle / square logic originally returned positive inside => invert if needed by sampling center point heuristic.
-                    // We probe the center only once per tile (approx) by checking first sample; heuristic keeps cheap.
-                    // Simpler: assume our custom functions may return either sign; we canonicalize by measuring distance at (0,0).
-                    // For performance we skip dynamic detection & just invert here if it's likely positive inside.
-                    // Heuristic: if name is "circle" or "square" we invert.
-                    if name == "circle" || name == "square" { sd_norm = -sd_norm; }
-                    // Convert normalized space units (~half extent=1) to pixel units. Half tile corresponds to 1.0 in our shape space mapping.
+                    let sd_norm = signed_distance(name, cx, cy); // negative inside
                     let sd_px = sd_norm * (args.tile_size as f32 * 0.5);
-                    // Clamp & remap to 0..1 with 0.5 = 0 distance
                     let sd_clamped = sd_px.clamp(-distance_range_px, distance_range_px);
-                    let n = 0.5 + 0.5 * (sd_clamped / distance_range_px);
+                    // Inverted encoding: inside (sd < 0) becomes brighter than 0.5 ( > 128 ),
+                    // outside becomes darker (< 128). This matches desired visual of white interior, black exterior.
+                    let mut n = (0.5 - sd_clamped / distance_range_px).clamp(0.0,1.0); // 0.5 center surface
+                    if args.solid_outside && sd_clamped >= 0.0 { n = 0.0; }
                     accum += n;
                 }
                 let n_avg = accum / (ss as f32);
@@ -113,13 +111,15 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn signed_distance(name:&str, x: f32, y: f32) -> f32 {
-    // x,y in [-1,1]
+    // Canonical SDFs return negative inside, positive outside.
     match name {
-        "circle" => { let r = 0.8; (r - (x*x + y*y).sqrt()) * (0.5 * r) }
-        "square" => { let s = 0.8; let dx = (x.abs() - s).max(0.0); let dy = (y.abs() - s).max(0.0); let outside = (dx*dx + dy*dy).sqrt(); let inside = (s - x.abs()).min(s - y.abs()); if dx > 0.0 || dy > 0.0 { -outside } else { inside } }
-        "triangle" => { sdf_equilateral_triangle(x,y) }
+        // Circle of radius r (shape space) : sd = length(p) - r (positive outside). We invert sign to keep negative inside.
+    "circle" => { let r = 0.8; (x*x + y*y).sqrt() - r },
+        // Square (box) half-size s: standard box SDF (positive outside)
+        "square" => { let s = 0.8; let dx = (x.abs() - s).max(0.0); let dy = (y.abs() - s).max(0.0); let outside = (dx*dx + dy*dy).sqrt(); let inside = (x.abs().max(y.abs()) - s).min(0.0); outside + inside },
+        "triangle" => sdf_equilateral_triangle(x,y),
         _ if name.starts_with("glyph_") => sdf_glyph_placeholder(name, x, y),
-        _ => 0.0,
+        _ => 1.0, // far outside by default
     }
 }
 
@@ -146,7 +146,13 @@ fn sdf_glyph_placeholder(name:&str, x:f32,y:f32)->f32{ // Simple block glyph wit
     }
 }
 
-fn sdf_block(x:f32,y:f32,hw:f32,hh:f32)->f32{ let dx=(x.abs()-hw).max(0.0); let dy=(y.abs()-hh).max(0.0); -(dx.hypot(dy)+ (hw - x.abs()).min(hh - y.abs()).min(0.0)) }
-fn sdf_circle_cut(x:f32,y:f32,r:f32)->f32{ r - (x*x + y*y).sqrt() }
-fn sdf_ring(x:f32,y:f32,ro:f32,ri:f32)->f32{ let d=(x*x + y*y).sqrt(); (ro - d).min(d - ri) }
-fn sdf_ring_open(x:f32,y:f32,ro:f32,ri:f32,gap:f32,left:bool)->f32{ let d=(x*x + y*y).sqrt(); let mut sd=(ro - d).min(d - ri); if left { if x < -gap { sd = -sd.abs(); } } else { if x>gap { sd = -sd.abs(); } } sd }
+fn sdf_block(x:f32,y:f32,hw:f32,hh:f32)->f32{ // positive outside, negative inside (box SDF canonical)
+    let dx = (x.abs() - hw).max(0.0);
+    let dy = (y.abs() - hh).max(0.0);
+    let outside = (dx*dx + dy*dy).sqrt();
+    let inside = (x.abs().max(y.abs()) - hw.max(hh)).min(0.0);
+    outside + inside
+}
+fn sdf_circle_cut(x:f32,y:f32,r:f32)->f32{ (x*x + y*y).sqrt() - r }
+fn sdf_ring(x:f32,y:f32,ro:f32,ri:f32)->f32{ let d=(x*x + y*y).sqrt(); let outer = d - ro; let inner = ri - d; outer.max(inner) } // union of outside outer and inside inner
+fn sdf_ring_open(x:f32,y:f32,ro:f32,ri:f32,gap:f32,left:bool)->f32{ let base = sdf_ring(x,y,ro,ri); if left { if x < -gap { base } else { base.max(x + gap) } } else { if x > gap { base } else { base.max(-x + gap) } } }

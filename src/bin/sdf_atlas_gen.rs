@@ -95,13 +95,13 @@ mod tests {
         let reg = tmp.path().join("reg.json");
         let png = tmp.path().join("atlas.png");
         let img = image::RgbaImage::from_pixel(64,64, image::Rgba([128,0,0,255])); img.save(&png).unwrap();
-        fs::write(&reg, r#"[{"name":"circle","index":0,"x":0,"y":0,"w":64,"h":64,"u0":0.0,"v0":0.0,"u1":1.0,"v1":1.0}]"#).unwrap();
+    fs::write(&reg, r#"[{"name":"circle","index":1,"x":0,"y":0,"w":64,"h":64,"u0":0.0,"v0":0.0,"u1":1.0,"v1":1.0}]"#).unwrap();
         let out = tmp.path().join("atlas.json");
         let reg_txt = fs::read_to_string(&reg).unwrap();
         let entries: Vec<RegistryEntry> = serde_json::from_str(&reg_txt).unwrap(); assert_eq!(entries.len(),1);
         let img_bytes = fs::read(&png).unwrap(); let img = image::load_from_memory(&img_bytes).unwrap(); assert_eq!(img.width(),64);
         let distance_range = 64f32 * 0.125; let mut shapes = Vec::new();
-        for (i,e) in entries.iter().enumerate() { assert_eq!(e.index, i as u32); shapes.push(super::OutShapeEntry { name: e.name.clone(), index: e.index, px: super::OutRect { x: e.x, y: e.y, w: e.w, h: e.h }, uv: super::OutUv { u0: e.u0, v0: e.v0, u1: e.u1, v1: e.v1 }, pivot: super::OutPivot { x: 0.5, y:0.5 }, advance_scale: None, metadata: serde_json::json!({}) }); }
-        let root = super::OutRoot { version:1, distance_range, tile_size:64, atlas_width: 64, atlas_height:64, channel_mode: "sdf_r8".into(), shapes }; let js = serde_json::to_string_pretty(&root).unwrap(); fs::write(&out, js).unwrap(); let produced = fs::read_to_string(&out).unwrap(); assert!(produced.contains("\"version\": 1"));
+    for (i,e) in entries.iter().enumerate() { assert_eq!(e.index, (i as u32)+1); shapes.push(super::OutShapeEntry { name: e.name.clone(), index: e.index, px: super::OutRect { x: e.x, y: e.y, w: e.w, h: e.h }, uv: super::OutUv { u0: e.u0, v0: e.v0, u1: e.u1, v1: e.v1 }, pivot: super::OutPivot { x: 0.5, y:0.5 }, advance_scale: None, metadata: serde_json::json!({}) }); }
+    let root = super::OutRoot { version:1, distance_range, tile_size:64, atlas_width: 64, atlas_height:64, channel_mode: "sdf_r8".into(), shapes }; let js = serde_json::to_string_pretty(&root).unwrap(); fs::write(&out, js).unwrap(); let produced = fs::read_to_string(&out).unwrap(); assert!(produced.contains("\"version\": 1"));
     }
 }

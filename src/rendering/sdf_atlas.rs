@@ -20,6 +20,8 @@ pub struct SdfAtlas {
     pub shapes: Vec<SdfShapeMeta>,
     pub enabled: bool,
     pub shape_buffer: Option<Handle<ShaderStorageBuffer>>, // GPU metadata buffer
+    // Cached for shader uniform staging (explicit instead of re-deriving per frame)
+    pub shape_count: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -82,7 +84,9 @@ pub struct SdfShapeGpuMeta {
     pub uv0: Vec2,
     pub uv1: Vec2,
     pub pivot: Vec2,
-    pub pad: Vec2,
+    // meta.x = tile_size_px, meta.y = distance_range_px (global currently but stored per-shape for future variance)
+    // meta.z = reserved (0), meta.w = reserved (0)
+    pub meta: Vec4,
 }
 
 fn load_sdf_atlas(
@@ -105,7 +109,7 @@ fn load_sdf_atlas(
     let png_asset_path = "shapes/sdf_atlas.png";       // asset server relative path
     if !Path::new(json_fs_path).exists() || !Path::new(png_fs_path).exists() {
         info!(target:"sdf", "SDF atlas not found (expected '{}' and '{}') – falling back to analytic circles", json_fs_path, png_fs_path);
-        commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None });
+    commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None, shape_count: 0 });
         return;
     }
     let raw_str = match fs::read_to_string(json_fs_path) { Ok(s)=>s, Err(e)=>{ warn!(target:"sdf", "Failed reading atlas json: {e}"); return; } };
@@ -134,14 +138,19 @@ fn load_sdf_atlas(
 
     // Build GPU metadata buffer (index 0 reserved dummy so shape_index==0 => analytic circle fallback)
     let mut gpu_meta: Vec<SdfShapeGpuMeta> = Vec::with_capacity(shapes_meta.len()+1);
-    gpu_meta.push(SdfShapeGpuMeta::default());
+    gpu_meta.push(SdfShapeGpuMeta { uv0: Vec2::ZERO, uv1: Vec2::ZERO, pivot: Vec2::ZERO, meta: Vec4::ZERO }); // index 0 sentinel
     for s in &shapes_meta {
         let (u0,v0,u1,v1) = s.uv;
-        gpu_meta.push(SdfShapeGpuMeta { uv0: Vec2::new(u0, v0), uv1: Vec2::new(u1, v1), pivot: Vec2::new(s.pivot.0, s.pivot.1), pad: Vec2::ZERO });
+        gpu_meta.push(SdfShapeGpuMeta {
+            uv0: Vec2::new(u0, v0),
+            uv1: Vec2::new(u1, v1),
+            pivot: Vec2::new(s.pivot.0, s.pivot.1),
+            meta: Vec4::new(parsed.tile_size as f32, distance_range, 0.0, 0.0),
+        });
     }
     let shape_buffer_handle = buffers.add(ShaderStorageBuffer::from(gpu_meta.as_slice()));
 
-    let atlas = SdfAtlas { texture: tex_handle, tile_size: parsed.tile_size, atlas_width: parsed.atlas_width, atlas_height: parsed.atlas_height, distance_range, channel_mode, shapes: shapes_meta, enabled:true, shape_buffer: Some(shape_buffer_handle) };
+    let atlas = SdfAtlas { texture: tex_handle, tile_size: parsed.tile_size, atlas_width: parsed.atlas_width, atlas_height: parsed.atlas_height, distance_range, channel_mode, shapes: shapes_meta, enabled:true, shape_buffer: Some(shape_buffer_handle), shape_count: parsed.shapes.len() as u32 };
     info!(target:"sdf", "Loaded SDF atlas: {} shapes, tile={} range={}", atlas.shapes.len(), atlas.tile_size, atlas.distance_range);
     commands.insert_resource(atlas);
 }

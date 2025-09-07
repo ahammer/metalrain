@@ -192,8 +192,14 @@ impl Default for SurfaceNoiseConfig { fn default() -> Self { Self { enabled: tru
 // ---------------- SDF Shapes (NEW) ----------------
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
-pub struct SdfShapesConfig { pub enabled: bool, pub force_fallback: bool, pub max_gradient_samples: u32 }
-impl Default for SdfShapesConfig { fn default() -> Self { Self { enabled: true, force_fallback: false, max_gradient_samples: 2 } } }
+pub struct SdfShapesConfig {
+    pub enabled: bool,
+    pub force_fallback: bool,
+    pub max_gradient_samples: u32,
+    #[serde(default)] pub gradient_step_scale: f32, // multiplier on adaptive world_per_px step (1.0 = default)
+    #[serde(default)] pub use_circle_fallback_when_radius_lt: f32, // if >0, force analytic circle when scaled radius < threshold
+}
+impl Default for SdfShapesConfig { fn default() -> Self { Self { enabled: true, force_fallback: false, max_gradient_samples: 2, gradient_step_scale: 1.0, use_circle_fallback_when_radius_lt: 0.0 } } }
 
 // ---------------- Root GameConfig ----------------
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
@@ -321,7 +327,9 @@ impl GameConfig {
         if self.surface_noise.octaves > 6 { w.push(format!("surface_noise.octaves {} > 6", self.surface_noise.octaves)); }
         if self.surface_noise.octaves == 0 && self.surface_noise.enabled { w.push("surface_noise.octaves == 0 while enabled".into()); }
         // SDF shapes
-        if self.sdf_shapes.max_gradient_samples > 4 { w.push(format!("sdf_shapes.max_gradient_samples {} > 4", self.sdf_shapes.max_gradient_samples)); }
+    if self.sdf_shapes.max_gradient_samples > 4 { w.push(format!("sdf_shapes.max_gradient_samples {} > 4", self.sdf_shapes.max_gradient_samples)); }
+    if self.sdf_shapes.gradient_step_scale <= 0.0 { w.push(format!("sdf_shapes.gradient_step_scale {} <= 0", self.sdf_shapes.gradient_step_scale)); }
+    if self.sdf_shapes.use_circle_fallback_when_radius_lt < 0.0 { w.push(format!("sdf_shapes.use_circle_fallback_when_radius_lt {} < 0", self.sdf_shapes.use_circle_fallback_when_radius_lt)); }
         if !self.sdf_shapes.enabled && self.sdf_shapes.force_fallback { w.push("sdf_shapes.force_fallback true while disabled".into()); }
         // Clustering thresholds
         let db_enter = self.clustering.distance_buffer_enter_cluster; let db_exit = self.clustering.distance_buffer_exit_cluster; if db_enter < 1.0 { w.push(format!("clustering.distance_buffer_enter_cluster {} < 1.0", db_enter)); } if db_exit < db_enter { w.push(format!("clustering.distance_buffer_exit_cluster {} < enter {}", db_exit, db_enter)); } if db_exit > 3.0 { w.push(format!("clustering.distance_buffer_exit_cluster {} > 3.0", db_exit)); }

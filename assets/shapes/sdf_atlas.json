@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "distance_range": 8.0,
+  "distance_range": 32.0,
   "tile_size": 64,
   "atlas_width": 512,
   "atlas_height": 320,
