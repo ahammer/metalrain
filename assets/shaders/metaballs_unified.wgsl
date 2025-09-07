@@ -307,8 +307,8 @@ struct AccumResult {
 fn sample_sdf_distance(shape_index: u32, p: vec2<f32>) -> f32 {
     if (metaballs.v5.x < 0.5) { return 0.0; } // disabled
     if (shape_index == 0u) { return 0.0; } // analytic circle sentinel
-    let meta = sdf_shape_meta[shape_index];
-    let uv0 = meta.uv0; let uv1 = meta.uv1; let pivot = meta.pivot;
+    let shape_meta = sdf_shape_meta[shape_index];
+    let uv0 = shape_meta.uv0; let uv1 = shape_meta.uv1; let pivot = shape_meta.pivot;
     let rect_size = uv1 - uv0;
     if (rect_size.x <= 0.0 || rect_size.y <= 0.0) { return 0.0; }
     // Map world position to tile UV: simple translation around pivot, using tile_size_px for scale heuristically.

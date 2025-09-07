@@ -3,6 +3,10 @@ use bevy::render::storage::ShaderStorageBuffer;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
+/// Packing helpers (shape index high 16 bits, color group low 16 bits). Shape index 0 reserved sentinel.
+#[inline] pub const fn pack_shape_color(shape_index: u16, color_group: u16) -> u32 { ((shape_index as u32) << 16) | (color_group as u32) }
+#[inline] pub const fn unpack_shape(packed: u32) -> u16 { (packed >> 16) as u16 }
+#[inline] pub const fn unpack_color_group(packed: u32) -> u16 { (packed & 0xFFFF) as u16 }
 
 /// Runtime resource representing a loaded SDF shape atlas.
 #[derive(Resource, Debug, Clone)]
@@ -20,6 +24,7 @@ pub struct SdfAtlas {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SdfChannelMode { #[default] SdfR8, MsdfRgb, MsdfRgba }
+impl SdfChannelMode { #[inline] pub fn as_uniform(self) -> f32 { match self { SdfChannelMode::SdfR8 => 0.0, SdfChannelMode::MsdfRgb => 1.0, SdfChannelMode::MsdfRgba => 2.0 } } }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawShapeRect { pub x: u32, pub y: u32, pub w: u32, pub h: u32 }
@@ -63,7 +68,10 @@ pub struct SdfShapeMeta {
 pub struct SdfAtlasPlugin;
 impl Plugin for SdfAtlasPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_sdf_atlas);
+        app.add_systems(Startup, load_sdf_atlas)
+            // After atlas loads, do a one-shot assignment of shape indices to any balls that
+            // currently have the sentinel (0) so the shader path exercises SDF sampling.
+            .add_systems(Update, assign_ball_shapes_once);
     }
 }
 
@@ -96,7 +104,7 @@ fn load_sdf_atlas(
     let png_fs_path = "assets/shapes/sdf_atlas.png";   // filesystem check path
     let png_asset_path = "shapes/sdf_atlas.png";       // asset server relative path
     if !Path::new(json_fs_path).exists() || !Path::new(png_fs_path).exists() {
-        info!(target:"sdf", "SDF atlas assets missing ({} / {}); disabling SDF path", json_fs_path, png_fs_path);
+        info!(target:"sdf", "SDF atlas not found (expected '{}' and '{}') – falling back to analytic circles", json_fs_path, png_fs_path);
         commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None });
         return;
     }
@@ -110,13 +118,18 @@ fn load_sdf_atlas(
 
     let mut shapes_meta = Vec::with_capacity(parsed.shapes.len());
     for (i,s) in parsed.shapes.iter().enumerate() {
-        if s.index != i as u32 { warn!(target:"sdf", "shape '{}' index mismatch: json {} != position {i}", s.name, s.index); }
+        let expected = (i + 1) as u32; // 1-based; 0 reserved sentinel
+        if s.index == 0 { warn!(target:"sdf", "shape '{}' has index 0 (reserved). Expected {}.", s.name, expected); }
+        else if s.index != expected { warn!(target:"sdf", "shape '{}' index {} != expected {} (non-contiguous)", s.name, s.index, expected); }
         shapes_meta.push(SdfShapeMeta { name: s.name.clone(), index: s.index, rect_px: (s.px.x, s.px.y, s.px.w, s.px.h), uv: (s.uv.u0, s.uv.v0, s.uv.u1, s.uv.v1), pivot: (s.pivot.x, s.pivot.y) });
     }
 
     // Load texture via asset server so it participates in Bevy's lifecycle; fallback if fails later.
     let tex_handle: Handle<Image> = asset_server.load(png_asset_path);
-    let distance_range = parsed.distance_range.unwrap_or(parsed.tile_size as f32 * 0.125);
+    let mut distance_range = parsed.distance_range.unwrap_or(parsed.tile_size as f32 * 0.125);
+    let heuristic = parsed.tile_size as f32 * 0.125;
+    if distance_range <= 0.0 { warn!(target:"sdf", "distance_range {} <= 0; using heuristic {}", distance_range, heuristic); distance_range = heuristic; }
+    else if distance_range > parsed.tile_size as f32 { warn!(target:"sdf", "distance_range {} > tile_size {}; edges may appear soft", distance_range, parsed.tile_size); }
     let channel_mode = match parsed.channel_mode.as_str() { "sdf_r8"=>SdfChannelMode::SdfR8, "msdf_rgb"=>SdfChannelMode::MsdfRgb, "msdf_rgba"=>SdfChannelMode::MsdfRgba, other=>{ warn!(target:"sdf", "Unknown channel_mode '{}', defaulting to sdf_r8", other); SdfChannelMode::SdfR8 } };
 
     // Build GPU metadata buffer (index 0 reserved dummy so shape_index==0 => analytic circle fallback)
@@ -131,4 +144,46 @@ fn load_sdf_atlas(
     let atlas = SdfAtlas { texture: tex_handle, tile_size: parsed.tile_size, atlas_width: parsed.atlas_width, atlas_height: parsed.atlas_height, distance_range, channel_mode, shapes: shapes_meta, enabled:true, shape_buffer: Some(shape_buffer_handle) };
     info!(target:"sdf", "Loaded SDF atlas: {} shapes, tile={} range={}", atlas.shapes.len(), atlas.tile_size, atlas.distance_range);
     commands.insert_resource(atlas);
+}
+
+// One-shot assignment: when an atlas is present & enabled, map each ball's material index
+// deterministically onto a shape index (1..=shape_count). This keeps distribution stable
+// across runs while avoiding per-frame work. Shape index 0 remains the analytic fallback.
+fn assign_ball_shapes_once(
+    atlas: Option<Res<SdfAtlas>>,
+    mut done: Local<bool>,
+    mut q: Query<(&crate::rendering::materials::materials::BallMaterialIndex, &mut crate::rendering::materials::materials::BallShapeIndex)>,
+) {
+    if *done { return; }
+    let Some(atlas) = atlas else { return; };
+    if !atlas.enabled || atlas.shapes.is_empty() { return; }
+    let shape_count = atlas.shapes.len() as u16; // indices are 1..=shape_count
+    for (mat_idx, mut shape_idx) in &mut q {
+        if shape_idx.0 == 0 { // only overwrite sentinel
+            // Deterministic mapping: wrap material index across available shapes then add 1
+            // (since 0 is reserved sentinel analytic circle).
+            shape_idx.0 = (mat_idx.0 as u16 % shape_count) + 1;
+        }
+    }
+    *done = true;
+    info!(target:"sdf", "Assigned initial SDF shape indices to balls ({} shapes)", shape_count);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_unpack_roundtrip() {
+        let packed = pack_shape_color(0x1234, 0xABCD);
+        assert_eq!(unpack_shape(packed), 0x1234);
+        assert_eq!(unpack_color_group(packed), 0xABCD);
+    }
+
+    #[test]
+    fn channel_mode_uniform_values() {
+        assert_eq!(SdfChannelMode::SdfR8.as_uniform(), 0.0);
+        assert_eq!(SdfChannelMode::MsdfRgb.as_uniform(), 1.0);
+        assert_eq!(SdfChannelMode::MsdfRgba.as_uniform(), 2.0);
+    }
 }

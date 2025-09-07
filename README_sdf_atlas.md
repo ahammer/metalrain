@@ -35,7 +35,7 @@ Example:
   "shapes": [
     {
       "name": "circle",
-      "index": 0,
+      "index": 1,
       "px": { "x":0, "y":0, "w":64, "h":64 },
       "uv": { "u0":0.0, "v0":0.0, "u1":0.25, "v1":0.25 },
       "pivot": { "x":0.5, "y":0.5 },
@@ -53,7 +53,7 @@ Fields:
 - `shapes`: Ordered list; each `index` should match its position.
 - `pivot`: Normalized pivot inside the tile (0..1) used for shape anchoring or future layout.
 
-A sentinel dummy entry is reserved on the GPU at index 0 (system injects); any shape_index == 0 in a ball reverts to analytic circle distance.
+Index 0 is reserved internally as a sentinel (not serialized). The runtime inserts a dummy entry at GPU slot 0 so any packed shape index of 0 reverts to analytic circle distance. JSON shape indices must start at 1 and be contiguous (1,2,3,...). The loader will warn if an entry has index 0 or if indices are non-contiguous.
 
 ## Generation Tool
 A helper binary `sdf_atlas_gen` converts a registry JSON + atlas PNG into the runtime JSON schema.
@@ -89,14 +89,20 @@ The shader normalizes signed distance using `distance_range` to map texture dist
 1. Startup system (`SdfAtlasPlugin`) attempts to read both files.
 2. On success it builds a GPU storage buffer (`SdfShapeGpuMeta`) with per‑shape UV bounds & pivot.
 3. Uniform lane v5 is updated:
-   - x: enabled flag
-   - y: distance_range
-   - z: channel_mode enum (0=r8,1=rgb,2=rgba)
-   - w: max_gradient_samples
+  - x: enabled flag (1.0 = SDF path active, 0.0 = fallback)
+  - y: distance_range
+  - z: channel_mode enum (0 = sdf_r8, 1 = msdf_rgb, 2 = msdf_rgba)
+  - w: max_gradient_samples (0 disables gradient sampling)
 4. Shader branches per ball: if packed shape index (high 16 bits of `GpuBall.w`) != 0 and SDF enabled, it samples the atlas; else analytic circle math.
 
 ## Packing Shape Index
-High 16 bits: shape index, low 16 bits: color group. Tools that author balls must replicate this packing: `((shape_index as u32) << 16) | (color_group as u32)`.
+High 16 bits: shape index (u16), low 16 bits: color group (u16). Packing helper (Rust):
+```
+let packed = pack_shape_color(shape_index, color_group);
+```
+Shape index 0 always triggers analytic circle fallback.
+
+Raw formula (other languages): `((shape_index as u32) << 16) | (color_group as u32)`.
 
 ## Future Extensions
 - Multi-channel MSDF decoding (median/precision improvements).
@@ -112,6 +118,15 @@ High 16 bits: shape index, low 16 bits: color group. Tools that author balls mus
 | Jagged edges | distance_range too small | Increase explicit `--distance-range` |
 | Soft / inflated edges | distance_range too large | Decrease value |
 | Gradient disabled | `max_gradient_samples` = 0 | Raise to 1 or 2 |
+
+### Validation Warnings
+During load (log target `sdf`):
+- shape index 0 encountered (reserved)
+- non-contiguous indices (expected 1..N)
+- distance_range <= 0 (heuristic substituted)
+- distance_range > tile_size (may produce overly soft edges)
+- unknown channel_mode (defaults to sdf_r8)
+- atlas files missing (falls back to analytic circles)
 
 ## Notes
 - The loader logs with target `sdf`; filter via `RUST_LOG=sdf=info` for focused output.

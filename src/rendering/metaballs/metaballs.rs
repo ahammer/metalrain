@@ -684,13 +684,13 @@ fn update_metaballs_unified_material(
     } else {
         0.0
     }; // metadata v2 encoding flag
-    // SDF flags (reuse v5 lanes): v5.x = sdf_enabled, v5.z = channel_mode, v5.w = max_gradient_samples
+    // SDF flags (reuse v5 lanes): v5.x = sdf_enabled, v5.y = distance_range, v5.z = channel_mode (0=r8,1=rgb,2=rgba), v5.w = max_gradient_samples
     if let Some(atlas) = sdf_atlas.as_ref() {
         if atlas.enabled && cfg.sdf_shapes.enabled && !cfg.sdf_shapes.force_fallback {
             mat.data.v5.x = 1.0;
-            mat.data.v5.z = match atlas.channel_mode { crate::rendering::sdf_atlas::SdfChannelMode::SdfR8 => 1.0, crate::rendering::sdf_atlas::SdfChannelMode::MsdfRgb => 2.0, crate::rendering::sdf_atlas::SdfChannelMode::MsdfRgba => 3.0 };
+            mat.data.v5.y = atlas.distance_range;
+            mat.data.v5.z = atlas.channel_mode.as_uniform();
             mat.data.v5.w = cfg.sdf_shapes.max_gradient_samples as f32;
-            mat.data.v5.y = atlas.distance_range; // reuse lane for distance normalization range
             // Bind atlas texture handle if material missing one
             if mat.sdf_atlas_tex.is_none() { mat.sdf_atlas_tex = Some(atlas.texture.clone()); }
             if let Some(shape_buf) = &atlas.shape_buffer { mat.sdf_shape_meta = shape_buf.clone(); }
