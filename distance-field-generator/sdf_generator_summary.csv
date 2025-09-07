@@ -1,0 +1,7 @@
+Component,Files,Description
+Core,3,"Main application, library interface, CLI"
+SDF Module,4,"SDF generation logic, font parsing, shapes"
+Atlas Module,3,"Texture packing, registry generation"
+Utils Module,3,"Image processing, math utilities"
+Documentation,2,"README, updated Cargo.toml"
+Total,15,Complete SDF generator implementation
