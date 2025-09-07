@@ -216,9 +216,10 @@ fn sdf_glyph_outline(name:&str, x:f32, y:f32, font:&ab_glyph::FontRef<'_>, parse
     parsed.outline_glyph(gid16, &mut col);
     if col.segs.is_empty() { return None; }
     let (min_x,min_y,max_x,max_y)=col.bbox; let bw=(max_x-min_x).max(1.0); let bh=(max_y-min_y).max(1.0);
-    // Map shape space [-1,1] -> glyph box
+    // Map shape space [-1,1] -> glyph box. Font Y grows upward; our shape space treated +Y upward visually, but resulting raster showed flipped glyphs,
+    // so we invert here to correct orientation.
     let fx = (x*0.5 + 0.5)*bw + min_x;
-    let fy = (y*0.5 + 0.5)*bh + min_y;
+    let fy = ((-y)*0.5 + 0.5)*bh + min_y; // flipped vertically
     // Even-odd
     let mut parity=false; for (a,b) in &col.segs { let (ax,ay)=*a; let (bx,by)=*b; if ((ay>fy)!=(by>fy)) && (fx < (bx-ax)*(fy-ay)/(by-ay+1e-6)+ax) { parity = !parity; } }
     let inside=parity;
