@@ -140,13 +140,39 @@ fn signed_distance(name:&str, x: f32, y: f32, font: &ab_glyph::FontRef<'_>, pars
     }
 }
 
-fn sdf_equilateral_triangle(x:f32,y:f32)->f32{ // side length normalized inside [-1,1]
+/// Signed distance to a centered equilateral triangle (negative inside, positive outside).
+/// Implementation based on Inigo Quilez's canonical formulation, adapted to keep the triangle
+/// comparable in scale to other shapes (circle, square ~0.8 extent).
+fn sdf_equilateral_triangle(x:f32,y:f32)->f32 {
+    // Scale so the circumradius roughly matches the 0.8 used for circle/square half-size.
+    // Using a content scale (s) we map input coordinates to canonical triangle of side length 2.
+    const S: f32 = 0.85; // tuning constant to visually match other primitives' apparent size
     let k = (3.0f32).sqrt();
-    let p = Vec2::new(x, y);
-    let mut q = Vec2::new(p.x.abs() - 0.8, p.y + 0.8/k);
-    if q.x + k*q.y > 0.0 { let tmp_x = (q.x - k*q.y)/2.0; let tmp_y = (-k*q.x - q.y)/2.0; q = Vec2::new(tmp_x, tmp_y); }
-    q.x = q.x.max(0.0); q.y = q.y.max(0.0);
-    -q.length() * q.y.signum() - (p.y + 0.8/k).min(0.0)
+    // Scale into canonical space
+    let mut p = Vec2::new(x / S, y / S);
+    // Canonical equilateral triangle SDF (IQ) with side length 2, centered.
+    p.x = p.x.abs() - 1.0;
+    p.y = p.y + 1.0 / k;
+    if p.x + k * p.y > 0.0 { // project into corner region if above hypotenuse
+        p = Vec2::new( (p.x - k*p.y)*0.5, (-k*p.x - p.y)*0.5 );
+    }
+    p.x -= p.x.clamp(-2.0, 0.0); // clamp to edge strip to avoid artifacts
+    let d = -p.length() * p.y.signum(); // negative inside
+    d * S // rescale distance back to original coordinate scale
+}
+
+#[cfg(test)]
+mod triangle_tests {
+    use super::sdf_equilateral_triangle;
+    // Basic sanity tests: center should be inside (negative), far outside should be positive,
+    // point near a vertex roughly zero.
+    #[test]
+    fn triangle_signs() {
+        assert!(sdf_equilateral_triangle(0.0, 0.0) < 0.0, "center should be inside");
+        assert!(sdf_equilateral_triangle(0.0, 1.2) > 0.0, "far above should be outside");
+        let near_edge = sdf_equilateral_triangle(0.0, -0.49); // near bottom edge
+        assert!(near_edge.abs() < 0.2, "expected near surface distance, got {}", near_edge);
+    }
 }
 
 fn sdf_glyph_placeholder(name:&str, x:f32,y:f32)->f32{ // Fallback simple shape (only used if outline missing)
