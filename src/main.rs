@@ -141,6 +141,9 @@ fn main() {
         );
     }
 
+    // Insert WebGPU capability guard immediately after RenderPlugin so adapter is ready.
+    app.add_plugins(webgpu_guard::WebGpuGuardPlugin);
+
     // Data-driven level loading must occur before core GamePlugin systems (physics, widgets).
     app.add_plugins(LevelLoaderPlugin);
     app.add_plugins(WallTimelinePlugin); // animate grouped wall roots

@@ -48,6 +48,7 @@ anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 ab_glyph = "0.2"
 ttf-parser = "0.20"
+wgpu = { version = "24", default-features = true, features = ["webgpu"] }
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -57,12 +58,6 @@ web-sys = { version = "0.3", features = ["Window","Navigator","Document"] }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
-# Explicit wgpu with only the WebGPU backend feature. Bevy's internal selection
-# (with default-features disabled) does not currently guarantee `webgpu` is
-# enabled on wasm when we curate features manually, leading to the runtime panic:
-# "No wgpu backend feature that is implemented for the target platform was enabled".
-# We avoid `webgl` to keep the strict WebGPU-only policy.
-wgpu = { version = "24", default-features = true, features = ["webgpu" ] }
 
 # Native: explicitly ensure modern backends (Vulkan/Metal/DX12) are enabled; avoid GL/WebGL.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
