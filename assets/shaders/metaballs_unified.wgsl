@@ -50,9 +50,10 @@
 // v2: (viewport_w, viewport_h, time_seconds, radius_multiplier)
 // v3: (tiles_x, tiles_y, tile_size_px, balls_len_actual)
 // v4: (enable_early_exit, needs_gradient, metadata_v2_flag, adaptive_mask_enable)
-// v5: (sdf_enabled, distance_range, channel_mode, max_gradient_samples)
-//      distance_range currently reinterpreted in this simplified variant as a normalized
-//      SDF feather HALF-WIDTH (0 => hard edge, typical <= 0.25). channel_mode/max_gradient_samples reserved.
+// v5: (legacy_sdf_enabled_unused, distance_range, channel_mode, max_gradient_samples)
+//      NOTE: The first component historically toggled SDF; SDF masking is now always active.
+//      distance_range currently reinterpreted as a normalized SDF feather HALF-WIDTH (0 => hard edge, typical <= 0.25).
+//      channel_mode/max_gradient_samples reserved.
 // v6: (atlas_width, atlas_height, atlas_tile_size, gradient_step_scale)
 struct MetaballsData {
     v0: vec4<f32>,
@@ -95,12 +96,6 @@ struct SdfShapeMeta { uv0: vec2<f32>, uv1: vec2<f32>, pivot: vec2<f32>, params: 
 // Polarity: sample > 0.5 is INSIDE (white interior). 0.5 is the surface.
 // distance_range (v5.y) is treated as a normalized feather HALF-WIDTH in 0..0.5 domain.
 // If distance_range == 0 => hard edge. We clamp to a tiny epsilon to avoid div by zero in smoothstep ordering.
-fn world_to_uv(p: vec2<f32>) -> vec2<f32> {
-    // world_pos spans roughly [-viewport/2, +viewport/2]
-    let vp = metaballs.v2.xy; // (w,h)
-    return (p / vp) + vec2<f32>(0.5, 0.5);
-}
-
 fn sdf_mask(sample_value: f32, feather_norm: f32) -> f32 {
     // sample_value in [0,1]; inside when > 0.5
     // Map to signed distance in normalized units around surface: d = sample - 0.5
@@ -110,6 +105,23 @@ fn sdf_mask(sample_value: f32, feather_norm: f32) -> f32 {
     // Inside (positive d) should go toward 1; outside toward 0 with smooth transition across [-f, +f]
     // We want 0 at d <= -f, 1 at d >= +f
     return smoothstep(-f, f, d);
+}
+
+// Consolidated SDF evaluation helper. Returns (mask, sample_val). mask=0 when outside glyph or rejected.
+fn sdf_evaluate(p: vec2<f32>, ctr: vec2<f32>, r: f32, cos_t: f32, sin_t: f32, shape_idx: u32, feather_norm: f32) -> vec2<f32> {
+    if (shape_idx == 0u) { return vec2<f32>(1.0, 1.0); }
+    let relp = p - ctr;
+    let rel_rot = vec2<f32>( relp.x * cos_t + relp.y * sin_t, -relp.x * sin_t + relp.y * cos_t );
+    let uv_local = (rel_rot / (2.0 * r)) + vec2<f32>(0.5, 0.5);
+    if (any(uv_local < vec2<f32>(0.0)) || any(uv_local > vec2<f32>(1.0))) { return vec2<f32>(0.0, 1.0); }
+    let shape_meta = sdf_shape_meta[shape_idx];
+    let atlas_uv = shape_meta.uv0 + (shape_meta.uv1 - shape_meta.uv0) * uv_local;
+    let sample_val = textureSample(sdf_atlas_tex, sdf_sampler, atlas_uv).r;
+    let d = sample_val - 0.5;
+    if (d <= -feather_norm) { return vec2<f32>(0.0, sample_val); }
+    if (d >=  feather_norm) { return vec2<f32>(1.0, sample_val); }
+    let mask_val = smoothstep(-feather_norm, feather_norm, d);
+    return vec2<f32>(mask_val, sample_val);
 }
 
 // ----------------------------------------------------------------------------
@@ -145,7 +157,10 @@ fn field_contrib(p: vec2<f32>, center: vec2<f32>, r: f32) -> f32 {
 
 // Parallel arrays for cluster accumulation (WGSL friendly, avoids pointer indirection).
 fn cluster_find(ids: ptr<function, array<u32, 12>>, count: u32, id: u32) -> i32 {
-    for (var i: u32 = 0u; i < count; i = i + 1u) { if ((*ids)[i] == id) { return i32(i); } }
+    if (count == 0u) { return -1; }
+    let last_i = count - 1u; // temporal locality: recently inserted likely reused
+    if ((*ids)[last_i] == id) { return i32(last_i); }
+    for (var i: u32 = 0u; i < last_i; i = i + 1u) { if ((*ids)[i] == id) { return i32(i); } }
     return -1;
 }
 fn cluster_insert(ids: ptr<function, array<u32, 12>>, count: ptr<function, u32>, id: u32) -> u32 {
@@ -244,6 +259,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let iso = max(metaballs.v0.w, 1e-5);
     let radius_scale = metaballs.v0.z;
     let radius_mult = metaballs.v2.w;
+    let radius_coeff = radius_scale * radius_mult;
     let fg_mode = u32(metaballs.v1.y + 0.5);
     let bg_mode = u32(metaballs.v1.z + 0.5);
     let debug_view = u32(metaballs.v1.w + 0.5);
@@ -251,9 +267,12 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let needs_gradient = metaballs.v4.y > 0.5;
     let metadata_v2 = metaballs.v4.z > 0.5;
     let adaptive_mask_enable = metaballs.v4.w > 0.5;
-    let sdf_enabled = metaballs.v5.x > 0.5;
     let feather_norm = metaballs.v5.y; // normalized half width (0..0.5)
     let cluster_color_count = u32(metaballs.v0.y + 0.5);
+
+    // Flags for conditional work to reduce ALU where not needed
+    let want_gradient = needs_gradient || fg_mode == 1u; // bevel needs gradient lighting
+    let want_cluster_r = fg_mode == 3u; // metadata mode only uses cluster_r (approx distance)
 
     // ------------------------ Accumulation (tile-aware) ------------------------
     var cluster_ids: array<u32, 12>;
@@ -293,7 +312,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
                 let b0 = balls[bi].data0;
                 let b1 = balls[bi].data1;
                 let ctr = b0.xy;
-                let r = b0.z * radius_scale * radius_mult;
+                let r = b0.z * radius_coeff;
                 if (r <= 0.0) { continue; }
                 var contrib = field_contrib(p, ctr, r);
                 if (contrib <= 0.0) { continue; }
@@ -301,32 +320,24 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
                 let packed = u32(b0.w + 0.5);
                 let shape_idx = (packed >> 16) & 0xFFFFu;
                 let cluster_id = packed & 0xFFFFu;
-                if (sdf_enabled && shape_idx > 0u) {
-                    // Inverse rotate & sample SDF if within glyph square
-                    let cos_t = b1.x; let sin_t = b1.y;
-                    let relp = p - ctr;
-                    let rel_rot = vec2<f32>( relp.x * cos_t + relp.y * sin_t, -relp.x * sin_t + relp.y * cos_t );
-                    let uv_local = (rel_rot / (2.0 * r)) + vec2<f32>(0.5, 0.5);
-                    if (all(uv_local >= vec2<f32>(0.0)) && all(uv_local <= vec2<f32>(1.0))) {
-                        let shape_meta = sdf_shape_meta[shape_idx];
-                        let atlas_uv = shape_meta.uv0 + (shape_meta.uv1 - shape_meta.uv0) * uv_local;
-                        let sample_val = textureSample(sdf_atlas_tex, sdf_sampler, atlas_uv).r;
-                        let mask_val = sdf_mask(sample_val, feather_norm);
-                        contrib *= mask_val;
-                        last_sdf_sample = sample_val; last_sdf_mask = mask_val; last_shape_idx = shape_idx;
-                    } else {
-                        contrib = 0.0; // outside glyph square; do not contribute
-                    }
+                if (shape_idx > 0u) {
+                    let eval = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
+                    if (eval.x <= 0.0) { contrib = 0.0; }
+                    else { contrib *= eval.x; last_sdf_sample = eval.y; last_sdf_mask = eval.x; last_shape_idx = shape_idx; }
                 }
                 if (contrib <= 0.0) { continue; }
                 var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
                 if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
                 let idx = u32(idx_i);
                 cluster_field[idx] = cluster_field[idx] + contrib;
-                let delta = ctr - p;
-                cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib;
-                cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib;
-                cluster_r[idx] = max(cluster_r[idx], r);
+                if (want_gradient || want_cluster_r) {
+                    let delta = ctr - p;
+                    if (want_gradient) {
+                        cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib;
+                        cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib;
+                    }
+                    if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
+                }
                 if (enable_early_exit && !needs_gradient && cluster_field[idx] >= iso) {
                     // Early exit if dominant cluster likely reached iso; dominance may shift but acceptable heuristic.
                     break;
@@ -338,31 +349,28 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         // Fallback full scan
         for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
             let b0 = balls[i].data0; let b1 = balls[i].data1;
-            let ctr = b0.xy; let r = b0.z * radius_scale * radius_mult; if (r <= 0.0) { continue; }
+            let ctr = b0.xy; let r = b0.z * radius_coeff; if (r <= 0.0) { continue; }
             var contrib = field_contrib(p, ctr, r); if (contrib <= 0.0) { continue; }
             let packed = u32(b0.w + 0.5);
             let shape_idx = (packed >> 16) & 0xFFFFu; let cluster_id = packed & 0xFFFFu;
-            if (sdf_enabled && shape_idx > 0u) {
-                let cos_t = b1.x; let sin_t = b1.y; let relp = p - ctr;
-                let rel_rot = vec2<f32>( relp.x * cos_t + relp.y * sin_t, -relp.x * sin_t + relp.y * cos_t );
-                let uv_local = (rel_rot / (2.0 * r)) + vec2<f32>(0.5, 0.5);
-                if (all(uv_local >= vec2<f32>(0.0)) && all(uv_local <= vec2<f32>(1.0))) {
-                    let shape_meta = sdf_shape_meta[shape_idx];
-                    let atlas_uv = shape_meta.uv0 + (shape_meta.uv1 - shape_meta.uv0) * uv_local;
-                    let sample_val = textureSample(sdf_atlas_tex, sdf_sampler, atlas_uv).r;
-                    let mask_val = sdf_mask(sample_val, feather_norm);
-                    contrib *= mask_val; last_sdf_sample = sample_val; last_sdf_mask = mask_val; last_shape_idx = shape_idx;
-                } else { contrib = 0.0; }
+            if (shape_idx > 0u) {
+                let eval = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
+                if (eval.x <= 0.0) { contrib = 0.0; }
+                else { contrib *= eval.x; last_sdf_sample = eval.y; last_sdf_mask = eval.x; last_shape_idx = shape_idx; }
             }
             if (contrib <= 0.0) { continue; }
             var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
             if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
             let idx = u32(idx_i);
             cluster_field[idx] = cluster_field[idx] + contrib;
-            let delta = ctr - p;
-            cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib;
-            cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib;
-            cluster_r[idx] = max(cluster_r[idx], r);
+            if (want_gradient || want_cluster_r) {
+                let delta = ctr - p;
+                if (want_gradient) {
+                    cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib;
+                    cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib;
+                }
+                if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
+            }
             if (enable_early_exit && !needs_gradient && cluster_field[idx] >= iso) { break; }
         }
     }
@@ -382,12 +390,21 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     for (var di: u32 = 0u; di < cluster_used; di = di + 1u) { if (cluster_field[di] > best_f) { best_f = cluster_field[di]; dominant_i = di; } }
     let dominant_field = cluster_field[dominant_i];
     var grad_vec = vec2<f32>(0.0, 0.0);
-    if (needs_gradient) { grad_vec = -vec2<f32>(cluster_gx[dominant_i], cluster_gy[dominant_i]); }
+    if (want_gradient) { grad_vec = -vec2<f32>(cluster_gx[dominant_i], cluster_gy[dominant_i]); }
 
-    // Compute edge mask
-    var mask = compute_legacy_mask(dominant_field, iso);
-    if (adaptive_mask_enable && needs_gradient) { let g_len = length(grad_vec); mask = compute_adaptive_mask(dominant_field, iso, g_len); }
-    mask = clamp(mask, 0.0, 1.0);
+    // Compute edge mask with fast path
+    var mask: f32;
+    if (!adaptive_mask_enable && dominant_field >= iso) {
+        mask = 1.0; // fully inside, legacy path would smoothstep to 1 anyway
+    } else {
+        if (adaptive_mask_enable && want_gradient) {
+            let g_len = length(grad_vec);
+            mask = compute_adaptive_mask(dominant_field, iso, g_len);
+        } else {
+            mask = compute_legacy_mask(dominant_field, iso);
+        }
+        mask = clamp(mask, 0.0, 1.0);
+    }
 
     // Clamp cluster id to palette
     var cluster_id = cluster_ids[dominant_i];
@@ -417,7 +434,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
 
     // Metadata handling
     if (fg_mode == 3u) {
-        if (debug_view == 3u && sdf_enabled && last_shape_idx > 0u) {
+        if (debug_view == 3u && last_shape_idx > 0u) {
             let dist_vis = clamp((last_sdf_sample - 0.5) * 8.0 + 0.5, 0.0, 1.0);
             return vec4<f32>(last_sdf_sample, last_sdf_mask, dist_vis, mask);
         }
