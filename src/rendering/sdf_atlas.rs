@@ -22,6 +22,9 @@ pub struct SdfAtlas {
     pub enabled: bool,
     pub shape_buffer: Option<Handle<ShaderStorageBuffer>>, // GPU metadata buffer
     // Cached for shader uniform staging (explicit instead of re-deriving per frame)
+    /// Optional preferred subset of shape indices used for random assignment (e.g. procedural looking glyphs).
+    /// Indices stored as u16 matching BallShapeIndex encoding; values are 1-based (0 reserved).
+    pub preferred_shapes: Vec<u16>,
     pub shape_count: u32,
 }
 
@@ -141,7 +144,7 @@ fn load_sdf_atlas(
     let png_asset_path = "shapes/sdf_atlas.png";       // asset server relative path
     if !Path::new(json_fs_path).exists() || !Path::new(png_fs_path).exists() {
         info!(target:"sdf", "SDF atlas not found (expected '{}' and '{}') – falling back to analytic circles", json_fs_path, png_fs_path);
-    commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None, shape_count: 0 });
+    commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None, preferred_shapes: vec![], shape_count: 0 });
         return;
     }
     let raw_str = match fs::read_to_string(json_fs_path) { Ok(s)=>s, Err(e)=>{ warn!(target:"sdf", "Failed reading atlas json: {e}"); return; } };
@@ -182,7 +185,21 @@ fn load_sdf_atlas(
     }
     let shape_buffer_handle = buffers.add(ShaderStorageBuffer::from(gpu_meta.as_slice()));
 
-    let atlas = SdfAtlas { texture: tex_handle, tile_size: parsed.tile_size, atlas_width: parsed.atlas_width, atlas_height: parsed.atlas_height, distance_range, channel_mode, shapes: shapes_meta, enabled:true, shape_buffer: Some(shape_buffer_handle), shape_count: parsed.shapes.len() as u32 };
+    // Build preferred subset (deterministic order). Only include if all (or some) present; order fixed.
+    let mut preferred: Vec<u16> = Vec::new();
+    for want in ["circle", "triangle", "square"] { // ordered for visual variety
+        if let Some(s) = shapes_meta.iter().find(|s| s.name.eq_ignore_ascii_case(want)) {
+            preferred.push(s.index as u16);
+        }
+    }
+    if preferred.len() < 3 { // warn once if any missing (still usable subset)
+        if !preferred.is_empty() {
+            warn!(target="sdf", "Preferred shape subset missing some entries (found {}/{})", preferred.len(), 3);
+        } else {
+            // silent if none found (atlas might be purely glyph_* based)
+        }
+    }
+    let atlas = SdfAtlas { texture: tex_handle, tile_size: parsed.tile_size, atlas_width: parsed.atlas_width, atlas_height: parsed.atlas_height, distance_range, channel_mode, shapes: shapes_meta, enabled:true, shape_buffer: Some(shape_buffer_handle), preferred_shapes: preferred, shape_count: parsed.shapes.len() as u32 };
     info!(target:"sdf", "Loaded SDF atlas: {} shapes, tile={} range={}", atlas.shapes.len(), atlas.tile_size, atlas.distance_range);
     // Build glyph map (glyph_<char>) entries; keep first occurrence, warn on duplicates.
     if !atlas.shapes.is_empty() {
@@ -339,7 +356,7 @@ mod tests {
         world.insert_resource(GlyphSequenceCache::default());
         world.insert_resource(BallSpawnOrdinal(0));
         // Minimal atlas resource (enabled=true, shapes non-empty)
-        world.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:16, atlas_width:16, atlas_height:16, distance_range:4.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![SdfShapeMeta{name:"glyph_A".into(), index:1, rect_px:(0,0,16,16), uv:(0.0,0.0,1.0,1.0), pivot:(0.5,0.5)}], enabled:true, shape_buffer: None, shape_count:1 });
+    world.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:16, atlas_width:16, atlas_height:16, distance_range:4.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![SdfShapeMeta{name:"glyph_A".into(), index:1, rect_px:(0,0,16,16), uv:(0.0,0.0,1.0,1.0), pivot:(0.5,0.5)}], enabled:true, shape_buffer: None, preferred_shapes: vec![], shape_count:1 });
     }
 
     fn spawn_balls(world: &mut bevy::prelude::World, n: usize) {
@@ -356,7 +373,7 @@ mod tests {
         spawn_balls(app.world_mut(), 5);
         let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes);
         let indices: Vec<u16> = {
-            let mut world = app.world_mut();
+        let world = app.world_mut();
             let mut q = world.query::<(&BallOrdinal, &BallShapeIndex)>();
             let mut out = Vec::new();
             for (_o,s) in q.iter(&world) { out.push(s.0); }
@@ -369,18 +386,18 @@ mod tests {
 
     #[test]
     fn assignment_clamp_policy() {
-    let mut app = App::new(); app.add_plugins(MinimalPlugins);
-    let cfg = make_game_config_glyph("AB", "Clamp"); app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),5); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let mut w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[1,2,2,2,2]); }
+    let app = App::new(); let mut app = app; app.add_plugins(MinimalPlugins);
+    let cfg = make_game_config_glyph("AB", "Clamp"); app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),5); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[1,2,2,2,2]); }
 
     #[test]
     fn assignment_none_policy() {
-    let mut app = App::new(); app.add_plugins(MinimalPlugins); let cfg = make_game_config_glyph("AB", "None"); app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),5); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let mut w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[1,2,0,0,0]); }
+    let app = App::new(); let mut app = app; app.add_plugins(MinimalPlugins); let cfg = make_game_config_glyph("AB", "None"); app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),5); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[1,2,0,0,0]); }
 
     #[test]
     fn radius_threshold_fallback() {
-    let mut app = App::new(); app.add_plugins(MinimalPlugins); let mut cfg = make_game_config_glyph("AB", "Repeat"); cfg.sdf_shapes.use_circle_fallback_when_radius_lt = 50.0; app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),3); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let mut w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[0,0,0]); }
+    let app = App::new(); let mut app = app; app.add_plugins(MinimalPlugins); let mut cfg = make_game_config_glyph("AB", "Repeat"); cfg.sdf_shapes.use_circle_fallback_when_radius_lt = 50.0; app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),3); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[0,0,0]); }
 
     #[test]
     fn missing_glyph_fallback() {
-    let mut app = App::new(); app.add_plugins(MinimalPlugins); let cfg = make_game_config_glyph("AZ", "Repeat"); app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),3); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let mut w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[1,0,1]); }
+    let app = App::new(); let mut app = app; app.add_plugins(MinimalPlugins); let cfg = make_game_config_glyph("AZ", "Repeat"); app.insert_resource(cfg); insert_basic_glyph_map(app.world_mut()); spawn_balls(app.world_mut(),3); let _ = app.world_mut().run_system_once(assign_ball_glyph_shapes); let indices: Vec<u16> = { let w = app.world_mut(); let mut q = w.query::<(&BallOrdinal,&BallShapeIndex)>(); let mut v=Vec::new(); for (_o,s) in q.iter(&w){v.push(s.0);} v }; assert_eq!(indices,[1,0,1]); }
 }

@@ -264,9 +264,17 @@ fn spawn_single_ball(
     let world_pos = base_pos + offset;
     // Physics material properties
     let bounce = &game_cfg.bounce;
-    // Random glyph (shape) index if atlas loaded & enabled; choose range [1, shape_count]
+    // Random glyph (shape) index if atlas loaded & enabled.
+    // Prefer curated subset (preferred_shapes) if non-empty for more controlled aesthetics.
     let shape_index: u16 = if let Some(atlas) = sdf_atlas {
-        if atlas.enabled && atlas.shape_count > 0 { rng.gen_range(1..=atlas.shape_count as u32) as u16 } else { 0 }
+        if atlas.enabled && atlas.shape_count > 0 {
+            if !atlas.preferred_shapes.is_empty() {
+                let idx = rng.gen_range(0..atlas.preferred_shapes.len());
+                atlas.preferred_shapes[idx]
+            } else {
+                rng.gen_range(1..=atlas.shape_count as u32) as u16
+            }
+        } else { 0 }
     } else { 0 };
     let mut entity = commands.spawn((
         Ball,
