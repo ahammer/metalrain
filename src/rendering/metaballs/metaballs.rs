@@ -13,8 +13,6 @@ use bytemuck::{Pod, Zeroable};
 #[cfg(target_arch = "wasm32")]
 static METABALLS_UNIFIED_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
-static METABALLS_UNIFIED_DEBUG_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
-#[cfg(target_arch = "wasm32")]
 use std::sync::OnceLock;
 
 use crate::core::components::{Ball, BallRadius};
@@ -198,19 +196,7 @@ impl Material2d for MetaballsUnifiedMaterial {
             "shaders/metaballs_unified.wgsl".into()
         }
     }
-    fn vertex_shader() -> ShaderRef {
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(handle) = METABALLS_UNIFIED_DEBUG_SHADER_HANDLE.get().cloned() {
-                return ShaderRef::Handle(handle);
-            }
-            return ShaderRef::Path("shaders/metaballs_unified_debug.wgsl".into());
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            "shaders/metaballs_unified_debug.wgsl".into()
-        }
-    }
+    fn vertex_shader() -> ShaderRef { Self::fragment_shader() }
 }
 
 // Default is derived above.
@@ -357,12 +343,7 @@ impl Plugin for MetaballsPlugin {
                 include_str!("../../../assets/shaders/metaballs_unified.wgsl"),
                 "metaballs_unified_embedded.wgsl",
             ));
-            let debug_handle = shaders.add(Shader::from_wgsl(
-                include_str!("../../../assets/shaders/metaballs_unified_debug.wgsl"),
-                "metaballs_unified_debug_embedded.wgsl",
-            ));
             METABALLS_UNIFIED_SHADER_HANDLE.get_or_init(|| unified_handle.clone());
-            METABALLS_UNIFIED_DEBUG_SHADER_HANDLE.get_or_init(|| debug_handle.clone());
         }
 
         app.init_resource::<MetaballsToggle>()
