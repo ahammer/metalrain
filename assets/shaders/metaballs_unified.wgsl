@@ -44,7 +44,8 @@ struct ClusterColor { value: vec4<f32> };
 
 // SDF Atlas bindings (texture + shape metadata) – optional in material but declared here.
 @group(2) @binding(7) var sdf_atlas_tex: texture_2d<f32>;
-struct SdfShapeMeta { data0: vec4<f32>, data1: vec4<f32> }; // placeholder; matches 8*f32 dummy
+// Matches Rust SdfShapeGpuMeta layout: uv0.xy, uv1.xy, pivot.xy, params (tile_size_px, distance_range_px, 0, 0)
+struct SdfShapeMeta { uv0: vec2<f32>, uv1: vec2<f32>, pivot: vec2<f32>, params: vec4<f32> };
 @group(2) @binding(8) var<storage, read> sdf_shape_meta: array<SdfShapeMeta>;
 // Sampler for SDF atlas (linear filtering for smooth edges). Bound only when SDF enabled.
 @group(2) @binding(9) var sdf_sampler: sampler;
@@ -121,34 +122,52 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let radius_mult = metaballs.v2.w;       // runtime multiplier
     let fg_mode = u32(metaballs.v1.y + 0.5); // (ClassicBlend=0, Bevel=1, OutlineGlow=2, Metadata=3)
     var sum_field: f32 = 0.0;
-    // Basic full scan (tiling/early-exit omitted initially)
+    let sdf_enabled = metaballs.v5.x > 0.5;
+    let feather_norm = metaballs.v5.y;
+    // Per-ball loop with optional per-glyph SDF masking. Only samples atlas for balls with shape_index > 0.
+    // NOTE: This is more expensive (textureSample per influencing ball). Optimize later with tiling / early-exit.
+    var last_sdf_sample: f32 = 1.0;    // for debug visualization
+    var last_sdf_mask: f32 = 1.0;
+    var last_shape_idx: u32 = 0u;
     for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
         let b = balls[i].data;
         let ctr = b.xy;
         let r = b.z * radius_scale * radius_mult;
-        sum_field += field_contrib(p, ctr, r);
-    }
-
-    // Optional SDF masking (applied after accumulation). Enabled when metaballs.v5.x > 0.5.
-    let sdf_enabled = metaballs.v5.x > 0.5;
-    var sdf_sample: f32 = 1.0;
-    var sdf_mask_value: f32 = 1.0;
-    if (sdf_enabled) {
-        let uv = world_to_uv(p);
-        // If outside atlas bounds we can early zero mask; clamp for now to allow edge falloff behavior.
-        let uv_clamped = clamp(uv, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-        sdf_sample = textureSample(sdf_atlas_tex, sdf_sampler, uv_clamped).r;
-        let feather_norm = metaballs.v5.y; // reinterpret as normalized feather half-width (0..0.5 typical)
-        sdf_mask_value = sdf_mask(sdf_sample, feather_norm);
-        sum_field *= sdf_mask_value;
+        if (r <= 0.0) { continue; }
+        // Compute analytic contribution first (we will scale by glyph mask if applicable)
+        var contrib = field_contrib(p, ctr, r);
+        if (sdf_enabled && contrib > 0.0) {
+            // Decode packed gid: high 16 bits shape index, low 16 bits color group
+            let packed = u32(b.w + 0.5);
+            let shape_idx = (packed >> 16) & 0xFFFFu;
+            if (shape_idx > 0u) {
+                last_shape_idx = shape_idx;
+                // Guard against OOB: clamp to available metadata length-1 (assumes contiguous indexing with sentinel 0)
+                let shape_meta = sdf_shape_meta[shape_idx];
+                // Map fragment point into the ball's AABB square in [0,1]^2
+                let min_corner = ctr - vec2<f32>(r, r);
+                let uv_local = (p - min_corner) / (2.0 * r);
+                // If outside the square, skip (keeps circle silhouette outside glyph bounds)
+                if (all(uv_local >= vec2<f32>(0.0, 0.0)) && all(uv_local <= vec2<f32>(1.0, 1.0))) {
+                    // Interpolate within atlas sub-rect
+                    let atlas_uv = shape_meta.uv0 + (shape_meta.uv1 - shape_meta.uv0) * uv_local;
+                    let sample_val = textureSample(sdf_atlas_tex, sdf_sampler, atlas_uv).r;
+                    let mask_val = sdf_mask(sample_val, feather_norm);
+                    contrib *= mask_val;
+                    last_sdf_sample = sample_val;
+                    last_sdf_mask = mask_val;
+                }
+            }
+        }
+        sum_field += contrib;
     }
 
     var rgb: vec3<f32>;
     if (fg_mode == 3u) { // Metadata mode (extended when SDF enabled)
-        if (sdf_enabled) {
-            // Visualize: R = raw SDF sample, G = mask, B = signed distance amplified
-            let d_vis = clamp((sdf_sample - 0.5) * 8.0 + 0.5, 0.0, 1.0);
-            rgb = vec3<f32>(sdf_sample, sdf_mask_value, d_vis);
+        if (sdf_enabled && last_shape_idx > 0u) {
+            // Visualize last sampled glyph: R = raw SDF sample, G = mask, B = amplified signed distance proxy
+            let d_vis = clamp((last_sdf_sample - 0.5) * 8.0 + 0.5, 0.0, 1.0);
+            rgb = vec3<f32>(last_sdf_sample, last_sdf_mask, d_vis);
         } else {
             rgb = shade_metadata(sum_field, iso);
         }
