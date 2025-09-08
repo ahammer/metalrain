@@ -152,6 +152,21 @@ impl Default for MetaballsRenderConfig { fn default() -> Self { Self { iso: 0.6,
 #[serde(default)]
 pub struct MetaballsShaderConfig { pub fg_mode: usize, pub bg_mode: usize }
 
+// ---------------- Metaballs Shadow (single-pass halo) ----------------
+#[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
+#[serde(default)]
+pub struct MetaballsShadowConfig {
+    pub enabled: bool,
+    pub intensity: f32,   // 0..1 blend toward shadow color (currently hardcoded black)
+    pub offset: f32,      // vertical world-space offset magnitude (downward)
+    pub softness: f32,    // exponent (<1 wider, >1 tighter); <=0 uses shader default
+    pub direction: f32,   // degrees, 0 = +X (right), 90 = +Y (up)
+    pub surface: f32,     // multiplier applied to iso for shadow surface reference (shadow_iso = iso * surface)
+}
+impl Default for MetaballsShadowConfig {
+    fn default() -> Self { Self { enabled: true, intensity: 0.55, offset: 18.0, softness: 0.65, direction: 270.0, surface: 0.6 } }
+}
+
 // ---------------- Background Noise Config ----------------
 #[derive(Debug, Deserialize, Resource, Clone, PartialEq)]
 #[serde(default)]
@@ -222,6 +237,7 @@ pub struct GameConfig {
     pub metaballs_enabled: bool,
     pub metaballs: MetaballsRenderConfig,
     pub metaballs_shader: MetaballsShaderConfig,
+    pub metaballs_shadow: MetaballsShadowConfig,
     pub noise: NoiseConfig,
     pub surface_noise: SurfaceNoiseConfig,
     pub sdf_shapes: SdfShapesConfig,
@@ -242,6 +258,7 @@ impl Default for GameConfig {
             metaballs_enabled: true,
             metaballs: Default::default(),
             metaballs_shader: Default::default(),
+            metaballs_shadow: Default::default(),
             noise: Default::default(),
             surface_noise: Default::default(),
             sdf_shapes: Default::default(),

@@ -10,9 +10,6 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::render::storage::ShaderStorageBuffer;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bytemuck::{Pod, Zeroable};
-
-#[cfg(target_arch = "wasm32")]
-use std::sync::OnceLock;
 #[cfg(target_arch = "wasm32")]
 static METABALLS_UNIFIED_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
@@ -53,7 +50,8 @@ pub(crate) struct MetaballsUniform {
     v3: Vec4,
     v4: Vec4,
     v5: Vec4, // (sdf_enabled, distance_range, channel_mode, max_gradient_samples)
-    v6: Vec4, // (atlas_width, atlas_height, atlas_tile_size, atlas_shape_count)
+    v6: Vec4, // (atlas_width, atlas_height, atlas_tile_size, atlas_shape_count | shadow_offset_mag)
+    v7: Vec4, // (shadow_dir_deg, shadow_surface_scale, reserved0, reserved1)
 }
 
 impl Default for MetaballsUniform {
@@ -66,6 +64,7 @@ impl Default for MetaballsUniform {
             v4: Vec4::new(1.0, 0.0, 0.0, 0.0), // early-exit enabled by feature flag later; needs_gradient updated per-frame
             v5: Vec4::new(0.0, 0.0, 0.0, 0.0),
             v6: Vec4::new(0.0, 0.0, 0.0, 0.0),
+            v7: Vec4::new(0.0, 0.0, 0.0, 0.0),
         }
     }
 }
@@ -308,6 +307,25 @@ pub struct MetaballsParams {
     pub radius_multiplier: f32,
 }
 
+// Simple shadow params resource (single-pass drop shadow halo). Kept minimal until
+// promoted to full GameConfig integration. Uses repurposed uniform lanes:
+// v5.x = shadow_softness exponent (<=0 => default 0.7)
+// v5.z = shadow_enable (>0.5)
+// v5.w = shadow_intensity (0..1)
+// v6.w = shadow_vertical_offset (world units; applied negative Y in shader)
+#[derive(Resource, Debug, Clone)]
+pub struct MetaballsShadowParams {
+    pub enabled: bool,
+    pub intensity: f32,
+    pub offset: f32,
+    pub softness: f32,
+}
+impl Default for MetaballsShadowParams {
+    fn default() -> Self {
+        Self { enabled: true, intensity: 0.65, offset: 40.0, softness: 0.6 }
+    }
+}
+
 // Shadow copy of balls for CPU tiling (kept in lock-step with GPU buffer each frame)
 #[derive(Resource, Default, Clone)]
 pub struct BallCpuShadow(pub Vec<GpuBall>);
@@ -347,6 +365,7 @@ impl Plugin for MetaballsPlugin {
 
         app.init_resource::<MetaballsToggle>()
             .init_resource::<MetaballsParams>()
+            .init_resource::<MetaballsShadowParams>()
             .init_resource::<MetaballForeground>()
             .init_resource::<MetaballBackground>()
             .init_resource::<BallTilingConfig>()
@@ -362,6 +381,7 @@ impl Plugin for MetaballsPlugin {
                     initialize_toggle_from_config,
                     apply_config_to_params,
                     apply_shader_modes_from_config,
+                    apply_shadow_from_config,
                     setup_metaballs,
                     log_initial_modes,
                 ),
@@ -409,6 +429,14 @@ fn apply_config_to_params(mut params: ResMut<MetaballsParams>, cfg: Res<GameConf
     params.iso = cfg.metaballs.iso;
     params.normal_z_scale = cfg.metaballs.normal_z_scale;
     params.radius_multiplier = cfg.metaballs.radius_multiplier.max(0.0001);
+}
+
+fn apply_shadow_from_config(mut shadow: ResMut<MetaballsShadowParams>, cfg: Res<GameConfig>) {
+    let c = &cfg.metaballs_shadow;
+    shadow.enabled = c.enabled;
+    shadow.intensity = c.intensity.clamp(0.0, 1.0);
+    shadow.offset = c.offset.max(0.0);
+    shadow.softness = c.softness;
 }
 
 fn apply_shader_modes_from_config(
@@ -550,6 +578,7 @@ fn update_metaballs_unified_material(
     params: Res<MetaballsParams>,
     cfg: Res<GameConfig>,
     mut shadow: Option<ResMut<BallCpuShadow>>,
+    shadow_params: Res<MetaballsShadowParams>,
     mut palette_storage: ResMut<crate::rendering::metaballs::palette::ClusterPaletteStorage>,
     mut dbg_timer: ResMut<MetaballsGroupDebugTimer>,
     sdf_atlas: Option<Res<crate::rendering::sdf_atlas::SdfAtlas>>,
@@ -705,14 +734,13 @@ fn update_metaballs_unified_material(
             // We divide by tile_size; clamp to 0.5 to avoid excessively soft edges.
             let feather_norm = if atlas.tile_size > 0 { (atlas.distance_range / atlas.tile_size as f32).clamp(0.0, 0.5) } else { 0.0 };
             mat.data.v5.y = feather_norm;
-            mat.data.v5.z = atlas.channel_mode.as_uniform();
-            mat.data.v5.w = cfg.sdf_shapes.max_gradient_samples as f32;
+            // NOTE: channel_mode / max_gradient_samples lanes repurposed for shadow.
+            // If future SDF channel modes needed concurrently with shadow, introduce new uniform vector.
             // v6 holds atlas dimensions & shape count (tile size redundant with per-shape meta but convenient)
             mat.data.v6.x = atlas.atlas_width as f32;
             mat.data.v6.y = atlas.atlas_height as f32;
             mat.data.v6.z = atlas.tile_size as f32;
-            // v6.w used for gradient_step_scale (atlas shape count not currently needed in shader)
-            mat.data.v6.w = cfg.sdf_shapes.gradient_step_scale.max(0.01);
+            // v6.w repurposed for shadow offset; keep gradient_step_scale latent.
             // Bind atlas texture handle if material missing one
             if mat.sdf_atlas_tex.is_none() { mat.sdf_atlas_tex = Some(atlas.texture.clone()); }
             if let Some(shape_buf) = &atlas.shape_buffer { mat.sdf_shape_meta = shape_buf.clone(); }
@@ -720,6 +748,23 @@ fn update_metaballs_unified_material(
     } else {
         mat.data.v5.x = 0.0; // no atlas resource
     }
+
+    // Apply shadow parameters (after SDF so we intentionally override reused lanes).
+    if shadow_params.enabled {
+        mat.data.v5.z = 1.0; // enable shadow
+        mat.data.v5.w = shadow_params.intensity.clamp(0.0, 1.0);
+        mat.data.v6.w = shadow_params.offset.max(0.0); // offset magnitude (generic now)
+        mat.data.v5.x = if shadow_params.softness <= 0.0 { 0.0 } else { shadow_params.softness }; // softness exponent (0 => shader default)
+    } else {
+        mat.data.v5.z = 0.0;
+        mat.data.v5.w = 0.0;
+    }
+
+    // Direction & surface scale from config (MetaballsShadowConfig)
+    // We access GameConfig directly for latest (if hot reload arises) else cached values are fine.
+    // direction stored in degrees in v7.x; surface multiplier in v7.y
+    mat.data.v7.x = cfg.metaballs_shadow.direction;
+    mat.data.v7.y = cfg.metaballs_shadow.surface.max(0.05);
 
     // Update shadow (replace content)
     if let Some(ref mut s) = shadow {

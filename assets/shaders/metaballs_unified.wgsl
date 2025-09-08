@@ -63,6 +63,7 @@ struct MetaballsData {
     v4: vec4<f32>,
     v5: vec4<f32>,
     v6: vec4<f32>,
+    v7: vec4<f32>, // (shadow_dir_deg, shadow_surface_scale, reserved0, reserved1)
 };
 @group(2) @binding(0) var<uniform> metaballs: MetaballsData;
 
@@ -268,19 +269,42 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let metadata_v2 = metaballs.v4.z > 0.5;
     let adaptive_mask_enable = metaballs.v4.w > 0.5;
     let feather_norm = metaballs.v5.y; // normalized half width (0..0.5)
+    // Shadow params (dual-pass-in-one accumulation). Reuse reserved lanes to avoid layout change:
+    // v5.x -> shadow_softness exponent (0 => use default 0.7). Historically legacy SDF toggle (unused now).
+    // v5.z -> shadow_enable (>0.5)
+    // v5.w -> shadow_intensity (0..1)
+    // v6.w -> shadow_offset_magnitude (positive world units, applied downward on Y)
+    let shadow_enable    = metaballs.v5.z > 0.5;
+    let shadow_intensity = clamp(metaballs.v5.w, 0.0, 1.0);
+    // Shadow direction + magnitude: direction degrees in v7.x (0=+X to right, 90=+Y up) converted to radians.
+    let shadow_dir_deg = metaballs.v7.x;
+    let shadow_theta = radians(shadow_dir_deg);
+    let shadow_dir = vec2<f32>(cos(shadow_theta), sin(shadow_theta));
+    let shadow_offset_vec = shadow_dir * metaballs.v6.w; // magnitude from v6.w
+    // We scale iso down for shadow so weaker field still produces visible halo.
+    // Surface multiplier override (allows artistic decoupling from true iso)
+    let shadow_iso_surface_scale = max(metaballs.v7.y, 0.05);
+    let shadow_iso = iso * shadow_iso_surface_scale;
+    let raw_soft = metaballs.v5.x;
+    let shadow_softness = select(0.7, clamp(raw_soft, 0.05, 3.0), raw_soft <= 0.0); // exponent controlling spread (<1 wider, >1 tighter)
     let cluster_color_count = u32(metaballs.v0.y + 0.5);
 
     // Flags for conditional work to reduce ALU where not needed
-    let want_gradient = needs_gradient || fg_mode == 1u; // bevel needs gradient lighting
+    // We also need gradient if we later decide to distance-based shadow refine (future). For now shadow halo uses raw field only.
+    let want_gradient = needs_gradient || fg_mode == 1u; // unchanged (shadow path currently not gradient-dependent)
     let want_cluster_r = fg_mode == 3u; // metadata mode only uses cluster_r (approx distance)
 
     // ------------------------ Accumulation (tile-aware) ------------------------
+    // We accumulate BOTH normal clustered field (for color) and a separate total field for the shadow at p + shadow_offset.
+    // The shadow accumulation ignores clusters (aggregate intensity) and applies SDF gating the same way for correctness.
+    // Early exit is disabled when shadow is enabled to avoid truncating the shadow field.
     var cluster_ids: array<u32, 12>;
     var cluster_field: array<f32, 12>;
     var cluster_gx: array<f32, 12>;
     var cluster_gy: array<f32, 12>;
     var cluster_r: array<f32, 12>;
     for (var ci: u32 = 0u; ci < CLUSTER_TRACK_MAX; ci = ci + 1u) { cluster_field[ci] = 0.0; cluster_gx[ci] = 0.0; cluster_gy[ci] = 0.0; cluster_r[ci] = 0.0; }
+    var shadow_field: f32 = 0.0;
     var cluster_used: u32 = 0u;
     var last_sdf_sample: f32 = 1.0;
     var last_sdf_mask: f32 = 1.0;
@@ -314,33 +338,51 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
                 let ctr = b0.xy;
                 let r = b0.z * radius_coeff;
                 if (r <= 0.0) { continue; }
-                var contrib = field_contrib(p, ctr, r);
-                if (contrib <= 0.0) { continue; }
+                var contrib_main = field_contrib(p, ctr, r);
+                var contrib_shadow = 0.0;
+                if (shadow_enable) {
+                    let p_shadow = p + shadow_offset_vec;
+                    contrib_shadow = field_contrib(p_shadow, ctr, r);
+                }
+                if (contrib_main <= 0.0 && contrib_shadow <= 0.0) { continue; }
                 // Decode packed gid
                 let packed = u32(b0.w + 0.5);
                 let shape_idx = (packed >> 16) & 0xFFFFu;
                 let cluster_id = packed & 0xFFFFu;
                 if (shape_idx > 0u) {
-                    let eval = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
-                    if (eval.x <= 0.0) { contrib = 0.0; }
-                    else { contrib *= eval.x; last_sdf_sample = eval.y; last_sdf_mask = eval.x; last_shape_idx = shape_idx; }
-                }
-                if (contrib <= 0.0) { continue; }
-                var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
-                if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
-                let idx = u32(idx_i);
-                cluster_field[idx] = cluster_field[idx] + contrib;
-                if (want_gradient || want_cluster_r) {
-                    let delta = ctr - p;
-                    if (want_gradient) {
-                        cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib;
-                        cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib;
+                    if (contrib_main > 0.0) {
+                        let eval_main = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
+                        if (eval_main.x <= 0.0) { contrib_main = 0.0; } else { contrib_main *= eval_main.x; last_sdf_sample = eval_main.y; last_sdf_mask = eval_main.x; last_shape_idx = shape_idx; }
                     }
-                    if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
+                    if (shadow_enable && contrib_shadow > 0.0) {
+                        let p_shadow = p + shadow_offset_vec;
+                        let eval_shadow = sdf_evaluate(p_shadow, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
+                        if (eval_shadow.x <= 0.0) { contrib_shadow = 0.0; } else { contrib_shadow *= eval_shadow.x; }
+                    }
                 }
-                if (enable_early_exit && !needs_gradient && cluster_field[idx] >= iso) {
-                    // Early exit if dominant cluster likely reached iso; dominance may shift but acceptable heuristic.
-                    break;
+                if (contrib_main > 0.0) {
+                    var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
+                    if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
+                    let idx = u32(idx_i);
+                    cluster_field[idx] = cluster_field[idx] + contrib_main;
+                    if (want_gradient || want_cluster_r) {
+                        let delta = ctr - p;
+                        if (want_gradient) {
+                            cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib_main;
+                            cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib_main;
+                        }
+                        if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
+                    }
+                }
+                if (shadow_enable && contrib_shadow > 0.0) {
+                    shadow_field = shadow_field + contrib_shadow;
+                }
+                if (!shadow_enable && enable_early_exit && !needs_gradient && contrib_main > 0.0) {
+                    // Only consider early exit when shadow not active.
+                    let idx_i2 = cluster_find(&cluster_ids, cluster_used, cluster_id);
+                    if (idx_i2 >= 0) {
+                        if (cluster_field[u32(idx_i2)] >= iso) { break; }
+                    }
                 }
             }
         }
@@ -350,28 +392,42 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
             let b0 = balls[i].data0; let b1 = balls[i].data1;
             let ctr = b0.xy; let r = b0.z * radius_coeff; if (r <= 0.0) { continue; }
-            var contrib = field_contrib(p, ctr, r); if (contrib <= 0.0) { continue; }
+            var contrib_main = field_contrib(p, ctr, r);
+            var contrib_shadow = 0.0;
+            if (shadow_enable) { let p_shadow = p + shadow_offset_vec; contrib_shadow = field_contrib(p_shadow, ctr, r); }
+            if (contrib_main <= 0.0 && contrib_shadow <= 0.0) { continue; }
             let packed = u32(b0.w + 0.5);
             let shape_idx = (packed >> 16) & 0xFFFFu; let cluster_id = packed & 0xFFFFu;
             if (shape_idx > 0u) {
-                let eval = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
-                if (eval.x <= 0.0) { contrib = 0.0; }
-                else { contrib *= eval.x; last_sdf_sample = eval.y; last_sdf_mask = eval.x; last_shape_idx = shape_idx; }
-            }
-            if (contrib <= 0.0) { continue; }
-            var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
-            if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
-            let idx = u32(idx_i);
-            cluster_field[idx] = cluster_field[idx] + contrib;
-            if (want_gradient || want_cluster_r) {
-                let delta = ctr - p;
-                if (want_gradient) {
-                    cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib;
-                    cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib;
+                if (contrib_main > 0.0) {
+                    let eval_main = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
+                    if (eval_main.x <= 0.0) { contrib_main = 0.0; } else { contrib_main *= eval_main.x; last_sdf_sample = eval_main.y; last_sdf_mask = eval_main.x; last_shape_idx = shape_idx; }
                 }
-                if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
+                if (shadow_enable && contrib_shadow > 0.0) {
+                    let p_shadow = p + shadow_offset_vec;
+                    let eval_shadow = sdf_evaluate(p_shadow, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
+                    if (eval_shadow.x <= 0.0) { contrib_shadow = 0.0; } else { contrib_shadow *= eval_shadow.x; }
+                }
             }
-            if (enable_early_exit && !needs_gradient && cluster_field[idx] >= iso) { break; }
+            if (contrib_main > 0.0) {
+                var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
+                if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
+                let idx = u32(idx_i);
+                cluster_field[idx] = cluster_field[idx] + contrib_main;
+                if (want_gradient || want_cluster_r) {
+                    let delta = ctr - p;
+                    if (want_gradient) {
+                        cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib_main;
+                        cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib_main;
+                    }
+                    if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
+                }
+            }
+            if (shadow_enable && contrib_shadow > 0.0) { shadow_field = shadow_field + contrib_shadow; }
+            if (!shadow_enable && enable_early_exit && !needs_gradient && contrib_main > 0.0) {
+                var idx_i2 = cluster_find(&cluster_ids, cluster_used, cluster_id);
+                if (idx_i2 >= 0) { if (cluster_field[u32(idx_i2)] >= iso) { break; } }
+            }
         }
     }
 
@@ -429,8 +485,28 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         fg_rgb = vec3<f32>(raw);
     }
 
-    // Background
-    let bg_col = background_color(p, bg_mode);
+    // Background (mutable for shadow compositing)
+    var bg_col = background_color(p, bg_mode);
+
+    // Shadow composite (uses aggregated shadow_field). We intentionally apply AFTER metadata branch check later? No:
+    // For metadata mode (fg_mode==3) we skip shadow to preserve diagnostic channels. You can enable by moving inside metadata logic.
+    if (shadow_enable && fg_mode != 3u) {
+        // Normalize shadow field relative to shadow_iso to increase visibility.
+        let sh_norm = clamp(shadow_field / max(shadow_iso, 1e-5), 0.0, 1.0);
+        var sh_mask = pow(sh_norm, shadow_softness); // exponent shaping
+        // Extra smoothing for softer falloff tail.
+        sh_mask = smoothstep(0.0, 1.0, sh_mask);
+        if (debug_view == 4u) {
+            // Visualization mode: show shadow mask directly.
+            return vec4<f32>(vec3<f32>(sh_mask), 1.0);
+        }
+        // Exclude interior of main surface so shadow stays as exterior drop halo.
+        let atten = sh_mask * shadow_intensity * (1.0 - mask);
+        if (atten > 0.0) {
+            let shadow_color = vec3<f32>(0.0); // pure black drop shadow
+            bg_col = mix(bg_col, shadow_color, clamp(atten, 0.0, 1.0));
+        }
+    }
 
     // Metadata handling
     if (fg_mode == 3u) {
