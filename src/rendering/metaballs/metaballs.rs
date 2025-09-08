@@ -165,6 +165,7 @@ pub struct MetaballsUnifiedMaterial {
     cluster_palette: Handle<ShaderStorageBuffer>,
     // Optional SDF atlas texture binding; sampler will use default for now. When absent, SDF path disabled.
     #[texture(7)]
+    #[sampler(9)] // Matches WGSL @group(2) @binding(9) sdf_sampler; uses default filtering (linear) for smooth SDF edges.
     sdf_atlas_tex: Option<Handle<Image>>,
     #[storage(8, read_only)]
     sdf_shape_meta: Handle<ShaderStorageBuffer>,
@@ -690,7 +691,10 @@ fn update_metaballs_unified_material(
     if let Some(atlas) = sdf_atlas.as_ref() {
         if atlas.enabled && cfg.sdf_shapes.enabled && !cfg.sdf_shapes.force_fallback {
             mat.data.v5.x = 1.0;
-            mat.data.v5.y = atlas.distance_range;
+            // Map pixel distance_range -> normalized feather half-width (0..0.5) expected by shader.
+            // We divide by tile_size; clamp to 0.5 to avoid excessively soft edges.
+            let feather_norm = if atlas.tile_size > 0 { (atlas.distance_range / atlas.tile_size as f32).clamp(0.0, 0.5) } else { 0.0 };
+            mat.data.v5.y = feather_norm;
             mat.data.v5.z = atlas.channel_mode.as_uniform();
             mat.data.v5.w = cfg.sdf_shapes.max_gradient_samples as f32;
             // v6 holds atlas dimensions & shape count (tile size redundant with per-shape meta but convenient)

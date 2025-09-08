@@ -11,6 +11,8 @@
 // v3: (tiles_x, tiles_y, tile_size_px, balls_len_actual)
 // v4: (enable_early_exit, needs_gradient, metadata_v2_flag, _reserved)
 // v5: (sdf_enabled, distance_range, channel_mode, max_gradient_samples)
+//      distance_range currently reinterpreted in this simplified variant as a normalized
+//      SDF feather HALF-WIDTH (0 => hard edge, typical <= 0.25). channel_mode/max_gradient_samples reserved.
 // v6: (atlas_width, atlas_height, atlas_tile_size, gradient_step_scale)
 struct MetaballsData {
     v0: vec4<f32>,
@@ -44,6 +46,30 @@ struct ClusterColor { value: vec4<f32> };
 @group(2) @binding(7) var sdf_atlas_tex: texture_2d<f32>;
 struct SdfShapeMeta { data0: vec4<f32>, data1: vec4<f32> }; // placeholder; matches 8*f32 dummy
 @group(2) @binding(8) var<storage, read> sdf_shape_meta: array<SdfShapeMeta>;
+// Sampler for SDF atlas (linear filtering for smooth edges). Bound only when SDF enabled.
+@group(2) @binding(9) var sdf_sampler: sampler;
+
+// ----------------------------------------------------------------------------
+// SDF Helpers
+// Polarity: sample > 0.5 is INSIDE (white interior). 0.5 is the surface.
+// distance_range (v5.y) is treated as a normalized feather HALF-WIDTH in 0..0.5 domain.
+// If distance_range == 0 => hard edge. We clamp to a tiny epsilon to avoid div by zero in smoothstep ordering.
+fn world_to_uv(p: vec2<f32>) -> vec2<f32> {
+    // world_pos spans roughly [-viewport/2, +viewport/2]
+    let vp = metaballs.v2.xy; // (w,h)
+    return (p / vp) + vec2<f32>(0.5, 0.5);
+}
+
+fn sdf_mask(sample_value: f32, feather_norm: f32) -> f32 {
+    // sample_value in [0,1]; inside when > 0.5
+    // Map to signed distance in normalized units around surface: d = sample - 0.5
+    let d = sample_value - 0.5;
+    // Feather half-width clamped; interpret feather_norm in (0..0.5].
+    let f = clamp(feather_norm, 0.00001, 0.5);
+    // Inside (positive d) should go toward 1; outside toward 0 with smooth transition across [-f, +f]
+    // We want 0 at d <= -f, 1 at d >= +f
+    return smoothstep(-f, f, d);
+}
 
 // ----------------------------------------------------------------------------
 // Vertex I/O
@@ -103,9 +129,29 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         sum_field += field_contrib(p, ctr, r);
     }
 
+    // Optional SDF masking (applied after accumulation). Enabled when metaballs.v5.x > 0.5.
+    let sdf_enabled = metaballs.v5.x > 0.5;
+    var sdf_sample: f32 = 1.0;
+    var sdf_mask_value: f32 = 1.0;
+    if (sdf_enabled) {
+        let uv = world_to_uv(p);
+        // If outside atlas bounds we can early zero mask; clamp for now to allow edge falloff behavior.
+        let uv_clamped = clamp(uv, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
+        sdf_sample = textureSample(sdf_atlas_tex, sdf_sampler, uv_clamped).r;
+        let feather_norm = metaballs.v5.y; // reinterpret as normalized feather half-width (0..0.5 typical)
+        sdf_mask_value = sdf_mask(sdf_sample, feather_norm);
+        sum_field *= sdf_mask_value;
+    }
+
     var rgb: vec3<f32>;
-    if (fg_mode == 3u) { // Metadata mode
-        rgb = shade_metadata(sum_field, iso);
+    if (fg_mode == 3u) { // Metadata mode (extended when SDF enabled)
+        if (sdf_enabled) {
+            // Visualize: R = raw SDF sample, G = mask, B = signed distance amplified
+            let d_vis = clamp((sdf_sample - 0.5) * 8.0 + 0.5, 0.0, 1.0);
+            rgb = vec3<f32>(sdf_sample, sdf_mask_value, d_vis);
+        } else {
+            rgb = shade_metadata(sum_field, iso);
+        }
     } else {
         rgb = shade_classic(sum_field, iso);
     }
