@@ -77,13 +77,18 @@ impl Default for MetaballsUniform {
 #[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug, Default, Pod, Zeroable)]
 pub struct GpuBall {
-    // (x, y, radius, cluster_slot)
-    pub data: Vec4,
+    // data0: (x, y, radius, packed_gid)
+    pub data0: Vec4,
+    // data1: (cos_theta, sin_theta, reserved0, reserved1)
+    // Rotation kept separate so future extensions (e.g., per-ball velocity or gradient hints)
+    // can reuse remaining lanes without repacking existing shader expectations.
+    pub data1: Vec4,
 }
 impl GpuBall {
-    pub fn new(pos: Vec2, radius: f32, cluster_slot: u32) -> Self {
+    pub fn new(pos: Vec2, radius: f32, packed_gid: u32, cos_theta: f32, sin_theta: f32) -> Self {
         Self {
-            data: Vec4::new(pos.x, pos.y, radius, cluster_slot as f32),
+            data0: Vec4::new(pos.x, pos.y, radius, packed_gid as f32),
+            data1: Vec4::new(cos_theta, sin_theta, 0.0, 0.0),
         }
     }
 }
@@ -625,7 +630,12 @@ fn update_metaballs_unified_material(
         // Pack shape index (u16) with color group (u16) => u32 using floats
         let shape_idx: u32 = shape_idx_opt.map(|s| s.0 as u32).unwrap_or(0);
         let packed_gid = ((shape_idx & 0xFFFF) << 16) | (gid & 0xFFFF);
-        balls_cpu.push(GpuBall::new(pos, r.0, packed_gid));
+    // Extract rotation (Z axis) -> angle for 2D; if no meaningful rotation use identity.
+    let rot = tf.rotation;
+    // Convert quaternion to 2D angle (assuming rotation about Z only for balls).
+    let angle = rot.to_euler(EulerRot::XYZ).2; // Z angle
+    let (s, c) = angle.sin_cos();
+    balls_cpu.push(GpuBall::new(pos, r.0, packed_gid, c, s));
         if debug_rows.len() < 8 {
             debug_rows.push(format!("e={:?} color={} gid={} shape={} packed=0x{:08X}", e, color_idx.0, gid, shape_idx, packed_gid));
         }
@@ -805,13 +815,13 @@ fn build_metaball_tiles(
     // Assign balls to tiles
     for (i, b) in shadow.0.iter().enumerate() {
         // removed unused center var
-        let base_r = b.data.z;
-        let center3 = b.data.truncate();
+            let base_r = b.data0.z;
+            let center3 = b.data0.truncate();
         let center = Vec2::new(center3.x, center3.y);
         if base_r <= 0.0 {
             continue;
         }
-        let scaled_r = base_r * radius_scale * radius_mult;
+    let scaled_r = base_r * radius_scale * radius_mult;
         // Fudge factor to counteract boundary flooring so tiles adjacent to the circle edge don't miss inclusion.
         let pad = 1.5_f32; // in pixels; tiny vs typical radii but prevents hairline cracks
         let effective_r = scaled_r + pad;

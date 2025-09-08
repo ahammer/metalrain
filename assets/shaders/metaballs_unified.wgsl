@@ -34,7 +34,7 @@ struct SurfaceNoiseParamsStd140 { v0: vec4<f32>, v1: vec4<f32>, v2: vec4<f32>, v
 @group(2) @binding(2) var<uniform> surface_noise: SurfaceNoiseParamsStd140;
 
 // STORAGE BUFFERS (mirrors Rust material bindings)
-struct GpuBall { data: vec4<f32> };         // (x,y,radius, packed_gid)
+struct GpuBall { data0: vec4<f32>, data1: vec4<f32> }; // data0:(x,y,radius,packed_gid) data1:(cos,sin,_,_)
 struct TileHeader { offset: u32, count: u32, _pad0: u32, _pad1: u32 };
 @group(2) @binding(3) var<storage, read> balls: array<GpuBall>;
 @group(2) @binding(4) var<storage, read> tile_headers: array<TileHeader>;
@@ -130,23 +130,31 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     var last_sdf_mask: f32 = 1.0;
     var last_shape_idx: u32 = 0u;
     for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
-        let b = balls[i].data;
-        let ctr = b.xy;
-        let r = b.z * radius_scale * radius_mult;
+    let b0 = balls[i].data0;
+    let b1 = balls[i].data1;
+    let ctr = b0.xy;
+    let r = b0.z * radius_scale * radius_mult;
         if (r <= 0.0) { continue; }
         // Compute analytic contribution first (we will scale by glyph mask if applicable)
         var contrib = field_contrib(p, ctr, r);
         if (sdf_enabled && contrib > 0.0) {
             // Decode packed gid: high 16 bits shape index, low 16 bits color group
-            let packed = u32(b.w + 0.5);
+            let packed = u32(b0.w + 0.5);
             let shape_idx = (packed >> 16) & 0xFFFFu;
             if (shape_idx > 0u) {
                 last_shape_idx = shape_idx;
                 // Guard against OOB: clamp to available metadata length-1 (assumes contiguous indexing with sentinel 0)
                 let shape_meta = sdf_shape_meta[shape_idx];
                 // Map fragment point into the ball's AABB square in [0,1]^2
-                let min_corner = ctr - vec2<f32>(r, r);
-                let uv_local = (p - min_corner) / (2.0 * r);
+                // Apply inverse rotation so glyph texture space follows physics rotation.
+                // data1.xy packed as (cos_theta, sin_theta) from CPU (GpuBall.data1).
+                let cos_t = b1.x;
+                let sin_t = b1.y;
+                let rel = p - ctr;
+                // Inverse rotation matrix (cos sin; -sin cos) applied to rel
+                let rel_rot = vec2<f32>( rel.x * cos_t + rel.y * sin_t, -rel.x * sin_t + rel.y * cos_t );
+                // Map rotated vector into square AABB spanning [-r, +r] -> [0,1]
+                let uv_local = (rel_rot / (2.0 * r)) + vec2<f32>(0.5, 0.5);
                 // If outside the square, skip (keeps circle silhouette outside glyph bounds)
                 if (all(uv_local >= vec2<f32>(0.0, 0.0)) && all(uv_local <= vec2<f32>(1.0, 1.0))) {
                     // Interpolate within atlas sub-rect
