@@ -100,25 +100,46 @@ fn main() {
     );
 
     #[cfg(target_arch = "wasm32")]
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: cfg.window.title.clone(),
-                    resolution: (cfg.window.width, cfg.window.height).into(),
-                    resizable: true,
+    {
+        // Only bind to existing canvas if it is actually present in DOM; otherwise fall back
+        // to Bevy's auto-created canvas to avoid panic (observed when element missing or load race).
+        #[cfg(target_arch = "wasm32")]
+        fn canvas_selector_if_present(sel: &str) -> Option<String> {
+            let doc = web_sys::window().and_then(|w| w.document());
+            if let Some(doc) = doc {
+                match doc.query_selector(sel) {
+                    Ok(Some(_)) => Some(sel.to_string()),
+                    _ => {
+                        web_sys::console::warn_1(&format!("Canvas selector '{}' not found; using auto-created canvas", sel).into());
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        }
+        let canvas = canvas_selector_if_present("#bevy-canvas");
+        app.add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: cfg.window.title.clone(),
+                        resolution: (cfg.window.width, cfg.window.height).into(),
+                        resizable: true,
+                        canvas,
+                        ..default()
+                    }),
                     ..default()
-                }),
-                ..default()
-            })
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(WgpuSettings {
-                    backends: Some(Backends::BROWSER_WEBGPU),
+                })
+                .set(RenderPlugin {
+                    render_creation: RenderCreation::Automatic(WgpuSettings {
+                        backends: Some(Backends::BROWSER_WEBGPU),
+                        ..Default::default()
+                    }),
                     ..Default::default()
                 }),
-                ..Default::default()
-            }),
-    );
+        );
+    }
 
     // Data-driven level loading must occur before core GamePlugin systems (physics, widgets).
     app.add_plugins(LevelLoaderPlugin);

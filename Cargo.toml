@@ -53,7 +53,7 @@ ttf-parser = "0.20"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window","Navigator"] }
+web-sys = { version = "0.3", features = ["Window","Navigator","Document"] }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
@@ -62,7 +62,7 @@ uuid = { version = "1", features = ["js"] }
 # enabled on wasm when we curate features manually, leading to the runtime panic:
 # "No wgpu backend feature that is implemented for the target platform was enabled".
 # We avoid `webgl` to keep the strict WebGPU-only policy.
-wgpu = { version = "24", default-features = true, features = ["webgpu" ] }
+wgpu = { version = "26.0.1", default-features = true, features = ["webgpu" ] }
 
 # Native: explicitly ensure modern backends (Vulkan/Metal/DX12) are enabled; avoid GL/WebGL.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use bevy::render::storage::ShaderStorageBuffer;
 use serde::Deserialize;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::collections::HashMap;
 /// Packing helpers (shape index high 16 bits, color group low 16 bits). Shape index 0 reserved sentinel.
@@ -128,7 +130,7 @@ fn load_sdf_atlas(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
-    _images: ResMut<Assets<Image>>,
+    mut images: ResMut<Assets<Image>>,
     cfg: Res<crate::core::config::GameConfig>,
     existing: Option<Res<SdfAtlas>>,
 ) {
@@ -137,17 +139,32 @@ fn load_sdf_atlas(
     // Early exit if disabled in config.
     if !cfg_shapes.enabled { return; }
 
-    // Hard-coded provisional paths; could move to config later.
-    // Note: AssetServer expects paths relative to the asset root (i.e. without leading 'assets/').
-    let json_fs_path = "assets/shapes/sdf_atlas.json"; // filesystem check path
-    let png_fs_path = "assets/shapes/sdf_atlas.png";   // filesystem check path
-    let png_asset_path = "shapes/sdf_atlas.png";       // asset server relative path
-    if !Path::new(json_fs_path).exists() || !Path::new(png_fs_path).exists() {
-        info!(target:"sdf", "SDF atlas not found (expected '{}' and '{}') – falling back to analytic circles", json_fs_path, png_fs_path);
-    commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None, preferred_shapes: vec![], shape_count: 0 });
-        return;
-    }
-    let raw_str = match fs::read_to_string(json_fs_path) { Ok(s)=>s, Err(e)=>{ warn!(target:"sdf", "Failed reading atlas json: {e}"); return; } };
+    // Paths / embedding strategy differ by platform:
+    //  - Native: read from filesystem (assets/...) to allow external replacement.
+    //  - Wasm: embed JSON at compile time (no direct fs) and still load PNG via AssetServer.
+    let png_asset_path = "shapes/sdf_atlas.png"; // relative for AssetServer both platforms (native)
+    #[cfg(target_arch = "wasm32")]
+    let raw_str: String = {
+        // Embed JSON if present at build time; if missing, fall back gracefully.
+        let embedded = include_str!("../../assets/shapes/sdf_atlas.json");
+        if embedded.trim().is_empty() {
+            info!(target:"sdf", "Embedded SDF atlas JSON empty – falling back to analytic circles");
+            commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None, preferred_shapes: vec![], shape_count: 0 });
+            return;
+        }
+        embedded.to_string()
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let raw_str: String = {
+        let json_fs_path = "assets/shapes/sdf_atlas.json";
+        let png_fs_path = "assets/shapes/sdf_atlas.png";
+        if !Path::new(json_fs_path).exists() || !Path::new(png_fs_path).exists() {
+            info!(target:"sdf", "SDF atlas not found (expected '{}' and '{}') – falling back to analytic circles", json_fs_path, png_fs_path);
+            commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None, preferred_shapes: vec![], shape_count: 0 });
+            return;
+        }
+        match fs::read_to_string(json_fs_path) { Ok(s)=>s, Err(e)=>{ warn!(target:"sdf", "Failed reading atlas json: {e}"); return; } }
+    };
     let parsed: RawAtlasJson = match serde_json::from_str(&raw_str) { Ok(p)=>p, Err(e)=>{ warn!(target:"sdf", "JSON parse error: {e}"); return; } };
     if parsed.version != 1 { warn!(target:"sdf", "Unsupported SDF atlas version {}; expected 1", parsed.version); return; }
     if parsed.tile_size == 0 { warn!(target:"sdf", "tile_size must be > 0"); return; }
@@ -163,7 +180,31 @@ fn load_sdf_atlas(
         shapes_meta.push(SdfShapeMeta { name: s.name.clone(), index: s.index, rect_px: (s.px.x, s.px.y, s.px.w, s.px.h), uv: (s.uv.u0, s.uv.v0, s.uv.u1, s.uv.v1), pivot: (s.pivot.x, s.pivot.y) });
     }
 
-    // Load texture via asset server so it participates in Bevy's lifecycle; fallback if fails later.
+    // Load / embed texture:
+    #[cfg(target_arch = "wasm32")]
+    let tex_handle: Handle<Image> = {
+        // Embed PNG bytes. If the file changes you must rebuild. We manually decode using Bevy's loader helper.
+        // If decoding fails we log and gracefully disable the SDF path (analytic circles remain).
+    use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
+    use bevy::asset::RenderAssetUsages;
+        const BYTES: &[u8] = include_bytes!("../../assets/shapes/sdf_atlas.png");
+        match Image::from_buffer(
+            BYTES,
+            ImageType::Extension("png"),
+            CompressedImageFormats::default(),
+            true, // treat as sRGB
+            ImageSampler::linear(),
+            RenderAssetUsages::default(),
+        ) {
+            Ok(img) => images.add(img),
+            Err(e) => {
+                warn!(target="sdf", "Embedded PNG decode failed: {e}; disabling SDF atlas");
+                commands.insert_resource(SdfAtlas { texture: Handle::default(), tile_size:0, atlas_width:0, atlas_height:0, distance_range:0.0, channel_mode: SdfChannelMode::SdfR8, shapes: vec![], enabled:false, shape_buffer: None, preferred_shapes: vec![], shape_count: 0 });
+                return;
+            }
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
     let tex_handle: Handle<Image> = asset_server.load(png_asset_path);
     let mut distance_range = parsed.distance_range.unwrap_or(parsed.tile_size as f32 * 0.125);
     let heuristic = parsed.tile_size as f32 * 0.125;

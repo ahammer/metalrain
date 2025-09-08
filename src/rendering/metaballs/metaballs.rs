@@ -14,6 +14,8 @@ use bytemuck::{Pod, Zeroable};
 static METABALLS_UNIFIED_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 static METABALLS_UNIFIED_DEBUG_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+#[cfg(target_arch = "wasm32")]
+use std::sync::OnceLock;
 
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
