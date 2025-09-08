@@ -11,6 +11,7 @@ use crate::rendering::materials::materials::{
     BallDisplayMaterials, BallMaterialIndex, BallPhysicsMaterials,
 };
 use crate::rendering::metaballs::metaballs::MetaballsUpdateSet; // for system ordering
+use crate::rendering::sdf_atlas::SdfAtlas; // for random glyph assignment if loaded
 use crate::rendering::palette::palette::BASE_COLORS; // for variant index length when not drawing circles
 
 // Visual constants for spawn widgets (distinct from gravity widgets)
@@ -160,6 +161,7 @@ fn run_spawn_widgets(
     physics_palette: Option<Res<BallPhysicsMaterials>>,
     q_ball_count: Query<Entity, With<Ball>>,
     mut spawn_ord: Option<ResMut<crate::rendering::sdf_atlas::BallSpawnOrdinal>>,
+    sdf_atlas: Option<Res<SdfAtlas>>,
 ) {
     let total = q_ball_count.iter().len();
     if total >= cfg.spawn_widgets.global_max_balls {
@@ -197,6 +199,7 @@ fn run_spawn_widgets(
                 &physics_palette,
                 &cfg, // for bounce / physics params
                 ord,
+                sdf_atlas.as_ref().map(|a| &**a),
             );
         }
     }
@@ -213,6 +216,7 @@ fn spawn_single_ball(
     _physics_palette: &Option<Res<BallPhysicsMaterials>>,
     game_cfg: &GameConfig,
     ordinal: u64,
+    sdf_atlas: Option<&SdfAtlas>,
 ) {
     // Random radius & position in disk
     let r_ball = rng.gen_range(swc.ball_radius_min..swc.ball_radius_max);
@@ -260,13 +264,16 @@ fn spawn_single_ball(
     let world_pos = base_pos + offset;
     // Physics material properties
     let bounce = &game_cfg.bounce;
+    // Random glyph (shape) index if atlas loaded & enabled; choose range [1, shape_count]
+    let shape_index: u16 = if let Some(atlas) = sdf_atlas {
+        if atlas.enabled && atlas.shape_count > 0 { rng.gen_range(1..=atlas.shape_count as u32) as u16 } else { 0 }
+    } else { 0 };
     let mut entity = commands.spawn((
         Ball,
         BallRadius(r_ball),
         crate::core::components::BallOrdinal(ordinal),
         BallMaterialIndex(variant_idx),
-        // Default shape index 0 (circle) until SDF atlas loader assigns specific shapes
-        crate::rendering::materials::materials::BallShapeIndex(0),
+        crate::rendering::materials::materials::BallShapeIndex(shape_index),
         RigidBody::Dynamic,
         Velocity {
             linvel,
