@@ -18,15 +18,15 @@ All MUST be satisfied:
    * `metaballs_compose.frag.wgsl` – sample field + cluster id textures, apply iso mask, blend foreground cluster color with minimal background (SolidGray only in MVP) producing RGBA.
    * `fullscreen_passthrough.vert.wgsl` – simple fullscreen vertex stage (clip‑space quad) (or reuse existing but isolate from legacy naming).
 3. Intermediate Textures: Two render‑sized GPU images allocated & resized on window changes:
-   * Field Texture: r32float STORAGE + TEXTURE (write by compute, read by fragment).
-   * Cluster Texture: r8uint STORAGE + TEXTURE (dominant cluster id, 255 sentinel for none).
+   * Field Texture: r32float STORAGE + TEXTURE (write by compute, read by fragment) – values clamped to [0,1].
+   * Cluster Texture: r16uint STORAGE + TEXTURE (dominant cluster id, 0xFFFF sentinel for none). (Upgrade from earlier r8uint/255 design to support >255 clusters; see Section 4a.)
 4. Render Graph: Custom node dispatches compute BEFORE the 2D composition draw. Node schedules after tile building (`MetaballsUpdateSet`) and before the main 2D pass (or a dedicated composition pass).
 5. Uniform Continuity: Existing uniform data struct lanes used where required (v0: counts, v2: viewport/time, v3: tiling meta, v5: sdf flags). Unused lanes tolerated; no reshuffling that would break SDF atlas loading.
 6. Visual Parity: Result matches previous monolithic shader for: iso thresholding, SDF glyph silhouette masking, palette color selection (dominant cluster), alpha mask shape. Minor floating point variance acceptable (< 1e-3 mask difference).
 7. Performance: Frame time not worse than legacy path at equal resolution (objective: <= legacy ±5%). Compute workgroup dimensions chosen conservatively (8x8) for WASM portability; no >256 thread groups.
 8. SDF Path: Glyph masking logic preserved (rotation, uv derivation, feather half‑width semantics using existing v5.y). Hard fallback (shape index 0) behaves identically to analytic circle field.
 9. Safety: No panics; all missing resources early‑return gracefully (empty textures cleared to zero). WASM build passes without requiring additional features.
-10. Tests: Add at least one integration or unit test verifying (a) compute iso invariants on a synthetic single ball (center field > rim field), (b) cluster id sentinel when no balls.
+10. Tests: Add at least one integration or unit test verifying (a) compute iso invariants on a synthetic single ball (center field > rim field), (b) cluster id sentinel (0xFFFF) when no balls.
 11. Logging: Informational log once on pipeline init (target="metaballs") and warn if allocation / resize fails (with fallback strategy). No per‑pixel logging.
 12. Clippy & Tests: `cargo clippy --all-targets --all-features` & test suite pass.
 
@@ -47,15 +47,34 @@ Group(2) (unchanged):
 @binding(8) sdf_shape_meta (storage readonly)
 @binding(9) sdf_sampler
 ```
-New Group(3):
+New Group(3) (compute write phase):
 ```
 @binding(0) write storage texture r32float  (field_out)
-@binding(1) write storage texture r8uint    (cluster_out)
-@binding(2) sampled texture_2d<f32> field_in     (view of field_out) 
-@binding(3) sampled texture_2d<u32> cluster_in   (view of cluster_out)
-@binding(4) sampler linear_or_point (point acceptable; filter not needed for MVP)
+@binding(1) write storage texture r16uint   (cluster_out)
 ```
-(If Bevy renderer resists dual binding as storage + sampled in same pass, create two views / bind groups—document deviation.)
+
+New Group(4) (composition sample phase):
+```
+@binding(0) sampled texture_2d<f32> field_in      (view of field_out)
+@binding(1) sampled texture_2d<u32> cluster_in    (view of cluster_out)
+@binding(2) sampler linear_or_point (point acceptable; linear optional for smoother mask)
+```
+(Separated to avoid mixed storage+sample bindings in a single group for portability; if the renderer allows reuse in one group with distinct views you MAY collapse later.)
+
+Cluster Texture Upgrade Notes:
+* Format: r16uint (cluster ids 0..65534 valid, 0xFFFF sentinel).
+* If runtime distinct cluster count > 65534: truncate to 65534 and log a WARN once (target="metaballs").
+* Memory impact negligible vs r8uint at current resolutions (still 2 bytes/pixel).
+
+## 4a. Format Upgrade Clarifications (r16uint Cluster IDs)
+You WILL implement the cluster id texture using `r16uint` with sentinel 0xFFFF for empty pixels. Rationale: future multi-cluster, high palette cardinality, or procedurally assigned groups may exceed 255. Sentinel expands from 255 -> 65535. Field values remain r32float. All sampling of the cluster image in WGSL MUST use `textureLoad` (integer textures are not filterable & require explicit coords) and values MUST be cast to `u32` before palette index clamping.
+
+Safety & Fallback:
+* If platform reports unsupported format for storage binding (extremely unlikely on modern WebGPU / wgpu), fallback to r32uint + documentation OR abort initialization with a single WARN (do NOT silently degrade to r8uint).
+* Provide a compile-time comment referencing this section inside `metaballs_compose.frag.wgsl` near texture binding declarations.
+
+Field Clamping:
+* The compute shader MUST clamp the final accumulated dominant field to [0,1] before writing to the field texture to ensure stable iso thresholding and deterministic alpha in composition.
 
 ## 5. Compute Shader Specification (`metaballs_field.comp.wgsl`)
 Workgroup Size: `@workgroup_size(8,8,1)`.
@@ -71,8 +90,8 @@ Per pixel algorithm:
    * Extract packed shape + cluster id; if SDF enabled & shape>0 run glyph sampling (rotate, uv, clamp, mask) & multiply contribution.
    * Track dominant cluster: if `f_i > best_f` update `(best_f, cluster_id)`.
 5. Write outputs:
-   * field_out[pixel] = best_f (or 0.0 if none)
-   * cluster_out[pixel] = cluster_id (or 255u if none)
+   * field_out[pixel] = clamp(best_f, 0.0, 1.0) (or 0.0 if none)
+   * cluster_out[pixel] = cluster_id (or 0xFFFFu if none)
 No atomics, no barriers beyond implicit per invocation.
 
 ## 6. Fragment Composition (`metaballs_compose.frag.wgsl`)
@@ -81,9 +100,9 @@ Steps:
 1. Sample field f.
 2. `mask = smoothstep(iso*0.6, iso, f)`.
 3. If mask == 0: output background RGBA (0 alpha).
-4. Else: sample cluster id; if sentinel (255) treat as background.
+4. Else: load cluster id via `textureLoad(cluster_in, ivec2(px,py), 0).r`; if sentinel (0xFFFF) treat as background.
 5. Clamp cluster index to palette_count - 1 (palette count from v0.y; treat 0 => single fallback color index 0).
-6. `rgb = mix(bg, fg, mask)`; alpha = mask.
+6. `rgb = mix(bg, fg, mask)`; alpha = mask (field already clamped, so mask stability improved).
 7. Output vec4.
 
 ## 7. Vertex Shader (`fullscreen_passthrough.vert.wgsl`)
@@ -99,14 +118,14 @@ Standard single quad in clip space [-1,1]²; pass through a UV or world pos if n
    * `shaders.rs` (optional) – constants for shader paths & loaders (wasm include_str! pattern mirrored).
 4. Add intermediate texture creation system (Startup + on resize) producing:
    * `Image` for field (Format::R32Float, usage: TEXTURE_BINDING | STORAGE_BINDING | COPY_SRC)
-   * `Image` for cluster (Format::R8Uint)
-   Provide default clear values (0, sentinel 255 for cluster via compute init pass or texture clear if Bevy exposes; else first frame compute writes).
+   * `Image` for cluster (Format::R16Uint, usage: TEXTURE_BINDING | STORAGE_BINDING | COPY_SRC)
+   Provide default clear values (0 for field, sentinel 0xFFFF for cluster if clear path supports integer fill; else first compute frame overwrites).
 5. Port tile build system to remain unchanged; ensure it runs before compute node.
 6. Implement compute node:
-   * Acquire pipeline (lazy init) with layout referencing group(2) existing + group(3) outputs.
+   * Acquire pipeline (lazy init) with layout referencing group(2) existing + group(3) outputs (r32float + r16uint).
    * For each frame: ensure dispatch dims = ceil(vw/8), ceil(vh/8).
-7. Composition material:
-   * Simple material struct referencing uniform (MetaballsData) + sampled views of field/cluster + storage palette.
+7. Composition material / pipeline:
+   * Simple pipeline referencing uniform (MetaballsData) + sampled views (Group(4)) of field/cluster + storage palette (still in group(2)).
    * Vertex = fullscreen pass; Fragment = composition shader.
    * Spawn quad at z=50 (reuse existing transform ordering).
 8. Uniform update system: replicate essential fields from old path (iso, counts, time, radius scale, viewport size). Remove unused lanes gracefully.
@@ -127,10 +146,11 @@ You WILL:
 * Use 8x8 workgroups initially. Document a comment explaining rationale & a TODO to benchmark 16x16.
 * Avoid per-frame allocations in compute node (cache bind groups & pipeline). Recreate ONLY on resize or when image handles change.
 * Avoid iterating all balls inside compute (tiling assures localized work). Ensure tile headers & indices unchanged.
+* r16uint vs r8uint cluster texture: doubling per-pixel cluster memory from 1B -> 2B is negligible relative to the field texture (4B) and avoids expensive later migration.
 * Ensure cluster palette storage not rebuilt when length unchanged.
 
 ## 11. Edge Cases & Handling
-* Zero balls: write field=0 cluster=255 sentinel.
+* Zero balls: write field=0 cluster=0xFFFF sentinel.
 * Palette length 0: treat as 1 with fallback color (index 0) – prevents OOB (mirror legacy guard).
 * Atlas absent or disabled: treat shape_idx>0 as analytic circles (skip SDF sampling path conditionally).
 * Extremely small radii: contribution may underflow; acceptable—clamped after polynomial.
@@ -162,10 +182,11 @@ Add a brief comment in removed legacy file path commit message referencing this 
 You MUST verify before merge:
 - [ ] Legacy shader & material removed (grep shows no references to `metaballs_unified` or `MetaballsUnifiedMaterial`).
 - [ ] New shaders compiled without validation errors (native + wasm).
-- [ ] Field & cluster textures allocated & resized on window change.
+- [ ] Field & cluster textures allocated & resized on window change (r32float + r16uint sentinel 0xFFFF).
 - [ ] Compute dispatch executes (log or debug marker) before composition draw each frame.
 - [ ] Visual parity within acceptable delta for iso + palette.
 - [ ] SDF glyph silhouettes still render (when atlas active) with feather preserved.
+- [ ] Cluster sentinel observed as 0xFFFF (validated in test / debug capture).
 - [ ] Tests added & passing.
 - [ ] Clippy & wasm build succeed.
 - [ ] README (or TODO) updated referencing multi-stage pipeline.

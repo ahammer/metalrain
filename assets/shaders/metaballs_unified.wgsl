@@ -109,20 +109,46 @@ fn sdf_mask(sample_value: f32, feather_norm: f32) -> f32 {
 }
 
 // Consolidated SDF evaluation helper. Returns (mask, sample_val). mask=0 when outside glyph or rejected.
-fn sdf_evaluate(p: vec2<f32>, ctr: vec2<f32>, r: f32, cos_t: f32, sin_t: f32, shape_idx: u32, feather_norm: f32) -> vec2<f32> {
+fn sdf_evaluate(
+    p: vec2<f32>, ctr: vec2<f32>, r: f32,
+    cos_t: f32, sin_t: f32, shape_idx: u32, feather_norm: f32
+) -> vec2<f32> {
+    // Circle: mask=1, sample_val=1 (skip atlas)
     if (shape_idx == 0u) { return vec2<f32>(1.0, 1.0); }
+
     let relp = p - ctr;
-    let rel_rot = vec2<f32>( relp.x * cos_t + relp.y * sin_t, -relp.x * sin_t + relp.y * cos_t );
+    let rel_rot = vec2<f32>(
+        relp.x * cos_t + relp.y * sin_t,
+       -relp.x * sin_t + relp.y * cos_t
+    );
+
+    // Local UV in [0,1] when inside ellipse
     let uv_local = (rel_rot / (2.0 * r)) + vec2<f32>(0.5, 0.5);
-    if (any(uv_local < vec2<f32>(0.0)) || any(uv_local > vec2<f32>(1.0))) { return vec2<f32>(0.0, 1.0); }
-    let shape_meta = sdf_shape_meta[shape_idx];
-    let atlas_uv = shape_meta.uv0 + (shape_meta.uv1 - shape_meta.uv0) * uv_local;
-    let sample_val = textureSample(sdf_atlas_tex, sdf_sampler, atlas_uv).r;
+
+    // Compute a branchless "inside" mask (1 = inside [0,1])
+    let inside_x = step(0.0, uv_local.x) * step(uv_local.x, 1.0);
+    let inside_y = step(0.0, uv_local.y) * step(uv_local.y, 1.0);
+    let inside   = inside_x * inside_y;
+
+    // Clamp UVs so we can sample unconditionally
+    let uv_local_clamped = clamp(uv_local, vec2<f32>(0.0), vec2<f32>(1.0));
+
+    let met = sdf_shape_meta[shape_idx];
+    let atlas_uv = met.uv0 + (met.uv1 - met.uv0) * uv_local_clamped;
+
+    // EXPLICIT LOD to avoid derivatives (or use textureSampleBaseClampToEdge)
+    let sample_val = textureSampleLevel(sdf_atlas_tex, sdf_sampler, atlas_uv, 0.0).r;
+
+    // Compute mask with feather band
     let d = sample_val - 0.5;
-    if (d <= -feather_norm) { return vec2<f32>(0.0, sample_val); }
-    if (d >=  feather_norm) { return vec2<f32>(1.0, sample_val); }
-    let mask_val = smoothstep(-feather_norm, feather_norm, d);
-    return vec2<f32>(mask_val, sample_val);
+    let f = clamp(feather_norm, 0.00001, 0.5);
+    let mask_val = smoothstep(-f, f, d);
+
+    // Apply inside mask without branching
+    let masked = mix(0.0, mask_val, inside);
+
+    // Keep your original return contract: (mask, sample_val)
+    return vec2<f32>(masked, sample_val);
 }
 
 // ----------------------------------------------------------------------------
