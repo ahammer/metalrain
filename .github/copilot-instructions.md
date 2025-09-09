@@ -196,6 +196,232 @@ Update when:
 * Config layering strategy changes.
 * New hot reloadable domains introduced.
 
----
-Generated with accessibility and maintainability in mind. Review periodically & adapt as architecture evolves.
+# WGSL + WebGPU (Web) — Hard Rules & Tiny Examples
 
+## 0) “Do Not” landmines
+
+* **No preprocessor**: `#define/#include` are illegal.
+* **No ++/-- or `+=`**: write `i = i + 1;` not `i++`.
+* **No function overloading**: unique names only.
+* **No recursion**.
+* **No GLSL sugar**: no `in/out`, no `precision mediump`, no `sampler2D`, no `layout(...)`.
+* **No implicit casts**: types must match exactly (e.g., `f32(1u)` if you must).
+* **Reserved words**: don’t name things `meta`, `mod`, `texture`, `sampler`, etc.
+
+---
+
+## 1) Types, literals, constructors
+
+* **Explicit types**: `i32/u32/f32`, `vec2<f32>`, `mat4x4<f32>`.
+* **Literals**: `1` (i32), `1u` (u32), `1.0` (f32).
+* **Constructors**: `vec3<f32>(1.0, 0.0, 0.0)` or shorthand `vec3(…)` if the type is clear.
+
+```wgsl
+let a: u32 = 3u;
+let b: f32 = 3.0;
+let v = vec3(1.0, 2.0, 3.0);     // f32 by default
+```
+
+---
+
+## 2) Structs (common agent mistake)
+
+* **Fields separated by commas**, optional trailing comma. Semicolons *inside* are wrong.
+
+```wgsl
+struct U {
+  color: vec4<f32>,
+  scale: f32,
+} // optional ';' here
+```
+
+---
+
+## 3) Variables & constants
+
+* `const` = compile-time; `override` = pipeline specialization; `let` = immutable; `var` = mutable.
+
+```wgsl
+override USE_GLOW: u32 = 0u;
+let pi: f32 = 3.14159265;
+var acc: f32 = 0.0;
+```
+
+---
+
+## 4) Functions & control flow
+
+* Return type after `->`. No overloads. Blocks required.
+* Use `select(falseVal, trueVal, cond)` instead of `?:`.
+
+```wgsl
+fn lerp(a: f32, b: f32, t: f32) -> f32 { return a + (b - a) * t; }
+let x = select(0.0, 1.0, cond); // cond: bool
+for (var i = 0u; i < 16u; i = i + 1u) { /* … */ }
+```
+
+---
+
+## 5) Entry points & IO
+
+* Stage attrs: `@vertex`, `@fragment`, `@compute`.
+* Vertex must output `@builtin(position)`.
+* Inter-stage data uses `@location(n)`; fragment outputs tag `@location(n)`.
+
+```wgsl
+struct VSOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, }
+
+@vertex
+fn vs(@location(0) p: vec3<f32>, @location(1) uv: vec2<f32>) -> VSOut {
+  var o: VSOut;
+  o.pos = vec4(p, 1.0);
+  o.uv = uv;
+  return o;
+}
+
+@fragment
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  return vec4(uv, 0.0, 1.0);
+}
+```
+
+---
+
+## 6) Bindings (buffers/textures/samplers)
+
+* Use `@group(n) @binding(m)` + address space.
+* Uniform/storage must be **structs**.
+* Texture and sampler are **separate** bindings.
+
+```wgsl
+struct U { mvp: mat4x4<f32>, }
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var<storage, read_write> data: array<vec4<f32>>;
+@group(0) @binding(2) var tex: texture_2d<f32>;
+@group(0) @binding(3) var samp: sampler;
+```
+
+---
+
+## 7) Texture sampling — **Web-safe rules**
+
+* **Derivative uniformity**: calls using implicit LOD (**`textureSample`**) must be in **uniform control flow** (no per-pixel branches guarding the call).
+* **Easiest fix**: sample **unconditionally** and mask with math; or use **`textureSampleLevel(..., 0.0)`** to avoid derivatives.
+* **Clamp & pad** your atlases to avoid bleed.
+
+```wgsl
+// Branchless sample:
+let uv_clamped = clamp(uv, vec2(0.0), vec2(1.0));
+let c = textureSampleLevel(tex, samp, uv_clamped, 0.0);
+let inside = step(0.0, uv.x) * step(uv.x,1.0) * step(0.0, uv.y) * step(uv.y,1.0);
+let masked = mix(vec4(0.0), c, inside);
+```
+
+---
+
+## 8) Compute basics
+
+* Must specify `@workgroup_size(x,y,z)`.
+* Shared memory: `var<workgroup>`.
+* Sync: `workgroupBarrier();`
+
+```wgsl
+@compute @workgroup_size(64)
+fn cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+  // ...
+}
+```
+
+---
+
+## 9) Layout & alignment (UBO/SSBO)
+
+* Follow natural alignment; compiler pads for you. Keep scalars grouped; avoid `vec3` followed by scalar (use `vec4` when practical).
+
+```wgsl
+struct U {
+  a: vec4<f32>, // good: 16B aligned
+  b: f32,       // will be padded to 16B boundary
+}
+```
+
+---
+
+## 10) Porting from GLSL/HLSL — quick map
+
+* `gl_Position` → `@builtin(position)` in VS output.
+* `gl_FragCoord` → `@builtin(position)` **input** in FS.
+* `texture(s, uv)` / `texture2D` → `textureSample(tex, samp, uv)`.
+* `discard` exists (fragment only). No `clip()`.
+* No `precision` qualifiers, no `layout(...)`, no `#ifdef`.
+* No implicit casts: wrap with `f32()`, `u32()`, etc.
+
+---
+
+## 11) Browser quirks & lowest common denom
+
+* **Chromium (Chrome/Edge)**: strict derivative-uniformity. Prefer **unconditional sampling** or **explicit LOD**.
+* **Firefox**: often more permissive but don’t rely on it.
+* **Safari**: still maturing; avoid edge features; test early.
+* Stick to **RGBA8**, depth24+stencil8, non-weird formats unless you gate features.
+
+---
+
+## 12) Performance sanity
+
+* Avoid long per-fragment loops; push heavy work to **compute**.
+* Use **storage buffers** for big data; keep workgroup size ≤ 256/512.
+* Minimize divergent branches; prefer math masks (`step`, `mix`, `select`).
+
+---
+
+## 13) Debug/validate checklist
+
+* Shader creation errors? Fix **syntax/types/bindings** first.
+* If black screen on Chrome: check **uniformity** of any `textureSample`.
+* Verify **group/binding** numbers match pipeline layout.
+* Print constants via color to sanity-check (e.g., output UVs).
+* Binary search comment-out chunks to isolate the offender.
+
+---
+
+## 14) Tiny templates
+
+**Uniform + VS/FS skeleton**
+
+```wgsl
+struct U { mvp: mat4x4<f32>, }
+
+@group(0) @binding(0) var<uniform> u: U;
+
+struct VSOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, }
+
+@vertex
+fn vs(@location(0) p: vec3<f32>, @location(1) uv: vec2<f32>) -> VSOut {
+  var o: VSOut;
+  o.pos = u.mvp * vec4(p, 1.0);
+  o.uv = uv;
+  return o;
+}
+
+@group(0) @binding(1) var tex: texture_2d<f32>;
+@group(0) @binding(2) var samp: sampler;
+
+@fragment
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  let uv2 = clamp(uv, vec2(0.0), vec2(1.0));
+  return textureSampleLevel(tex, samp, uv2, 0.0);
+}
+```
+
+**Compute skeleton**
+
+```wgsl
+@group(0) @binding(0) var<storage, read>  src: array<f32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<f32>;
+@compute @workgroup_size(64)
+fn cs(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i < arrayLength(&dst)) { dst[i] = src[i] * 2.0; }
+}
+```
