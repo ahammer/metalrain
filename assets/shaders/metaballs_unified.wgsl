@@ -169,23 +169,29 @@ fn cluster_insert(ids: ptr<function, array<u32, 12>>, count: ptr<function, u32>,
     // Overwrite slot 0 (least sophisticated heuristic; bounded set small).
     (*ids)[0] = id; return 0u;
 }
+// (Restored helper – not currently used in diagnostic fragment but kept for later reintegration.)
+fn compute_adaptive_mask(field: f32, iso: f32, grad_len: f32) -> f32 {
+    let grad_l = max(grad_len, 1e-5);
+    let aa = clamp(iso / grad_l * 0.5, 0.75, 4.0);
+    return clamp(smoothstep(iso - aa, iso + aa, field), 0.0, 1.0);
+}
+fn compute_legacy_mask(field: f32, iso: f32) -> f32 { return smoothstep(iso * 0.6, iso, field); }
+fn map_signed_distance(signed_d: f32, d_scale: f32) -> f32 { return clamp(0.5 - 0.5 * signed_d / d_scale, 0.0, 1.0); }
 
-// Background Noise (value noise with simple domain warp)
+// -------------------------- Restored Background & Noise Helpers --------------------------
 fn hash2(p: vec2<f32>) -> f32 {
     let h = dot(p, vec2<f32>(127.1, 311.7));
     return fract(sin(h) * 43758.5453123);
 }
 fn interp(a: f32, b: f32, t: f32) -> f32 { return a + (b - a) * (t * t * (3.0 - 2.0 * t)); }
 fn value_noise(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
+    let i = floor(p); let f = fract(p);
     let a = hash2(i);
     let b = hash2(i + vec2<f32>(1.0, 0.0));
     let c = hash2(i + vec2<f32>(0.0, 1.0));
     let d = hash2(i + vec2<f32>(1.0, 1.0));
     return interp(interp(a, b, f.x), interp(c, d, f.x), f.y);
 }
-
 fn background_color(p: vec2<f32>, mode: u32) -> vec3<f32> {
     if (mode == 0u) { // SolidGray
         return vec3<f32>(0.08, 0.08, 0.085);
@@ -197,337 +203,107 @@ fn background_color(p: vec2<f32>, mode: u32) -> vec3<f32> {
         let c1 = vec3<f32>(0.28, 0.30, 0.38);
         return mix(c0, c1, t);
     }
-    // ProceduralNoise
-    let np = noise_params.v0; // pack: (base_scale, warp_amp, warp_freq, speed_x)
+    // ProceduralNoise (mode 1)
+    let np = noise_params.v0; // (base_scale, warp_amp, warp_freq, speed_x)
     let np1 = noise_params.v1; // (speed_y, gain, lacunarity, contrast_pow)
     let time = metaballs.v2.z;
     var uv = p * np.x + vec2<f32>(time * np.zw.x, time * np.zw.y);
-    // domain warp
     let warp = value_noise(uv * np.z) * np.y;
     uv += vec2<f32>(warp, warp);
-    var amp: f32 = 0.5;
-    var freq: f32 = 1.0;
-    var sum: f32 = 0.0;
-    let octs = f32(noise_params.v2.x); // octaves
+    var amp: f32 = 0.5; var freq: f32 = 1.0; var sum: f32 = 0.0;
+    let octs = f32(noise_params.v2.x);
     for (var o: u32 = 0u; o < u32(octs); o = o + 1u) {
         sum += value_noise(uv * freq) * amp;
-        freq *= np1.y; // lacunarity
-        amp *= np1.x; // gain
+        freq *= np1.y; amp *= np1.x;
     }
-    sum = pow(clamp(sum, 0.0, 1.0), np1.z); // contrast
+    sum = pow(clamp(sum, 0.0, 1.0), np1.z);
     return vec3<f32>(sum);
-}
-
-fn bevel_shade(cluster_col: vec3<f32>, grad: vec2<f32>, normal_z_scale: f32) -> vec3<f32> {
-    let n = normalize(vec3<f32>(grad.x, grad.y, normal_z_scale));
-    let L = normalize(vec3<f32>(0.5, 0.5, 1.0));
-    let diff = clamp(dot(n, L), 0.0, 1.0);
-    let rim = pow(1.0 - clamp(n.z, 0.0, 1.0), 2.0);
-    return cluster_col * (0.35 + 0.65 * diff) + rim * 0.15;
-}
-
-fn outline_glow_shade(cluster_col: vec3<f32>, field: f32, iso: f32) -> vec3<f32> {
-    let t = clamp(field / max(iso, EPS), 0.0, 2.0);
-    let glow = smoothstep(0.0, 1.0, t) * (1.0 - smoothstep(1.0, 1.6, t));
-    return cluster_col * glow;
-}
-
-fn classic_blend_shade(cluster_col: vec3<f32>, field: f32, iso: f32) -> vec3<f32> {
-    let g = clamp(field / max(iso, EPS), 0.0, 1.0);
-    return cluster_col * g;
-}
-
-fn compute_adaptive_mask(field: f32, iso: f32, grad_len: f32) -> f32 {
-    let grad_l = max(grad_len, 1e-5);
-    // Heuristic width similar to legacy main branch: proportional to iso/|grad|
-    let aa = clamp(iso / grad_l * 0.5, 0.75, 4.0);
-    return clamp(smoothstep(iso - aa, iso + aa, field), 0.0, 1.0);
-}
-
-fn compute_legacy_mask(field: f32, iso: f32) -> f32 {
-    return smoothstep(iso * 0.6, iso, field);
-}
-
-fn map_signed_distance(signed_d: f32, d_scale: f32) -> f32 {
-    // Normalize signed distance to [0,1] with surface at 0.5 (negative inside)
-    return clamp(0.5 - 0.5 * signed_d / d_scale, 0.0, 1.0);
 }
 
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
+    // Diagnostic B: Reintroduce a single explicit glyph atlas sample (textureSampleLevel) at first glyph hit.
     let p = v.world_pos;
-    let ball_count = u32(metaballs.v0.x + 0.5);
+    let ball_count_exposed = u32(metaballs.v0.x + 0.5);
+    let balls_len_actual = u32(metaballs.v3.w + 0.5);
+    let ball_count = min(ball_count_exposed, balls_len_actual);
+    if (ball_count == 0u) { return vec4<f32>(0.0, 1.0, 1.0, 1.0); }
     let iso = max(metaballs.v0.w, 1e-5);
     let radius_scale = metaballs.v0.z;
     let radius_mult = metaballs.v2.w;
     let radius_coeff = radius_scale * radius_mult;
-    let fg_mode = u32(metaballs.v1.y + 0.5);
     let bg_mode = u32(metaballs.v1.z + 0.5);
-    let debug_view = u32(metaballs.v1.w + 0.5);
-    let enable_early_exit = metaballs.v4.x > 0.5;
-    let needs_gradient = metaballs.v4.y > 0.5;
-    let metadata_v2 = metaballs.v4.z > 0.5;
-    let adaptive_mask_enable = metaballs.v4.w > 0.5;
-    let feather_norm = metaballs.v5.y; // normalized half width (0..0.5)
-    // Shadow params (dual-pass-in-one accumulation). Reuse reserved lanes to avoid layout change:
-    // v5.x -> shadow_softness exponent (0 => use default 0.7). Historically legacy SDF toggle (unused now).
-    // v5.z -> shadow_enable (>0.5)
-    // v5.w -> shadow_intensity (0..1)
-    // v6.w -> shadow_offset_magnitude (positive world units, applied downward on Y)
-    let shadow_enable    = metaballs.v5.z > 0.5;
-    let shadow_intensity = clamp(metaballs.v5.w, 0.0, 1.0);
-    // Shadow direction + magnitude: direction degrees in v7.x (0=+X to right, 90=+Y up) converted to radians.
-    let shadow_dir_deg = metaballs.v7.x;
-    let shadow_theta = radians(shadow_dir_deg);
-    let shadow_dir = vec2<f32>(cos(shadow_theta), sin(shadow_theta));
-    let shadow_offset_vec = shadow_dir * metaballs.v6.w; // magnitude from v6.w
-    // We scale iso down for shadow so weaker field still produces visible halo.
-    // Surface multiplier override (allows artistic decoupling from true iso)
-    let shadow_iso_surface_scale = max(metaballs.v7.y, 0.05);
-    let shadow_iso = iso * shadow_iso_surface_scale;
-    let raw_soft = metaballs.v5.x;
-    let shadow_softness = select(0.7, clamp(raw_soft, 0.05, 3.0), raw_soft <= 0.0); // exponent controlling spread (<1 wider, >1 tighter)
     let cluster_color_count = u32(metaballs.v0.y + 0.5);
 
-    // Flags for conditional work to reduce ALU where not needed
-    // We also need gradient if we later decide to distance-based shadow refine (future). For now shadow halo uses raw field only.
-    let want_gradient = needs_gradient || fg_mode == 1u; // unchanged (shadow path currently not gradient-dependent)
-    let want_cluster_r = fg_mode == 3u; // metadata mode only uses cluster_r (approx distance)
-
-    // ------------------------ Accumulation (tile-aware) ------------------------
-    // We accumulate BOTH normal clustered field (for color) and a separate total field for the shadow at p + shadow_offset.
-    // The shadow accumulation ignores clusters (aggregate intensity) and applies SDF gating the same way for correctness.
-    // Early exit is disabled when shadow is enabled to avoid truncating the shadow field.
-    var cluster_ids: array<u32, 12>;
-    var cluster_field: array<f32, 12>;
-    var cluster_gx: array<f32, 12>;
-    var cluster_gy: array<f32, 12>;
-    var cluster_r: array<f32, 12>;
-    for (var ci: u32 = 0u; ci < CLUSTER_TRACK_MAX; ci = ci + 1u) { cluster_field[ci] = 0.0; cluster_gx[ci] = 0.0; cluster_gy[ci] = 0.0; cluster_r[ci] = 0.0; }
-    var shadow_field: f32 = 0.0;
+    var cluster_ids: array<u32, CLUSTER_TRACK_MAX>;
+    var cluster_field: array<f32, CLUSTER_TRACK_MAX>;
     var cluster_used: u32 = 0u;
-    var last_sdf_sample: f32 = 1.0;
-    var last_sdf_mask: f32 = 1.0;
-    var last_shape_idx: u32 = 0u;
+    for (var ci: u32 = 0u; ci < CLUSTER_TRACK_MAX; ci = ci + 1u) { cluster_field[ci] = 0.0; }
 
-    // Gradient accumulation for dominant cluster (computed lazily after dominance known)
-    // We approximate gradient by re-summing contributions with partial derivatives; for simplicity
-    // we accumulate weighted directional components during first pass (gx, gy) using (center - p) * contrib.
-
-    // Tile path: derive tile index
-    let tiles_x = u32(metaballs.v3.x + 0.5);
-    let tiles_y = u32(metaballs.v3.y + 0.5);
-    let tile_size = metaballs.v3.z; // pixels
-    var used_tile_path = false;
-    if (tiles_x > 0u && tiles_y > 0u && tile_size > 0.0) {
-        let vp = metaballs.v2.xy;
-        let origin = -vp * 0.5;
-        let rel = p - origin;
-        let tx = clamp(u32(rel.x / tile_size), 0u, tiles_x - 1u);
-        let ty = clamp(u32(rel.y / tile_size), 0u, tiles_y - 1u);
-        let tile_index = ty * tiles_x + tx;
-        let header = tile_headers[tile_index];
-        if (header.count > 0u) {
-            used_tile_path = true;
-            let end = header.offset + header.count;
-            for (var t: u32 = header.offset; t < end; t = t + 1u) {
-                let bi = tile_ball_indices[t];
-                if (bi >= ball_count) { continue; }
-                let b0 = balls[bi].data0;
-                let b1 = balls[bi].data1;
-                let ctr = b0.xy;
-                let r = b0.z * radius_coeff;
-                if (r <= 0.0) { continue; }
-                var contrib_main = field_contrib(p, ctr, r);
-                var contrib_shadow = 0.0;
-                if (shadow_enable) {
-                    let p_shadow = p + shadow_offset_vec;
-                    contrib_shadow = field_contrib(p_shadow, ctr, r);
-                }
-                if (contrib_main <= 0.0 && contrib_shadow <= 0.0) { continue; }
-                // Decode packed gid
-                let packed = u32(b0.w + 0.5);
-                let shape_idx = (packed >> 16) & 0xFFFFu;
-                let cluster_id = packed & 0xFFFFu;
-                if (shape_idx > 0u) {
-                    if (contrib_main > 0.0) {
-                        let eval_main = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
-                        if (eval_main.x <= 0.0) { contrib_main = 0.0; } else { contrib_main *= eval_main.x; last_sdf_sample = eval_main.y; last_sdf_mask = eval_main.x; last_shape_idx = shape_idx; }
-                    }
-                    if (shadow_enable && contrib_shadow > 0.0) {
-                        let p_shadow = p + shadow_offset_vec;
-                        let eval_shadow = sdf_evaluate(p_shadow, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
-                        if (eval_shadow.x <= 0.0) { contrib_shadow = 0.0; } else { contrib_shadow *= eval_shadow.x; }
-                    }
-                }
-                if (contrib_main > 0.0) {
-                    var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
-                    if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
-                    let idx = u32(idx_i);
-                    cluster_field[idx] = cluster_field[idx] + contrib_main;
-                    if (want_gradient || want_cluster_r) {
-                        let delta = ctr - p;
-                        if (want_gradient) {
-                            cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib_main;
-                            cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib_main;
-                        }
-                        if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
-                    }
-                }
-                if (shadow_enable && contrib_shadow > 0.0) {
-                    shadow_field = shadow_field + contrib_shadow;
-                }
-                if (!shadow_enable && enable_early_exit && !needs_gradient && contrib_main > 0.0) {
-                    // Only consider early exit when shadow not active.
-                    let idx_i2 = cluster_find(&cluster_ids, cluster_used, cluster_id);
-                    if (idx_i2 >= 0) {
-                        if (cluster_field[u32(idx_i2)] >= iso) { break; }
-                    }
-                }
-            }
-        }
+    var sample_count: u32 = 0u;
+    var glyph_sample: f32 = -1.0; // <0 => none captured yet
+    let atlas_w = metaballs.v6.x; let atlas_h = metaballs.v6.y; let tile_sz = max(metaballs.v6.z, 1.0);
+    var max_shapes: u32 = 1u;
+    if (atlas_w > 0.0 && atlas_h > 0.0) {
+        let mx = u32(atlas_w / tile_sz);
+        let my = u32(atlas_h / tile_sz);
+        max_shapes = max(1u, mx * my);
     }
-    if (!used_tile_path) {
-        // Fallback full scan
-        for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
-            let b0 = balls[i].data0; let b1 = balls[i].data1;
-            let ctr = b0.xy; let r = b0.z * radius_coeff; if (r <= 0.0) { continue; }
-            var contrib_main = field_contrib(p, ctr, r);
-            var contrib_shadow = 0.0;
-            if (shadow_enable) { let p_shadow = p + shadow_offset_vec; contrib_shadow = field_contrib(p_shadow, ctr, r); }
-            if (contrib_main <= 0.0 && contrib_shadow <= 0.0) { continue; }
-            let packed = u32(b0.w + 0.5);
-            let shape_idx = (packed >> 16) & 0xFFFFu; let cluster_id = packed & 0xFFFFu;
-            if (shape_idx > 0u) {
-                if (contrib_main > 0.0) {
-                    let eval_main = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
-                    if (eval_main.x <= 0.0) { contrib_main = 0.0; } else { contrib_main *= eval_main.x; last_sdf_sample = eval_main.y; last_sdf_mask = eval_main.x; last_shape_idx = shape_idx; }
+
+    for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
+        let b0 = balls[i].data0;
+        let ctr = b0.xy;
+        let r = b0.z * radius_coeff;
+        if (r <= 0.0) { continue; }
+        let contrib = field_contrib(p, ctr, r);
+        if (contrib <= 0.0) { continue; }
+        let packed = u32(b0.w + 0.5);
+        var shape_idx = (packed >> 16) & 0xFFFFu;
+        if (shape_idx >= max_shapes) { shape_idx = 0u; }
+        if (shape_idx > 0u) {
+            let rel = (p - ctr) / (2.0 * r) + vec2<f32>(0.5, 0.5);
+            if (all(rel >= vec2<f32>(0.0)) && all(rel <= vec2<f32>(1.0))) {
+                sample_count = sample_count + 1u; // diagnostic count
+                if (glyph_sample < 0.0) {
+                    // Explicit LOD 0 to avoid derivative issues on WebGPU.
+                    let rel_clamped = clamp(rel, vec2<f32>(0.0), vec2<f32>(1.0));
+                    glyph_sample = textureSampleLevel(sdf_atlas_tex, sdf_sampler, rel_clamped, 0.0).r;
                 }
-                if (shadow_enable && contrib_shadow > 0.0) {
-                    let p_shadow = p + shadow_offset_vec;
-                    let eval_shadow = sdf_evaluate(p_shadow, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
-                    if (eval_shadow.x <= 0.0) { contrib_shadow = 0.0; } else { contrib_shadow *= eval_shadow.x; }
-                }
-            }
-            if (contrib_main > 0.0) {
-                var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id);
-                if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id); idx_i = i32(inserted); }
-                let idx = u32(idx_i);
-                cluster_field[idx] = cluster_field[idx] + contrib_main;
-                if (want_gradient || want_cluster_r) {
-                    let delta = ctr - p;
-                    if (want_gradient) {
-                        cluster_gx[idx] = cluster_gx[idx] + delta.x * contrib_main;
-                        cluster_gy[idx] = cluster_gy[idx] + delta.y * contrib_main;
-                    }
-                    if (want_cluster_r) { cluster_r[idx] = max(cluster_r[idx], r); }
-                }
-            }
-            if (shadow_enable && contrib_shadow > 0.0) { shadow_field = shadow_field + contrib_shadow; }
-            if (!shadow_enable && enable_early_exit && !needs_gradient && contrib_main > 0.0) {
-                var idx_i2 = cluster_find(&cluster_ids, cluster_used, cluster_id);
-                if (idx_i2 >= 0) { if (cluster_field[u32(idx_i2)] >= iso) { break; } }
             }
         }
+        let cluster_id_full = packed & 0xFFFFu;
+        var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id_full);
+        if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id_full); idx_i = i32(inserted); }
+        let idx = u32(idx_i);
+        cluster_field[idx] = cluster_field[idx] + contrib;
     }
 
     if (cluster_used == 0u) {
-        // Nothing contributed: background only or metadata sentinel
-        if (fg_mode == 3u) {
-            return vec4<f32>(1.0, 0.0, 0.0, 0.0); // metadata sentinel
-        } else {
-            let bg = background_color(p, bg_mode);
-            return vec4<f32>(bg, 1.0);
-        }
+        let bg = background_color(p, bg_mode);
+        // Yellow mix still indicates metaball contributions discarded; encode sample_count in blue.
+        let sc_b = f32(min(sample_count, 32u))/32.0;
+        return vec4<f32>(mix(bg, vec3<f32>(1.0, 1.0, sc_b), 0.5), 1.0);
     }
 
-    var dominant_i: u32 = 0u;
-    var best_f: f32 = -1.0;
+    var dominant_i: u32 = 0u; var best_f: f32 = -1.0;
     for (var di: u32 = 0u; di < cluster_used; di = di + 1u) { if (cluster_field[di] > best_f) { best_f = cluster_field[di]; dominant_i = di; } }
     let dominant_field = cluster_field[dominant_i];
-    var grad_vec = vec2<f32>(0.0, 0.0);
-    if (want_gradient) { grad_vec = -vec2<f32>(cluster_gx[dominant_i], cluster_gy[dominant_i]); }
-
-    // Compute edge mask with fast path
-    var mask: f32;
-    if (!adaptive_mask_enable && dominant_field >= iso) {
-        mask = 1.0; // fully inside, legacy path would smoothstep to 1 anyway
-    } else {
-        if (adaptive_mask_enable && want_gradient) {
-            let g_len = length(grad_vec);
-            mask = compute_adaptive_mask(dominant_field, iso, g_len);
-        } else {
-            mask = compute_legacy_mask(dominant_field, iso);
-        }
-        mask = clamp(mask, 0.0, 1.0);
-    }
-
-    // Clamp cluster id to palette
     var cluster_id = cluster_ids[dominant_i];
     if (cluster_color_count == 0u) { cluster_id = 0u; }
-    if (cluster_color_count > 0u && cluster_id >= cluster_color_count) {
-        cluster_id = cluster_color_count - 1u; // clamp
+    if (cluster_color_count > 0u && cluster_id >= cluster_color_count) { cluster_id = cluster_color_count - 1u; }
+    let mask = clamp(smoothstep(iso * 0.6, iso, dominant_field), 0.0, 1.0);
+    // Base cluster color
+    var fg_rgb = cluster_palette[min(cluster_id, max(cluster_color_count, 1u) - 1u)].value.rgb * mask;
+    // Overlay diagnostics: encode sample_count & glyph_sample if present.
+    let r_norm = f32(min(sample_count, 32u)) / 32.0; // sample density
+    let b_norm = clamp(dominant_field / (iso + 1e-5), 0.0, 1.0); // field strength
+    if (glyph_sample >= 0.0) {
+        // Mix glyph grayscale into green channel for visibility; preserve red (count) & blue (field).
+        fg_rgb = vec3<f32>(r_norm, glyph_sample, b_norm);
+    } else {
+        // No glyph sample: keep cluster color but modulate red/blue channels with diagnostics subtly.
+        fg_rgb = mix(fg_rgb, vec3<f32>(r_norm, fg_rgb.g, b_norm), 0.5);
     }
-    let cluster_col = cluster_palette[cluster_id].value.rgb;
-
-    // Foreground shading selection
-    var fg_rgb = vec3<f32>(0.0);
-    if (fg_mode == 0u) { fg_rgb = classic_blend_shade(cluster_col, dominant_field, iso); }
-    else if (fg_mode == 1u) { fg_rgb = bevel_shade(cluster_col, grad_vec, metaballs.v1.x); }
-    else if (fg_mode == 2u) { fg_rgb = outline_glow_shade(cluster_col, dominant_field, iso); }
-    else { // Metadata mode will branch later
-        fg_rgb = vec3<f32>(0.0);
-    }
-
-    // Debug view overrides (except metadata specific debug 3 applied later)
-    if (debug_view == 1u && fg_mode != 3u) {
-    let raw = clamp(dominant_field / iso, 0.0, 1.0);
-        fg_rgb = vec3<f32>(raw);
-    }
-
-    // Background (mutable for shadow compositing)
-    var bg_col = background_color(p, bg_mode);
-
-    // Shadow composite (uses aggregated shadow_field). We intentionally apply AFTER metadata branch check later? No:
-    // For metadata mode (fg_mode==3) we skip shadow to preserve diagnostic channels. You can enable by moving inside metadata logic.
-    if (shadow_enable && fg_mode != 3u) {
-        // Normalize shadow field relative to shadow_iso to increase visibility.
-        let sh_norm = clamp(shadow_field / max(shadow_iso, 1e-5), 0.0, 1.0);
-        var sh_mask = pow(sh_norm, shadow_softness); // exponent shaping
-        // Extra smoothing for softer falloff tail.
-        sh_mask = smoothstep(0.0, 1.0, sh_mask);
-        if (debug_view == 4u) {
-            // Visualization mode: show shadow mask directly.
-            return vec4<f32>(vec3<f32>(sh_mask), 1.0);
-        }
-        // Exclude interior of main surface so shadow stays as exterior drop halo.
-        let atten = sh_mask * shadow_intensity * (1.0 - mask);
-        if (atten > 0.0) {
-            let shadow_color = vec3<f32>(0.0); // pure black drop shadow
-            bg_col = mix(bg_col, shadow_color, clamp(atten, 0.0, 1.0));
-        }
-    }
-
-    // Metadata handling
-    if (fg_mode == 3u) {
-        if (debug_view == 3u && last_shape_idx > 0u) {
-            let dist_vis = clamp((last_sdf_sample - 0.5) * 8.0 + 0.5, 0.0, 1.0);
-            return vec4<f32>(last_sdf_sample, last_sdf_mask, dist_vis, mask);
-        }
-        // Distance proxy: approximate signed distance using gradient magnitude heuristics if available
-    let approx_r = max(cluster_r[dominant_i], 1.0);
-    let signed_d = (iso - dominant_field) * approx_r;
-        let dist_norm = map_signed_distance(signed_d, approx_r);
-        let cid_lo = f32(cluster_id & 0xFFu) / 255.0;
-        if (metadata_v2) {
-            let cid_hi = f32((cluster_id >> 8) & 0xFFu) / 255.0;
-            return vec4<f32>(dist_norm, mask, cid_hi, cid_lo);
-        } else {
-            return vec4<f32>(dist_norm, mask, 0.0, cid_lo);
-        }
-    }
-
-    // Composite over background (simple alpha blend)
-    let out_rgb = mix(bg_col, fg_rgb, mask);
-    return vec4<f32>(out_rgb, mask);
+    let bg = background_color(p, bg_mode);
+    return vec4<f32>(mix(bg, fg_rgb, mask), mask);
 }
