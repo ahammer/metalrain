@@ -222,55 +222,46 @@ fn background_color(p: vec2<f32>, mode: u32) -> vec3<f32> {
 
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
-    // Diagnostic B: Reintroduce a single explicit glyph atlas sample (textureSampleLevel) at first glyph hit.
+    // Production path: accumulate per-cluster field contribution with per-ball glyph SDF masking.
     let p = v.world_pos;
     let ball_count_exposed = u32(metaballs.v0.x + 0.5);
     let balls_len_actual = u32(metaballs.v3.w + 0.5);
     let ball_count = min(ball_count_exposed, balls_len_actual);
-    if (ball_count == 0u) { return vec4<f32>(0.0, 1.0, 1.0, 1.0); }
+    if (ball_count == 0u) { return vec4<f32>(background_color(p, u32(metaballs.v1.z + 0.5)), 0.0); }
+
     let iso = max(metaballs.v0.w, 1e-5);
-    let radius_scale = metaballs.v0.z;
-    let radius_mult = metaballs.v2.w;
-    let radius_coeff = radius_scale * radius_mult;
+    let radius_coeff = metaballs.v0.z * metaballs.v2.w; // radius_scale * radius_multiplier
     let bg_mode = u32(metaballs.v1.z + 0.5);
     let cluster_color_count = u32(metaballs.v0.y + 0.5);
+    let feather_norm = clamp(metaballs.v5.y, 0.0, 0.5); // normalized SDF feather half-width (0 => hard edge)
 
     var cluster_ids: array<u32, CLUSTER_TRACK_MAX>;
     var cluster_field: array<f32, CLUSTER_TRACK_MAX>;
     var cluster_used: u32 = 0u;
     for (var ci: u32 = 0u; ci < CLUSTER_TRACK_MAX; ci = ci + 1u) { cluster_field[ci] = 0.0; }
 
-    var sample_count: u32 = 0u;
-    var glyph_sample: f32 = -1.0; // <0 => none captured yet
-    let atlas_w = metaballs.v6.x; let atlas_h = metaballs.v6.y; let tile_sz = max(metaballs.v6.z, 1.0);
-    var max_shapes: u32 = 1u;
-    if (atlas_w > 0.0 && atlas_h > 0.0) {
-        let mx = u32(atlas_w / tile_sz);
-        let my = u32(atlas_h / tile_sz);
-        max_shapes = max(1u, mx * my);
-    }
-
+    // Iterate all balls, shaping contribution by glyph mask when shape_idx>0.
     for (var i: u32 = 0u; i < ball_count; i = i + 1u) {
         let b0 = balls[i].data0;
+        let b1 = balls[i].data1;
         let ctr = b0.xy;
         let r = b0.z * radius_coeff;
         if (r <= 0.0) { continue; }
-        let contrib = field_contrib(p, ctr, r);
+
+        var contrib = field_contrib(p, ctr, r);
         if (contrib <= 0.0) { continue; }
+
         let packed = u32(b0.w + 0.5);
-        var shape_idx = (packed >> 16) & 0xFFFFu;
-        if (shape_idx >= max_shapes) { shape_idx = 0u; }
-        if (shape_idx > 0u) {
-            let rel = (p - ctr) / (2.0 * r) + vec2<f32>(0.5, 0.5);
-            if (all(rel >= vec2<f32>(0.0)) && all(rel <= vec2<f32>(1.0))) {
-                sample_count = sample_count + 1u; // diagnostic count
-                if (glyph_sample < 0.0) {
-                    // Explicit LOD 0 to avoid derivative issues on WebGPU.
-                    let rel_clamped = clamp(rel, vec2<f32>(0.0), vec2<f32>(1.0));
-                    glyph_sample = textureSampleLevel(sdf_atlas_tex, sdf_sampler, rel_clamped, 0.0).r;
-                }
-            }
+        let shape_idx = (packed >> 16) & 0xFFFFu;
+        // Apply glyph SDF mask (shape_idx==0 => circle => mask=1).
+        if (shape_idx != 0u) {
+            let eval = sdf_evaluate(p, ctr, r, b1.x, b1.y, shape_idx, feather_norm);
+            let glyph_mask = eval.x; // already smoothed across feather band
+            if (glyph_mask <= 0.0) { continue; }
+            contrib = contrib * glyph_mask;
+            if (contrib <= 0.0) { continue; }
         }
+
         let cluster_id_full = packed & 0xFFFFu;
         var idx_i = cluster_find(&cluster_ids, cluster_used, cluster_id_full);
         if (idx_i < 0) { let inserted = cluster_insert(&cluster_ids, &cluster_used, cluster_id_full); idx_i = i32(inserted); }
@@ -279,31 +270,23 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     if (cluster_used == 0u) {
-        let bg = background_color(p, bg_mode);
-        // Yellow mix still indicates metaball contributions discarded; encode sample_count in blue.
-        let sc_b = f32(min(sample_count, 32u))/32.0;
-        return vec4<f32>(mix(bg, vec3<f32>(1.0, 1.0, sc_b), 0.5), 1.0);
+        // No contributing clusters -> fully background.
+        return vec4<f32>(background_color(p, bg_mode), 0.0);
     }
 
+    // Pick dominant cluster by accumulated field strength.
     var dominant_i: u32 = 0u; var best_f: f32 = -1.0;
     for (var di: u32 = 0u; di < cluster_used; di = di + 1u) { if (cluster_field[di] > best_f) { best_f = cluster_field[di]; dominant_i = di; } }
     let dominant_field = cluster_field[dominant_i];
+    if (dominant_field <= 0.0) { return vec4<f32>(background_color(p, bg_mode), 0.0); }
+
     var cluster_id = cluster_ids[dominant_i];
     if (cluster_color_count == 0u) { cluster_id = 0u; }
     if (cluster_color_count > 0u && cluster_id >= cluster_color_count) { cluster_id = cluster_color_count - 1u; }
+
     let mask = clamp(smoothstep(iso * 0.6, iso, dominant_field), 0.0, 1.0);
-    // Base cluster color
-    var fg_rgb = cluster_palette[min(cluster_id, max(cluster_color_count, 1u) - 1u)].value.rgb * mask;
-    // Overlay diagnostics: encode sample_count & glyph_sample if present.
-    let r_norm = f32(min(sample_count, 32u)) / 32.0; // sample density
-    let b_norm = clamp(dominant_field / (iso + 1e-5), 0.0, 1.0); // field strength
-    if (glyph_sample >= 0.0) {
-        // Mix glyph grayscale into green channel for visibility; preserve red (count) & blue (field).
-        fg_rgb = vec3<f32>(r_norm, glyph_sample, b_norm);
-    } else {
-        // No glyph sample: keep cluster color but modulate red/blue channels with diagnostics subtly.
-        fg_rgb = mix(fg_rgb, vec3<f32>(r_norm, fg_rgb.g, b_norm), 0.5);
-    }
+    let fg_color = cluster_palette[min(cluster_id, max(cluster_color_count, 1u) - 1u)].value.rgb;
     let bg = background_color(p, bg_mode);
-    return vec4<f32>(mix(bg, fg_rgb, mask), mask);
+    let rgb = mix(bg, fg_color, mask);
+    return vec4<f32>(rgb, mask);
 }
