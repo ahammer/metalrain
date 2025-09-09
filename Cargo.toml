@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Adam <you@example.com>"]
 license = "GPL-3.0-or-later"
+default-run = "ball_matcher"
 
 [dependencies]
 # Bevy without WebGL: explicitly enumerate features (omit `webgl2` to avoid enabling wgpu/webgl)
@@ -41,27 +42,29 @@ bytemuck = { version = "1.15", features = ["derive"] }
 half = "2"
 smallvec = "1.13"
 toml = "0.8"
+serde_json = "1.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+ab_glyph = "0.2"
+ttf-parser = "0.20"
+wgpu = { version = "24", default-features = true, features = ["webgpu"] }
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window","Navigator"] }
+web-sys = { version = "0.3", features = ["Window","Navigator","Document"] }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
-# Explicit wgpu with only the WebGPU backend feature. Bevy's internal selection
-# (with default-features disabled) does not currently guarantee `webgpu` is
-# enabled on wasm when we curate features manually, leading to the runtime panic:
-# "No wgpu backend feature that is implemented for the target platform was enabled".
-# We avoid `webgl` to keep the strict WebGPU-only policy.
-wgpu = { version = "24", default-features = true, features = ["webgpu" ] }
 
 # Native: explicitly ensure modern backends (Vulkan/Metal/DX12) are enabled; avoid GL/WebGL.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Rely on Bevy's internal wgpu (Vulkan / Metal / DX12 backends enforced at runtime in `main.rs`).
 
 [dev-dependencies]
+tempfile = "3"
 
 [profile.dev]
 opt-level = 1

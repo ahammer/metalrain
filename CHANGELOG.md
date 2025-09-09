@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Unified SDF atlas tooling: replaced multiple binaries (`gen_sdf_atlas`, `sdf_atlas_build`, `sdf_atlas_gen`, `sdf_atlas_inspect`) with single `sdf_atlas` binary providing `build`, `inspect`, and `schema` subcommands. Logic extracted to `sdf_atlas` library module.
+- Added padding support (`--padding-px`) to atlas generation; per-shape `metadata.padding_px` recorded in JSON.
+- Added lowercase a-z glyph generation and global uniform glyph scaling (preserves font proportions; no per-glyph warping).
+- Fixed equilateral triangle SDF (canonical formulation; correct sign & scale).
 - Replaced legacy center-based RadialGravityPlugin with configurable Gravity Widgets (`gravity_widgets`). Widgets support attract/repulse modes, falloff, toggle interaction, and per-frame force accumulation via Rapier `ExternalForce`.
 	- Added `gravity_widgets` config section (implicit single widget synthesized from legacy `gravity.y` when absent).
 	- Legacy `gravity.y` retained for migration; validation now emits warning recommending widgets and notes implicit mapping.

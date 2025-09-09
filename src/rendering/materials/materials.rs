@@ -27,3 +27,10 @@ fn setup_ball_materials(mut materials: ResMut<Assets<ColorMaterial>>, mut comman
 }
 #[derive(Component, Debug, Copy, Clone)]
 pub struct BallMaterialIndex(pub usize);
+/// Optional shape index for SDF atlas based rendering.
+/// When SDF shapes are enabled this u16 value will be packed with the color group id
+/// into the metaball storage buffer lane (see schema docs). For now it is stored as
+/// its own component to keep spawning logic simple; packing occurs during the GPU
+/// buffer build pass.
+#[derive(Component, Debug, Copy, Clone, Default)]
+pub struct BallShapeIndex(pub u16);

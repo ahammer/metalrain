@@ -10,13 +10,10 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
 use bevy::render::storage::ShaderStorageBuffer;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bytemuck::{Pod, Zeroable};
-
-#[cfg(target_arch = "wasm32")]
-use std::sync::OnceLock;
 #[cfg(target_arch = "wasm32")]
 static METABALLS_UNIFIED_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 #[cfg(target_arch = "wasm32")]
-static METABALLS_UNIFIED_DEBUG_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+use std::sync::OnceLock;
 
 use crate::core::components::{Ball, BallRadius};
 use crate::core::config::GameConfig;
@@ -52,7 +49,9 @@ pub(crate) struct MetaballsUniform {
     v2: Vec4,
     v3: Vec4,
     v4: Vec4,
-    v5: Vec4, // (reserved0, dynamic_cluster_count, reserved1, reserved2)
+    v5: Vec4, // (sdf_enabled, distance_range, channel_mode, max_gradient_samples)
+    v6: Vec4, // (atlas_width, atlas_height, atlas_tile_size, atlas_shape_count | shadow_offset_mag)
+    v7: Vec4, // (shadow_dir_deg, shadow_surface_scale, reserved0, reserved1)
 }
 
 impl Default for MetaballsUniform {
@@ -64,6 +63,8 @@ impl Default for MetaballsUniform {
             v3: Vec4::new(1.0, 1.0, 64.0, 0.0), // default 1x1 tiles, tile_size=64, balls_len=0
             v4: Vec4::new(1.0, 0.0, 0.0, 0.0), // early-exit enabled by feature flag later; needs_gradient updated per-frame
             v5: Vec4::new(0.0, 0.0, 0.0, 0.0),
+            v6: Vec4::new(0.0, 0.0, 0.0, 0.0),
+            v7: Vec4::new(0.0, 0.0, 0.0, 0.0),
         }
     }
 }
@@ -75,13 +76,18 @@ impl Default for MetaballsUniform {
 #[repr(C, align(16))]
 #[derive(Clone, Copy, ShaderType, Debug, Default, Pod, Zeroable)]
 pub struct GpuBall {
-    // (x, y, radius, cluster_slot)
-    pub data: Vec4,
+    // data0: (x, y, radius, packed_gid)
+    pub data0: Vec4,
+    // data1: (cos_theta, sin_theta, reserved0, reserved1)
+    // Rotation kept separate so future extensions (e.g., per-ball velocity or gradient hints)
+    // can reuse remaining lanes without repacking existing shader expectations.
+    pub data1: Vec4,
 }
 impl GpuBall {
-    pub fn new(pos: Vec2, radius: f32, cluster_slot: u32) -> Self {
+    pub fn new(pos: Vec2, radius: f32, packed_gid: u32, cos_theta: f32, sin_theta: f32) -> Self {
         Self {
-            data: Vec4::new(pos.x, pos.y, radius, cluster_slot as f32),
+            data0: Vec4::new(pos.x, pos.y, radius, packed_gid as f32),
+            data1: Vec4::new(cos_theta, sin_theta, 0.0, 0.0),
         }
     }
 }
@@ -161,6 +167,12 @@ pub struct MetaballsUnifiedMaterial {
     tile_ball_indices: Handle<ShaderStorageBuffer>,
     #[storage(6, read_only)]
     cluster_palette: Handle<ShaderStorageBuffer>,
+    // Optional SDF atlas texture binding; sampler will use default for now. When absent, SDF path disabled.
+    #[texture(7)]
+    #[sampler(9)] // Matches WGSL @group(2) @binding(9) sdf_sampler; uses default filtering (linear) for smooth SDF edges.
+    sdf_atlas_tex: Option<Handle<Image>>,
+    #[storage(8, read_only)]
+    sdf_shape_meta: Handle<ShaderStorageBuffer>,
 }
 
 impl MetaballsUnifiedMaterial {
@@ -184,19 +196,7 @@ impl Material2d for MetaballsUnifiedMaterial {
             "shaders/metaballs_unified.wgsl".into()
         }
     }
-    fn vertex_shader() -> ShaderRef {
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(handle) = METABALLS_UNIFIED_DEBUG_SHADER_HANDLE.get().cloned() {
-                return ShaderRef::Handle(handle);
-            }
-            return ShaderRef::Path("shaders/metaballs_unified_debug.wgsl".into());
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            "shaders/metaballs_unified_debug.wgsl".into()
-        }
-    }
+    fn vertex_shader() -> ShaderRef { Self::fragment_shader() }
 }
 
 // Default is derived above.
@@ -295,6 +295,25 @@ pub struct MetaballsParams {
     pub radius_multiplier: f32,
 }
 
+// Simple shadow params resource (single-pass drop shadow halo). Kept minimal until
+// promoted to full GameConfig integration. Uses repurposed uniform lanes:
+// v5.x = shadow_softness exponent (<=0 => default 0.7)
+// v5.z = shadow_enable (>0.5)
+// v5.w = shadow_intensity (0..1)
+// v6.w = shadow_vertical_offset (world units; applied negative Y in shader)
+#[derive(Resource, Debug, Clone)]
+pub struct MetaballsShadowParams {
+    pub enabled: bool,
+    pub intensity: f32,
+    pub offset: f32,
+    pub softness: f32,
+}
+impl Default for MetaballsShadowParams {
+    fn default() -> Self {
+        Self { enabled: true, intensity: 0.65, offset: 40.0, softness: 0.6 }
+    }
+}
+
 // Shadow copy of balls for CPU tiling (kept in lock-step with GPU buffer each frame)
 #[derive(Resource, Default, Clone)]
 pub struct BallCpuShadow(pub Vec<GpuBall>);
@@ -324,16 +343,12 @@ impl Plugin for MetaballsPlugin {
                 include_str!("../../../assets/shaders/metaballs_unified.wgsl"),
                 "metaballs_unified_embedded.wgsl",
             ));
-            let debug_handle = shaders.add(Shader::from_wgsl(
-                include_str!("../../../assets/shaders/metaballs_unified_debug.wgsl"),
-                "metaballs_unified_debug_embedded.wgsl",
-            ));
             METABALLS_UNIFIED_SHADER_HANDLE.get_or_init(|| unified_handle.clone());
-            METABALLS_UNIFIED_DEBUG_SHADER_HANDLE.get_or_init(|| debug_handle.clone());
         }
 
         app.init_resource::<MetaballsToggle>()
             .init_resource::<MetaballsParams>()
+            .init_resource::<MetaballsShadowParams>()
             .init_resource::<MetaballForeground>()
             .init_resource::<MetaballBackground>()
             .init_resource::<BallTilingConfig>()
@@ -349,6 +364,7 @@ impl Plugin for MetaballsPlugin {
                     initialize_toggle_from_config,
                     apply_config_to_params,
                     apply_shader_modes_from_config,
+                    apply_shadow_from_config,
                     setup_metaballs,
                     log_initial_modes,
                 ),
@@ -398,6 +414,14 @@ fn apply_config_to_params(mut params: ResMut<MetaballsParams>, cfg: Res<GameConf
     params.radius_multiplier = cfg.metaballs.radius_multiplier.max(0.0001);
 }
 
+fn apply_shadow_from_config(mut shadow: ResMut<MetaballsShadowParams>, cfg: Res<GameConfig>) {
+    let c = &cfg.metaballs_shadow;
+    shadow.enabled = c.enabled;
+    shadow.intensity = c.intensity.clamp(0.0, 1.0);
+    shadow.offset = c.offset.max(0.0);
+    shadow.softness = c.softness;
+}
+
 fn apply_shader_modes_from_config(
     mut fg: ResMut<MetaballForeground>,
     mut bg: ResMut<MetaballBackground>,
@@ -417,6 +441,7 @@ fn setup_metaballs(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut unified_mats: ResMut<Assets<MetaballsUnifiedMaterial>>,
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
     windows: Query<&Window>,
     cfg: Res<GameConfig>,
 ) {
@@ -428,6 +453,11 @@ fn setup_metaballs(
     let mesh_handle = meshes.add(Mesh::from(Rectangle::new(2.0, 2.0)));
 
     let mut umat = MetaballsUnifiedMaterial::default();
+    // Provide dummy shape metadata buffer (1 entry) so binding exists until SDF atlas loads
+    if buffers.get(&umat.sdf_shape_meta).is_none() {
+        let dummy: [f32; 8] = [0.0; 8];
+        umat.sdf_shape_meta = buffers.add(ShaderStorageBuffer::from(&dummy));
+    }
     umat.data.v2.x = w;
     umat.data.v2.y = h;
 
@@ -523,7 +553,7 @@ fn update_metaballs_unified_material(
     time: Res<Time>,
     fg: Res<MetaballForeground>,
     bg: Res<MetaballBackground>,
-    q_balls: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex), With<Ball>>,
+    q_balls: Query<(Entity, &Transform, &BallRadius, &BallMaterialIndex, Option<&crate::rendering::materials::materials::BallShapeIndex>), With<Ball>>,
     mut materials: ResMut<Assets<MetaballsUnifiedMaterial>>,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
     q_mat: Query<&MeshMaterial2d<MetaballsUnifiedMaterial>, With<MetaballsUnifiedQuad>>,
@@ -531,8 +561,10 @@ fn update_metaballs_unified_material(
     params: Res<MetaballsParams>,
     cfg: Res<GameConfig>,
     mut shadow: Option<ResMut<BallCpuShadow>>,
+    shadow_params: Res<MetaballsShadowParams>,
     mut palette_storage: ResMut<crate::rendering::metaballs::palette::ClusterPaletteStorage>,
     mut dbg_timer: ResMut<MetaballsGroupDebugTimer>,
+    sdf_atlas: Option<Res<crate::rendering::sdf_atlas::SdfAtlas>>,
 ) {
     if !toggle.0 {
         return;
@@ -596,7 +628,7 @@ fn update_metaballs_unified_material(
     let mut palette_colors: Vec<[f32; 4]> = Vec::new();
     let mut balls_cpu: Vec<GpuBall> = Vec::with_capacity(q_balls.iter().len().min(MAX_BALLS));
     let mut debug_rows: Vec<String> = Vec::new();
-    for (e, tf, r, color_idx) in q_balls.iter() {
+    for (e, tf, r, color_idx, shape_idx_opt) in q_balls.iter() {
         if balls_cpu.len() >= MAX_BALLS {
             break;
         }
@@ -607,9 +639,17 @@ fn update_metaballs_unified_material(
             new_gid
         });
         let pos = tf.translation.truncate();
-        balls_cpu.push(GpuBall::new(pos, r.0, gid));
+        // Pack shape index (u16) with color group (u16) => u32 using floats
+        let shape_idx: u32 = shape_idx_opt.map(|s| s.0 as u32).unwrap_or(0);
+        let packed_gid = ((shape_idx & 0xFFFF) << 16) | (gid & 0xFFFF);
+    // Extract rotation (Z axis) -> angle for 2D; if no meaningful rotation use identity.
+    let rot = tf.rotation;
+    // Convert quaternion to 2D angle (assuming rotation about Z only for balls).
+    let angle = rot.to_euler(EulerRot::XYZ).2; // Z angle
+    let (s, c) = angle.sin_cos();
+    balls_cpu.push(GpuBall::new(pos, r.0, packed_gid, c, s));
         if debug_rows.len() < 8 {
-            debug_rows.push(format!("e={:?} color={} gid={}", e, color_idx.0, gid));
+            debug_rows.push(format!("e={:?} color={} gid={} shape={} packed=0x{:08X}", e, color_idx.0, gid, shape_idx, packed_gid));
         }
     }
     let group_count = palette_colors.len() as u32;
@@ -631,10 +671,9 @@ fn update_metaballs_unified_material(
         if let Some(h) = &palette_storage.handle {
             mat.cluster_palette = h.clone();
         }
-        mat.data.v5.y = group_count as f32;
+        // group count tracked in v0.y; repurpose v5.y for sdf distance_range later
         mat.data.v0.y = group_count as f32;
     } else {
-        mat.data.v5.y = 0.0;
         mat.data.v0.y = 0.0;
     }
 
@@ -670,6 +709,45 @@ fn update_metaballs_unified_material(
     } else {
         0.0
     }; // metadata v2 encoding flag
+    // SDF flags (reuse v5 lanes): v5.x = sdf_enabled, v5.y = distance_range, v5.z = channel_mode (0=r8,1=rgb,2=rgba), v5.w = max_gradient_samples
+    if let Some(atlas) = sdf_atlas.as_ref() {
+        if atlas.enabled && cfg.sdf_shapes.enabled && !cfg.sdf_shapes.force_fallback {
+            mat.data.v5.x = 1.0;
+            // Map pixel distance_range -> normalized feather half-width (0..0.5) expected by shader.
+            // We divide by tile_size; clamp to 0.5 to avoid excessively soft edges.
+            let feather_norm = if atlas.tile_size > 0 { (atlas.distance_range / atlas.tile_size as f32).clamp(0.0, 0.5) } else { 0.0 };
+            mat.data.v5.y = feather_norm;
+            // NOTE: channel_mode / max_gradient_samples lanes repurposed for shadow.
+            // If future SDF channel modes needed concurrently with shadow, introduce new uniform vector.
+            // v6 holds atlas dimensions & shape count (tile size redundant with per-shape meta but convenient)
+            mat.data.v6.x = atlas.atlas_width as f32;
+            mat.data.v6.y = atlas.atlas_height as f32;
+            mat.data.v6.z = atlas.tile_size as f32;
+            // v6.w repurposed for shadow offset; keep gradient_step_scale latent.
+            // Bind atlas texture handle if material missing one
+            if mat.sdf_atlas_tex.is_none() { mat.sdf_atlas_tex = Some(atlas.texture.clone()); }
+            if let Some(shape_buf) = &atlas.shape_buffer { mat.sdf_shape_meta = shape_buf.clone(); }
+        } else { mat.data.v5.x = 0.0; }
+    } else {
+        mat.data.v5.x = 0.0; // no atlas resource
+    }
+
+    // Apply shadow parameters (after SDF so we intentionally override reused lanes).
+    if shadow_params.enabled {
+        mat.data.v5.z = 1.0; // enable shadow
+        mat.data.v5.w = shadow_params.intensity.clamp(0.0, 1.0);
+        mat.data.v6.w = shadow_params.offset.max(0.0); // offset magnitude (generic now)
+        mat.data.v5.x = if shadow_params.softness <= 0.0 { 0.0 } else { shadow_params.softness }; // softness exponent (0 => shader default)
+    } else {
+        mat.data.v5.z = 0.0;
+        mat.data.v5.w = 0.0;
+    }
+
+    // Direction & surface scale from config (MetaballsShadowConfig)
+    // We access GameConfig directly for latest (if hot reload arises) else cached values are fine.
+    // direction stored in degrees in v7.x; surface multiplier in v7.y
+    mat.data.v7.x = cfg.metaballs_shadow.direction;
+    mat.data.v7.y = cfg.metaballs_shadow.surface.max(0.05);
 
     // Update shadow (replace content)
     if let Some(ref mut s) = shadow {
@@ -765,13 +843,13 @@ fn build_metaball_tiles(
     // Assign balls to tiles
     for (i, b) in shadow.0.iter().enumerate() {
         // removed unused center var
-        let base_r = b.data.z;
-        let center3 = b.data.truncate();
+            let base_r = b.data0.z;
+            let center3 = b.data0.truncate();
         let center = Vec2::new(center3.x, center3.y);
         if base_r <= 0.0 {
             continue;
         }
-        let scaled_r = base_r * radius_scale * radius_mult;
+    let scaled_r = base_r * radius_scale * radius_mult;
         // Fudge factor to counteract boundary flooring so tiles adjacent to the circle edge don't miss inclusion.
         let pad = 1.5_f32; // in pixels; tiny vs typical radii but prevents hairline cracks
         let effective_r = scaled_r + pad;

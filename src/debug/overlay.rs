@@ -22,7 +22,7 @@ pub(crate) struct DebugConfigOverlayText;
 #[allow(dead_code)]
 pub fn debug_overlay_spawn(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Top-left anchored UI text node.
-    let font_path = "fonts/FiraSans-Bold.ttf";
+    let font_path = "fonts/DroidSansMono.ttf";
     let custom_path = format!("assets/{font_path}");
     let (font_handle, initial_text) = if std::path::Path::new(&custom_path).exists() {
         (

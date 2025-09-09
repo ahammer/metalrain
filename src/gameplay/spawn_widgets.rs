@@ -11,6 +11,7 @@ use crate::rendering::materials::materials::{
     BallDisplayMaterials, BallMaterialIndex, BallPhysicsMaterials,
 };
 use crate::rendering::metaballs::metaballs::MetaballsUpdateSet; // for system ordering
+use crate::rendering::sdf_atlas::SdfAtlas; // for random glyph assignment if loaded
 use crate::rendering::palette::palette::BASE_COLORS; // for variant index length when not drawing circles
 
 // Visual constants for spawn widgets (distinct from gravity widgets)
@@ -159,6 +160,8 @@ fn run_spawn_widgets(
     display_palette: Option<Res<BallDisplayMaterials>>,
     physics_palette: Option<Res<BallPhysicsMaterials>>,
     q_ball_count: Query<Entity, With<Ball>>,
+    mut spawn_ord: Option<ResMut<crate::rendering::sdf_atlas::BallSpawnOrdinal>>,
+    sdf_atlas: Option<Res<SdfAtlas>>,
 ) {
     let total = q_ball_count.iter().len();
     if total >= cfg.spawn_widgets.global_max_balls {
@@ -184,6 +187,7 @@ fn run_spawn_widgets(
         let batch = sw.cfg.batch.min(remaining_capacity);
         let base_pos = tf.translation.truncate();
         for _ in 0..batch {
+            let ord = if let Some(ref mut so) = spawn_ord { let cur = so.0; so.0 += 1; cur } else { 0 };
             spawn_single_ball(
                 &mut commands,
                 &mut materials,
@@ -194,6 +198,8 @@ fn run_spawn_widgets(
                 &display_palette,
                 &physics_palette,
                 &cfg, // for bounce / physics params
+                ord,
+                sdf_atlas.as_ref().map(|a| &**a),
             );
         }
     }
@@ -209,6 +215,8 @@ fn spawn_single_ball(
     display_palette: &Option<Res<BallDisplayMaterials>>,
     _physics_palette: &Option<Res<BallPhysicsMaterials>>,
     game_cfg: &GameConfig,
+    ordinal: u64,
+    sdf_atlas: Option<&SdfAtlas>,
 ) {
     // Random radius & position in disk
     let r_ball = rng.gen_range(swc.ball_radius_min..swc.ball_radius_max);
@@ -256,10 +264,24 @@ fn spawn_single_ball(
     let world_pos = base_pos + offset;
     // Physics material properties
     let bounce = &game_cfg.bounce;
+    // Random glyph (shape) index if atlas loaded & enabled.
+    // Prefer curated subset (preferred_shapes) if non-empty for more controlled aesthetics.
+    let shape_index: u16 = if let Some(atlas) = sdf_atlas {
+        if atlas.enabled && atlas.shape_count > 0 {
+            if !atlas.preferred_shapes.is_empty() {
+                let idx = rng.gen_range(0..atlas.preferred_shapes.len());
+                atlas.preferred_shapes[idx]
+            } else {
+                rng.gen_range(1..=atlas.shape_count as u32) as u16
+            }
+        } else { 0 }
+    } else { 0 };
     let mut entity = commands.spawn((
         Ball,
         BallRadius(r_ball),
+        crate::core::components::BallOrdinal(ordinal),
         BallMaterialIndex(variant_idx),
+        crate::rendering::materials::materials::BallShapeIndex(shape_index),
         RigidBody::Dynamic,
         Velocity {
             linvel,
