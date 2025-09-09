@@ -125,6 +125,3 @@ This project is licensed under GPL-3.0-or-later (see `LICENSE`).
 
 For reference and the hosted demo, see: https://ahammer.github.io/metalrain/
 
----
-
-If you want this README refined (more config field docs, keyboard mapping table, or workflow examples), tell me which area to expand.
