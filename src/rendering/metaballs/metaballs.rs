@@ -22,6 +22,8 @@ impl Plugin for MetaballsPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(target_arch = "wasm32")]
         { super::material::init_wasm_shader(app.world_mut()); }
+        #[cfg(target_arch = "wasm32")]
+        { super::compute_noop::init_wasm_noop_shader(app.world_mut()); }
         app
             .init_resource::<MetaballsToggle>()
             .init_resource::<MetaballsParams>()
@@ -51,5 +53,23 @@ impl Plugin for MetaballsPlugin {
                 resize_fullscreen_quad,
                 tweak_metaballs_params,
             ).in_set(MetaballsUpdateSet));
+        // Insert compute no-op prepass into render sub-app & graph ordering
+        use bevy::core_pipeline::core_2d::graph::{Core2d, Node2d};
+        use bevy::render::RenderApp;
+        use bevy::render::render_graph::RenderGraph;
+        // Use Render schedule constant from bevy::render::Render
+        use bevy::render::Render;
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app
+            .init_resource::<super::compute_noop::MetaballsNoopComputePipeline>()
+            .init_resource::<super::compute_noop::MetaballsNoopDispatchCount>()
+            .add_systems(Render, super::compute_noop::prepare_noop_compute_pipeline)
+            .add_systems(Render, super::compute_noop::log_noop_once.after(super::compute_noop::prepare_noop_compute_pipeline));
+        use super::compute_noop::{MetaballsNoopComputeNodeLabel, MetaballsNoopComputeNode};
+        let mut rg = render_app.world_mut().resource_mut::<RenderGraph>();
+        let sub = rg.get_sub_graph_mut(Core2d).expect("Core2d graph exists");
+        sub.add_node(MetaballsNoopComputeNodeLabel, MetaballsNoopComputeNode::default());
+        let _ = sub.add_node_edge(Node2d::StartMainPass, MetaballsNoopComputeNodeLabel);
+        let _ = sub.add_node_edge(MetaballsNoopComputeNodeLabel, Node2d::MainOpaquePass);
     }
 }
