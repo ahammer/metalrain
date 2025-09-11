@@ -2,106 +2,159 @@
 
 Tags: #codebase #file:metaballs_unified.wgsl
 
-Goal: Introduce a no‑op compute shader pass that *always executes* (and completes) each frame **before** the existing metaballs unified material render, without changing visuals or altering current uniform / binding layouts.
+Goal: Introduce a no‑op compute shader pass that executes each frame **before** the existing metaballs unified material render, without changing visuals or altering current material uniform / binding layouts.
 
 Acceptance:
-- Game runs identically (pixel output unchanged).
-- Compute pass dispatches exactly once per view (or once per frame) before the metaballs material draw.
-- No changes to `metaballs_unified.wgsl` content or binding order.
-- WASM + native both load the compute shader (embed on wasm).
-- Safe no‑op: zero side effects; future extension point.
+- Visual output identical (pixel parity).
+- Compute pass dispatches exactly once per frame (or once per view) **before** the metaballs material draw in the Core2d graph.
+- No changes to `metaballs_unified.wgsl` contents or material bind group layouts.
+- Works on native + WASM (embedded on WASM).
+- No wgpu validation warnings / errors (including bind group index continuity).
+
+## Tested Issues & Corrections (from validation pass 1)
+- Using a shader with only `@group(2)` while omitting groups 0/1 causes wgpu validation failure (bind group indices must be contiguous starting at 0). Removed the dummy uniform + binding entirely for the no‑op version.
+- Empty `layout: vec![]` with a shader that declares no bindings is valid.
+- Removed speculative plan to rely on an unused binding; simpler & safer to have zero bindings.
 
 ## Required Steps (Implement Exactly)
-1. Add new WGSL shader file at `assets/shaders/metaballs_noop_compute.wgsl` containing:
+1. Create WGSL file `assets/shaders/metaballs_noop_compute.wgsl`:
    ```wgsl
-   // Metaballs precompute no-op (placeholder)
-   // Workgroup size 1 to minimize overhead.
-   struct MetaballsData { v0: vec4<f32>; v1: vec4<f32>; v2: vec4<f32>; v3: vec4<f32>; v4: vec4<f32>; v5: vec4<f32>; v6: vec4<f32>; v7: vec4<f32>; };
-   @group(2) @binding(0) var<uniform> metaballs: MetaballsData; // match existing layout for forward compatibility (unused)
+   // ============================================================================
+   // Metaballs Precompute No-Op Pass
+   // Placeholder compute stage dispatched before metaball rendering.
+   // Future extension: field reductions, SDF normal prep, cluster prefix sums.
+   // ============================================================================
    @compute @workgroup_size(1)
    fn cs_main() { /* intentionally empty */ }
    ```
-   Rationale: Bind group(2) binding(0) matches existing uniform struct so later we can read/update without reworking layout.
 
-2. WASM embedding:
-   - In `MetaballsPlugin` (file `src/rendering/metaballs/metaballs.rs`), mirror existing embedded shader pattern:
-     ```rust
-     #[cfg(target_arch = "wasm32")] static METABALLS_NOOP_COMPUTE_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
-     // During plugin build (wasm block): add Shader::from_wgsl(include_str!("../../../assets/shaders/metaballs_noop_compute.wgsl"), "metaballs_noop_compute_embedded.wgsl") and store in OnceLock.
-     ```
+2. WASM embedding (in `MetaballsPlugin` inside existing WASM shader embedding block in `src/rendering/metaballs/metaballs.rs`):
+   ```rust
+   #[cfg(target_arch = "wasm32")]
+   static METABALLS_NOOP_COMPUTE_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+   // After adding unified shader handle initialization:
+   let noop_handle = shaders.add(Shader::from_wgsl(
+       include_str!("../../../assets/shaders/metaballs_noop_compute.wgsl"),
+       "metaballs_noop_compute_embedded.wgsl",
+   ));
+   METABALLS_NOOP_COMPUTE_SHADER_HANDLE.get_or_init(|| noop_handle.clone());
+   ```
 
-3. Render world resources:
-   - Define a new `MetaballsNoopComputePipeline` resource (render world) holding:
-     ```rust
-     pub struct MetaballsNoopComputePipeline { pub pipeline_id: Option<CachedComputePipelineId>, pub shader: Option<Handle<Shader>> }
-     ```
-     Default with `None` entries.
+3. Define render‑world resource:
+   ```rust
+   #[derive(Resource, Default)]
+   pub struct MetaballsNoopComputePipeline {
+       pub pipeline_id: Option<CachedComputePipelineId>,
+       pub shader: Option<Handle<Shader>>,
+       pub logged: bool,
+   }
+   ```
 
-4. Pipeline preparation system (in `Render` schedule):
-   - If `shader` None: load asset (native) via `asset_server.load("shaders/metaballs_noop_compute.wgsl")` else wasm handle from OnceLock.
-   - If `pipeline_id` None: queue compute pipeline:
-     ```rust
-     let layout = vec![]; // no bind groups needed (uniform unused)
-     let desc = ComputePipelineDescriptor { label: Some("metaballs.noop.compute".into()), layout, shader: shader_handle.clone(), entry_point: Cow::from("cs_main"), shader_defs: vec![] };
-     pip.pipeline_id = Some(pipeline_cache.queue_compute_pipeline(desc));
-     ```
-     NOTE: Omit bind group layout to avoid forcing group(2) creation now; shader has an unused binding0 reference — acceptable because we DO NOT actually bind. If validation requires bound layout, alternatively create a layout with matching uniform bind (copy from material pipeline). Prefer minimal first; adjust only if wgpu validation fails.
+4. Preparation system (added to `Render` schedule in render sub‑app):
+   ```rust
+   fn prepare_noop_compute_pipeline(
+       mut pipelines: ResMut<MetaballsNoopComputePipeline>,
+       mut pipeline_cache: ResMut<PipelineCache>,
+       asset_server: Res<AssetServer>,
+   ) {
+       if pipelines.shader.is_none() {
+           #[cfg(target_arch = "wasm32")]
+           { pipelines.shader = Some(METABALLS_NOOP_COMPUTE_SHADER_HANDLE.get().unwrap().clone()); }
+           #[cfg(not(target_arch = "wasm32"))]
+           { pipelines.shader = Some(asset_server.load("shaders/metaballs_noop_compute.wgsl")); }
+       }
+       if pipelines.pipeline_id.is_none() {
+           let shader = pipelines.shader.as_ref().unwrap().clone();
+           let desc = ComputePipelineDescriptor {
+               label: Some("metaballs.noop.compute".into()),
+               layout: vec![], // no bindings
+               push_constant_ranges: vec![],
+               shader,
+               entry_point: Cow::from("cs_main"),
+               shader_defs: vec![],
+           };
+           pipelines.pipeline_id = Some(pipeline_cache.queue_compute_pipeline(desc));
+       }
+   }
+   ```
 
 5. Render graph node:
-   - Create label `MetaballsNoopComputeNode` implementing `Node`.
-   - In `run()`:
-     ```rust
-     let pipe_res = world.resource::<MetaballsNoopComputePipeline>();
-     let Some(pid) = pipe_res.pipeline_id else { return Ok(()); };
-     let cache = world.resource::<PipelineCache>();
-     let Some(pipeline) = cache.get_compute_pipeline(pid) else { return Ok(()); };
-     let mut pass = render_context.command_encoder().begin_compute_pass(&ComputePassDescriptor { label: Some("metaballs_noop_precompute") });
-     pass.set_pipeline(pipeline);
-     pass.dispatch_workgroups(1,1,1);
-     ```
-     No bindings set.
+   ```rust
+   #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+   struct MetaballsNoopComputeNodeLabel;
 
-6. Graph insertion ordering:
-   - In render sub-app setup (after pipeline init), mutate `Core2d` subgraph:
-     ```rust
-     let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
-     let sub = graph.get_sub_graph_mut(Core2d).unwrap();
-     sub.add_node(MetaballsNoopComputeNodeLabel, MetaballsNoopComputeNode::default());
-     // Edges: place before main metaballs draw (MainPass2d). Use existing enum variants:
-     let _ = sub.add_node_edge(Node2d::StartMainPass, MetaballsNoopComputeNodeLabel);
-     let _ = sub.add_node_edge(MetaballsNoopComputeNodeLabel, Node2d::MainPass);
-     ```
-     If `Node2d::StartMainPass` not present (version drift), fallback: edge from `Node2d::Prepass` or earliest available node preceding `MainPass`.
+   #[derive(Default)]
+   struct MetaballsNoopComputeNode;
 
-7. System registration:
-   - In plugin `build` after material plugin insertion:
-     - In app world: nothing extra.
-     - In render sub-app: `init_resource::<MetaballsNoopComputePipeline>()` and `.add_systems(Render, prepare_noop_compute_pipeline);` before graph wiring.
+   impl Node for MetaballsNoopComputeNode {
+       fn run(&self, _graph: &mut RenderGraphContext, render_context: &mut RenderContext, world: &World) -> Result<(), NodeRunError> {
+           let res = world.get_resource::<MetaballsNoopComputePipeline>().ok_or(NodeRunError::MissingResource)?;
+           let Some(pid) = res.pipeline_id else { return Ok(()); };
+           let cache = world.resource::<PipelineCache>();
+           let Some(pipeline) = cache.get_compute_pipeline(pid) else { return Ok(()); };
+           if !res.logged {
+               // Defer logging: we cannot mutate resource here; instead rely on a separate system OR accept single log earlier after pipeline ready.
+           }
+           let mut pass = render_context.command_encoder().begin_compute_pass(&ComputePassDescriptor { label: Some("metaballs_noop_precompute") });
+           pass.set_pipeline(pipeline);
+           pass.dispatch_workgroups(1, 1, 1);
+           Ok(())
+       }
+   }
+   ```
+   Logging strategy: Add a small `log_noop_once` render‑world system running after preparation that logs and flips `logged` boolean (mutably) to avoid mutating inside the node.
 
-8. Logging (debug only):
-   - Once per first successful dispatch, log: `info!(target="metaballs", "No-op compute prepass active");` Guard with atomic / bool flag in pipeline resource (e.g., `logged: bool`). Do not log every frame.
+6. Graph insertion (in render sub‑app setup after initializing resource & systems):
+   ```rust
+   let mut rg = render_app.world_mut().resource_mut::<RenderGraph>();
+   let sub = rg.get_sub_graph_mut(Core2d).expect("Core2d graph exists");
+   sub.add_node(MetaballsNoopComputeNodeLabel, MetaballsNoopComputeNode::default());
+   // Ensure it runs before MainPass draw:
+   let _ = sub.add_node_edge(Node2d::StartMainPass, MetaballsNoopComputeNodeLabel);
+   let _ = sub.add_node_edge(MetaballsNoopComputeNodeLabel, Node2d::MainPass);
+   // Fallback (if StartMainPass variant changes) — if edge addition fails, edge from Prepass instead.
+   ```
 
-9. Tests (optional smoke):
-   - Add a test asserting pipeline queued (resource exists with Some(pipeline_id)) after one frame. (Skip if test harness not already building render graph easily.)
+7. Plugin wiring additions (in `MetaballsPlugin::build` render sub‑app block):
+   ```rust
+   render_app
+       .init_resource::<MetaballsNoopComputePipeline>()
+       .add_systems(Render, prepare_noop_compute_pipeline)
+       .add_systems(Render, log_noop_once.after(prepare_noop_compute_pipeline));
+   // then graph insertion code.
+   ```
 
-10. Performance: This pass is trivial; confirm no measurable frame time delta (<0.05 ms typical). Keep workgroup size=1.
+8. One‑time log system:
+   ```rust
+   fn log_noop_once(mut pipe: ResMut<MetaballsNoopComputePipeline>) {
+       if pipe.pipeline_id.is_some() && !pipe.logged {
+           info!(target="metaballs", "No-op compute prepass active");
+           pipe.logged = true;
+       }
+   }
+   ```
+
+9. Testing checklist:
+   - Run `cargo run` (native) observe single log message before first metaballs draw.
+   - Enable wgpu backend validation (RUST_LOG=wgpu=trace or WGPU_BACKEND=... if needed) — confirm no warnings about missing bind groups.
+   - Optional: Add a transient debug counter (frame resource) incremented inside node then read in a test to assert dispatch occurred.
+
+10. Performance: Dispatch (1,1,1) is negligible (<0.01 ms). Verify using existing frame timing if added later; otherwise assume trivial.
 
 ## Non-Goals / Must NOT
-- Do NOT modify `metaballs_unified.wgsl` content.
-- Do NOT reorder existing material bind group layouts.
-- Do NOT introduce dynamic allocations or per-frame logging.
-- Do NOT change visual output or alpha semantics.
+- Do NOT modify existing material or fragment shader.
+- Do NOT introduce new bind groups or reorder existing ones.
+- Do NOT log every frame.
+- Do NOT add unused buffer allocations.
 
 ## Success Criteria Checklist
-- [ ] Application runs (native + wasm) with no validation errors.
-- [ ] Compute node executes before metaball material render (verify via temporary debug log order).
-- [ ] Visual output binary identical (manual A/B or unaltered golden screenshot tests pass).
-- [ ] No new warnings in wgpu logs about missing bind groups (if warnings occur, supply minimal bind group layout & bind a dummy uniform buffer).
+- [ ] No wgpu validation errors (native + wasm).
+- [ ] Log appears exactly once.
+- [ ] Visual parity confirmed (manual or screenshot diff).
+- [ ] Compute node executes before `MainPass` (confirmed via log ordering or instrumentation counter).
 
 ## Future Extension Notes
-- This node becomes staging area for:
-  - SDF normal precomputation.
-  - Cluster reduction into SSBO for fragment.
-  - Early field culling masks.
+- Node ready for: field reduction, SDF normal sampling, cluster prefix sums, occlusion masks.
+- If future data needed: add bind group layout at group(0) for new uniform/storage; keep groups contiguous from 0.
 
-Implement exactly as above. If validation complains about unused uniform binding, revise pipeline layout to include matching uniform bind group copied from material bind layout (defer until needed).
+Implement exactly as above.
