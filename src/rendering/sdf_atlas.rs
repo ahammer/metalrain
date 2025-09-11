@@ -108,7 +108,7 @@ impl Plugin for SdfAtlasPlugin {
             .init_resource::<GlyphModeState>()
             .init_resource::<BallSpawnOrdinal>()
             .init_resource::<GlyphSequenceCache>()
-            .add_systems(Update, assign_ball_glyph_shapes.after(assign_ball_shapes_once).before(crate::rendering::metaballs::metaballs::MetaballsUpdateSet));
+            .add_systems(Update, assign_ball_glyph_shapes.after(assign_ball_shapes_once).before(crate::rendering::metaballs::MetaballsUpdateSet));
     }
 }
 

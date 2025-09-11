@@ -10,7 +10,7 @@ use crate::core::level::loader::LevelWidgets;
 use crate::rendering::materials::materials::{
     BallDisplayMaterials, BallMaterialIndex, BallPhysicsMaterials,
 };
-use crate::rendering::metaballs::metaballs::MetaballsUpdateSet; // for system ordering
+use crate::rendering::metaballs::MetaballsUpdateSet; // for system ordering
 use crate::rendering::sdf_atlas::SdfAtlas; // for random glyph assignment if loaded
 use crate::rendering::palette::palette::BASE_COLORS; // for variant index length when not drawing circles
 

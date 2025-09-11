@@ -2,7 +2,7 @@
 use bevy::prelude::*;
 
 #[cfg(feature = "debug")]
-use crate::rendering::metaballs::metaballs::MetaballsToggle;
+use crate::rendering::metaballs::MetaballsToggle;
 
 #[cfg(feature = "debug")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,12 +117,12 @@ pub struct LastAppliedMetaballsView(pub u32);
 pub fn propagate_metaballs_view_system(
     overrides: Res<DebugVisualOverrides>,
     mut last: ResMut<LastAppliedMetaballsView>,
-    mut materials: ResMut<Assets<crate::rendering::metaballs::metaballs::MetaballsUnifiedMaterial>>,
+    mut materials: ResMut<Assets<crate::rendering::metaballs::MetaballsUnifiedMaterial>>,
     q_mat: Query<
         &bevy::sprite::MeshMaterial2d<
-            crate::rendering::metaballs::metaballs::MetaballsUnifiedMaterial,
+            crate::rendering::metaballs::MetaballsUnifiedMaterial,
         >,
-        With<crate::rendering::metaballs::metaballs::MetaballsUnifiedQuad>,
+        With<crate::rendering::metaballs::MetaballsUnifiedQuad>,
     >,
 ) {
     // Only run if changed

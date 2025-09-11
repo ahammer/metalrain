@@ -19,7 +19,7 @@ use crate::physics::gravity::widgets::GravityWidgetsPlugin;
 use crate::physics::rapier::rapier_physics::PhysicsSetupPlugin;
 use crate::rendering::camera::camera::CameraPlugin;
 use crate::rendering::materials::materials::MaterialsPlugin;
-use crate::rendering::metaballs::metaballs::MetaballsPlugin;
+use crate::rendering::metaballs::MetaballsPlugin;
 use crate::rendering::sdf_atlas::SdfAtlasPlugin;
 
 /// Aggregates core plugins: rendering, physics setup, spawning, clustering,

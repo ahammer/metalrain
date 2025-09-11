@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use std::{collections::HashMap, path::PathBuf, time::SystemTime};
 
 use crate::core::config::GameConfig;
-use crate::rendering::metaballs::metaballs::{MetaballsParams, MetaballsToggle};
+use crate::rendering::metaballs::{MetaballsParams, MetaballsToggle};
 
 #[derive(Resource, Debug, Clone)]
 pub struct ConfigReloadSettings {

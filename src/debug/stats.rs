@@ -5,7 +5,7 @@ use crate::core::components::Ball;
 #[cfg(feature = "debug")]
 use crate::physics::clustering::cluster::Clusters;
 #[cfg(feature = "debug")]
-use crate::rendering::metaballs::metaballs::MAX_BALLS;
+use crate::rendering::metaballs::MAX_BALLS;
 #[cfg(feature = "debug")]
 use bevy::prelude::*;
 
