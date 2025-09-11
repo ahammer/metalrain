@@ -6,7 +6,7 @@ Goal: Introduce a no‑op compute shader pass that executes each frame **before*
 
 Acceptance:
 - Visual output identical (pixel parity).
-- Compute pass dispatches exactly once per frame (or once per view) **before** the metaballs material draw in the Core2d graph.
+- Compute pass dispatches exactly once per frame **before** the metaballs material draw in the Core2d graph.
 - No changes to `metaballs_unified.wgsl` contents or material bind group layouts.
 - Works on native + WASM (embedded on WASM).
 - No wgpu validation warnings / errors (including bind group index continuity).
@@ -26,7 +26,7 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
 
 2. Render Graph Node Insertion & Ordering
    - Source: `shader/custom_post_processing.rs` (use of `.add_render_graph_edges` to enforce ordering around `Node3d` stages) and `shader/compute_shader_game_of_life.rs` (manual `add_node` + `add_node_edge`).
-   - Our adaptation: Manual `add_node` + two `add_node_edge` calls to place the compute node strictly between `Node2d::StartMainPass` and `Node2d::MainPass` within `Core2d` sub‑graph. Mirrors the explicit edge pattern in Game of Life for deterministic placement.
+   - Our adaptation: Manual `add_node` plus two explicit edges to place the compute node strictly between `Node2d::StartMainPass` and `Node2d::MainPass` within `Core2d` sub‑graph. Mirrors explicit edge pattern for deterministic placement.
 
 3. Minimal Compute Pass Encoding
    - Source: `shader/compute_shader_game_of_life.rs` `run()` method creating a compute pass via `command_encoder().begin_compute_pass(...)` and immediately dispatching workgroups.
@@ -34,15 +34,15 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
 
 4. Separation of Logging / Mutation from Node Execution
    - Source: `shader/custom_post_processing.rs` and `app/headless_renderer.rs` where pipeline / resource mutation occurs in systems, not within node execution paths except for pass encoding.
-   - Our adaptation: One‑time log performed by a separate system (`log_noop_once`) after pipeline readiness to avoid mutating resources inside the node (which only has immutable access pattern).
+   - Our adaptation: One‑time log performed by a separate system (`log_noop_once`) after pipeline readiness to avoid mutating resources inside the node.
 
 5. WASM Asset Embedding Strategy
-   - Source: Overall engine pattern (mirrors existing metaballs unified shader approach) rather than a single example; consistent with `include_str!` for deterministic deployment (`GameOfLife` uses asset server path, we embed for wasm parity & offline reliability).
+   - Source: Existing metaballs unified shader embedding pattern; we replicate for deterministic wasm deployment.
 
 ## Verification Alignment with Examples
-- Pipeline readiness: We intentionally skip a node internal state machine (Game of Life example) because absence of bindings + trivial shader means pipeline either exists or we early‑return; eventual dispatch only after `PipelineCache` resolves (`get_compute_pipeline(pid)` returns `Some`).
-- Ordering: Like post processing example ensures effect after tonemapping, we enforce pre‑main pass placement; edges guarantee topological correctness without relying on registration order.
-- Mutability: Resource mutation (shader handle assignment, pipeline queueing, log flag) restricted to systems—mirrors patterns where example nodes only encode commands.
+- Pipeline readiness: We intentionally skip a node internal state machine (Game of Life example) because absence of bindings + trivial shader means pipeline either exists or we early‑return; dispatch only after `PipelineCache` resolves.
+- Ordering: Explicit edges guarantee pre MainPass execution.
+- Mutability: Resource mutation (shader handle assignment, pipeline queueing, log flag) restricted to systems—nodes only encode commands.
 
 ## Required Steps (Implement Exactly)
 1. Create WGSL file `assets/shaders/metaballs_noop_compute.wgsl`:
@@ -60,7 +60,6 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
    ```rust
    #[cfg(target_arch = "wasm32")]
    static METABALLS_NOOP_COMPUTE_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
-   // After adding unified shader handle initialization:
    let noop_handle = shaders.add(Shader::from_wgsl(
        include_str!("../../../assets/shaders/metaballs_noop_compute.wgsl"),
        "metaballs_noop_compute_embedded.wgsl",
@@ -95,7 +94,7 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
            let shader = pipelines.shader.as_ref().unwrap().clone();
            let desc = ComputePipelineDescriptor {
                label: Some("metaballs.noop.compute".into()),
-               layout: vec![], // no bindings
+               layout: vec![],
                push_constant_ranges: vec![],
                shader,
                entry_point: Cow::from("cs_main"),
@@ -120,9 +119,6 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
            let Some(pid) = res.pipeline_id else { return Ok(()); };
            let cache = world.resource::<PipelineCache>();
            let Some(pipeline) = cache.get_compute_pipeline(pid) else { return Ok(()); };
-           if !res.logged {
-               // Defer logging: we cannot mutate resource here; instead rely on a separate system OR accept single log earlier after pipeline ready.
-           }
            let mut pass = render_context.command_encoder().begin_compute_pass(&ComputePassDescriptor { label: Some("metaballs_noop_precompute") });
            pass.set_pipeline(pipeline);
            pass.dispatch_workgroups(1, 1, 1);
@@ -130,17 +126,14 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
        }
    }
    ```
-   Logging strategy: Add a small `log_noop_once` render‑world system running after preparation that logs and flips `logged` boolean (mutably) to avoid mutating inside the node.
 
 6. Graph insertion (in render sub‑app setup after initializing resource & systems):
    ```rust
    let mut rg = render_app.world_mut().resource_mut::<RenderGraph>();
    let sub = rg.get_sub_graph_mut(Core2d).expect("Core2d graph exists");
    sub.add_node(MetaballsNoopComputeNodeLabel, MetaballsNoopComputeNode::default());
-   // Ensure it runs before MainPass draw:
    let _ = sub.add_node_edge(Node2d::StartMainPass, MetaballsNoopComputeNodeLabel);
    let _ = sub.add_node_edge(MetaballsNoopComputeNodeLabel, Node2d::MainPass);
-   // Fallback (if StartMainPass variant changes) — if edge addition fails, edge from Prepass instead.
    ```
 
 7. Plugin wiring additions (in `MetaballsPlugin::build` render sub‑app block):
@@ -166,13 +159,11 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
    - Run `cargo run` (native) observe single log message before first metaballs draw.
    - Enable wgpu backend validation (RUST_LOG=wgpu=trace or WGPU_BACKEND=... if needed) — confirm no warnings about missing bind groups.
    - Optional: Add a transient debug counter (frame resource) incremented inside node then read in a test to assert dispatch occurred.
-   - Cross‑check: Compare ordering with a temporary instrumentation log inside `Node2d::MainPass` adjacent systems to confirm prepass runs earlier.
 
-10. Performance: Dispatch (1,1,1) is negligible (<0.01 ms). Verify using existing frame timing if added later; otherwise assume trivial.
+10. Performance: Dispatch (1,1,1) is negligible (<0.01 ms).
 
-## Optional Extension Patterns (Not Implemented Now)
-- Per‑view execution: If later a per‑camera precompute is needed (e.g., view‑dependent field culling), refactor to a `ViewNodeRunner` pattern similar to `custom_post_processing.rs`. Requires converting the node to implement `ViewNode` and adding via `.add_render_graph_node::<ViewNodeRunner<...>>(Core2d, Label)` plus appropriate edges.
-- Pipeline creation via `FromWorld`: Mirror `GameOfLifePipeline` if additional bind group layouts or multiple entry points become necessary.
+## Optional Extension Pattern (Not Implemented Now)
+- Pipeline creation via `FromWorld` if additional bind group layouts or multiple entry points are added later.
 
 ## Non-Goals / Must NOT
 - Do NOT modify existing material or fragment shader.
@@ -183,8 +174,8 @@ Pulling minimal, directly relevant idioms from upstream examples under `external
 ## Success Criteria Checklist
 - [ ] No wgpu validation errors (native + wasm).
 - [ ] Log appears exactly once.
-- [ ] Visual parity confirmed (manual or screenshot diff).
-- [ ] Compute node executes before `MainPass` (confirmed via log ordering or instrumentation counter).
+- [ ] Visual parity confirmed.
+- [ ] Compute node executes before `MainPass`.
 
 ## Future Extension Notes
 - Node ready for: field reduction, SDF normal sampling, cluster prefix sums, occlusion masks.
