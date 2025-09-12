@@ -22,8 +22,8 @@ impl Plugin for MetaballsPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(target_arch = "wasm32")]
         { super::material::init_wasm_shader(app.world_mut()); }
-        #[cfg(target_arch = "wasm32")]
-        { super::compute_noop::init_wasm_noop_shader(app.world_mut()); }
+    #[cfg(target_arch = "wasm32")]
+    { super::gradient_compute::init_wasm_gradient_shader(app.world_mut()); }
         app
             .init_resource::<MetaballsToggle>()
             .init_resource::<MetaballsParams>()
@@ -53,7 +53,11 @@ impl Plugin for MetaballsPlugin {
                 resize_fullscreen_quad,
                 tweak_metaballs_params,
             ).in_set(MetaballsUpdateSet));
-        // Insert compute no-op prepass into render sub-app & graph ordering
+        // Ensure main-world gradient image resource + resize system registered before entering render sub-app
+        app.init_resource::<super::gradient_compute::MetaballsGradientImages>()
+            .add_systems(Update, super::gradient_compute::prepare_gradient_target_main);
+
+        // Insert gradient compute prepass into render sub-app & graph ordering
         use bevy::core_pipeline::core_2d::graph::{Core2d, Node2d};
         use bevy::render::RenderApp;
         use bevy::render::render_graph::RenderGraph;
@@ -61,15 +65,22 @@ impl Plugin for MetaballsPlugin {
         use bevy::render::Render;
         let render_app = app.sub_app_mut(RenderApp);
         render_app
-            .init_resource::<super::compute_noop::MetaballsNoopComputePipeline>()
-            .init_resource::<super::compute_noop::MetaballsNoopDispatchCount>()
-            .add_systems(Render, super::compute_noop::prepare_noop_compute_pipeline)
-            .add_systems(Render, super::compute_noop::log_noop_once.after(super::compute_noop::prepare_noop_compute_pipeline));
-        use super::compute_noop::{MetaballsNoopComputeNodeLabel, MetaballsNoopComputeNode};
+            .init_resource::<super::gradient_compute::MetaballsGradientPipeline>()
+            .init_resource::<super::gradient_compute::MetaballsGradientToggle>()
+            .init_resource::<super::gradient_compute::MetaballsGradientStats>()
+            .add_systems(Render, super::gradient_compute::prepare_gradient_pipeline)
+            .add_systems(bevy::render::ExtractSchedule, super::gradient_compute::extract_gradient_images)
+            .add_systems(Render, (
+                super::gradient_compute::assemble_gradient_bind_group,
+                super::gradient_compute::accumulate_gradient_stats.after(super::gradient_compute::assemble_gradient_bind_group),
+            ))
+            .add_systems(Render, super::gradient_compute::log_gradient_once.after(super::gradient_compute::prepare_gradient_pipeline));
+        // (Allocation handled in main world above; extraction copies into render world each frame.)
+        use super::gradient_compute::{MetaballsGradientComputeNodeLabel, MetaballsGradientComputeNode};
         let mut rg = render_app.world_mut().resource_mut::<RenderGraph>();
         let sub = rg.get_sub_graph_mut(Core2d).expect("Core2d graph exists");
-        sub.add_node(MetaballsNoopComputeNodeLabel, MetaballsNoopComputeNode::default());
-        let _ = sub.add_node_edge(Node2d::StartMainPass, MetaballsNoopComputeNodeLabel);
-        let _ = sub.add_node_edge(MetaballsNoopComputeNodeLabel, Node2d::MainOpaquePass);
+        sub.add_node(MetaballsGradientComputeNodeLabel, MetaballsGradientComputeNode::default());
+        let _ = sub.add_node_edge(Node2d::StartMainPass, MetaballsGradientComputeNodeLabel);
+        let _ = sub.add_node_edge(MetaballsGradientComputeNodeLabel, Node2d::MainOpaquePass);
     }
 }

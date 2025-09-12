@@ -5,7 +5,7 @@ pub mod startup;
 pub mod systems;
 pub mod palette;
 pub mod metaballs; // legacy plugin wrapper retained
-pub mod compute_noop; // newly added no-op compute prepass
+pub mod gradient_compute; // gradient + field half-res compute prepass (phase 1)
 
 // Re-export primary types commonly used elsewhere for minimal churn
 pub use gpu::{MetaballsUniform, GpuBall, NoiseParamsUniform, SurfaceNoiseParamsUniform, TileHeaderGpu, MAX_BALLS, MAX_CLUSTERS, map_signed_distance};
