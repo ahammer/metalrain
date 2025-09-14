@@ -3,9 +3,9 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 use crate::constants::*;
 use crate::compute::types::{Ball, BallBuffer, ParamsUniform, TimeUniform, MetaballTarget};
 
-pub struct AnimationAndInputPlugin;
+pub struct MetaballSimulationPlugin;
 
-impl Plugin for AnimationAndInputPlugin {
+impl Plugin for MetaballSimulationPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_compute_target)
             .add_systems(Update, (animate_balls, debug_input));

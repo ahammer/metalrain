@@ -12,7 +12,7 @@ use bevy::render::{
 use crate::constants::*;
 use super::types::*;
 
-pub struct ComputeMetaballsPlugin;
+pub struct MetaballComputePlugin;
 
 #[derive(Resource)]
 pub struct GpuMetaballPipeline {
@@ -23,7 +23,7 @@ pub struct GpuMetaballPipeline {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct MetaballPassLabel;
 
-impl Plugin for ComputeMetaballsPlugin {
+impl Plugin for MetaballComputePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             ExtractResourcePlugin::<MetaballTarget>::default(),
