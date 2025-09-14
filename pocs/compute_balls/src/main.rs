@@ -23,7 +23,7 @@ const WIDTH: u32 = 640;
 const HEIGHT: u32 = 360;
 const DISPLAY_SCALE: f32 = 2.0;
 const WORKGROUP_SIZE: u32 = 8;
-const MAX_BALLS: usize = 32;
+const MAX_BALLS: usize = 5;
 
 // CPU-side definition must match WGSL struct `Ball`
 #[repr(C)]
