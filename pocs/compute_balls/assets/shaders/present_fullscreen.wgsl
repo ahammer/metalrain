@@ -31,6 +31,12 @@ const BEVEL_CURVE_EXP: f32      = 1.4;   // >1 = tighter highlight band near edg
 // Optional second shaping (set to 1.0 to disable)
 const BEVEL_SECOND_EXP: f32     = 1.0;   // Use e.g. 0.8 then pow again with BEVEL_CURVE_EXP for S-shaped profile
 
+// Interior flattening: distance beyond which interior is a flat plateau (no curvature shading or highlights)
+// FLAT_PX should be >= BEVEL_PX so plateau starts after bevel ramp completes.
+const FLAT_PX: f32              = 42.0;  // Increase for larger flat region (should scale with typical blob radius)
+// Edge falloff shaping for shading effects (spec/fresnel/tint) separate from geometric bevel shape.
+const EDGE_FADE_EXP: f32        = 1.3;   // Controls how quickly edge effects fade toward center (higher = narrower ring)
+
 // Lighting style
 const NORMAL_Z: f32             = 0.65;  // Lower than old 0.75 to flatten center
 const AMBIENT: f32              = 0.18;
@@ -122,11 +128,23 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
   let sd = approx_sd(field, ISO, inv_grad_len);
   // Convert to pixel distance (assumes square field domain)
   let sd_px = sd * dims.x;
-  // Bevel parameter
-  let t_bevel = bevel_t(sd_px); // 0 surface → 1 deep interior
+  // Bevel parameter (geometric shading ramp) limited to FLAT_PX domain
+  let t_bevel = bevel_t(min(sd_px, BEVEL_PX)); // 0 surface → 1 deep interior (capped at BEVEL_PX)
 
-  // Normal (flatten z to reduce central hotspot)
-  let N = normalize(vec3<f32>(-ngrad.x, -ngrad.y, NORMAL_Z));
+  // Edge factor: 1 at surface, 0 at/after FLAT_PX (used to extinguish spec/fresnel/edge tint inside)
+  var edge_factor = 0.0;
+  if (FLAT_PX > BEVEL_PX) {
+    let x = clamp(1.0 - (sd_px - BEVEL_PX) / max(FLAT_PX - BEVEL_PX, 1e-4), 0.0, 1.0);
+    edge_factor = pow(x, EDGE_FADE_EXP);
+  } else {
+    // Degenerate case: no flat region requested -> treat entire interior with taper by bevel t
+    edge_factor = pow(1.0 - t_bevel, EDGE_FADE_EXP);
+  }
+
+  // Normal (flatten z to reduce central hotspot); further flatten interior by blending to view normal using edge_factor
+  let rawN = normalize(vec3<f32>(-ngrad.x, -ngrad.y, NORMAL_Z));
+  let flatN = vec3<f32>(0.0, 0.0, 1.0);
+  let N = normalize(mix(flatN, rawN, edge_factor));
   let L = normalize(LIGHT_DIR_UNNORM);
   let V = vec3<f32>(0.0, 0.0, 1.0);
   let H = normalize(L + V);
@@ -138,15 +156,16 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
   // Gradient length
   var grad_len = 0.0;
   if (inv_grad_len > 0.0) { grad_len = 1.0 / inv_grad_len; }
-  let spec_scale = clamp(grad_len * SPEC_GRAD_SCALE, 0.0, 1.0);
+  let spec_scale = clamp(grad_len * SPEC_GRAD_SCALE, 0.0, 1.0) * edge_factor;
   let spec = pow(max(dot(N, H), 0.0), SPEC_POW) * SPEC_INT * spec_scale;
-  let fr = fresnel(dot(N, V));
+  let fr = fresnel(dot(N, V)) * edge_factor;
 
   // Edge tint — strongest at surface (t_bevel ~0), fades interior
-  let edge_tint = lerp(EDGE_COLOR, BASE_COLOR, t_bevel);
-  let base_col = lerp(edge_tint, BASE_COLOR, t_bevel);
+  // Edge tint only near edge; interior plateaus to BASE_COLOR
+  let edge_tint_mix = (1.0 - t_bevel) * edge_factor; // stronger near surface before flat region
+  let base_col = lerp(BASE_COLOR, EDGE_COLOR, edge_tint_mix * EDGE_MIX);
 
-  var blob_rgb = base_col * (AMBIENT + diffuse) + spec + fr * EDGE_MIX;
+  var blob_rgb = base_col * (AMBIENT + diffuse) + spec + fr;
 
   // Soft shadow (triple sample)
   let sh_uv0 = sample_uv + SHADOW_OFF * 0.5;
