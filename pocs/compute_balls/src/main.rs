@@ -20,7 +20,7 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "Compute Metaballs".into(),
-                        resolution: (WIDTH as f32 * DISPLAY_SCALE, HEIGHT as f32 * DISPLAY_SCALE).into(),
+                        resolution: (WIDTH as f32, HEIGHT as f32).into(),
                         ..default()
                     }),
                     ..default()

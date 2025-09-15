@@ -65,8 +65,38 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
   let dims_u = textureDimensions(present_tex, 0);
   let dims   = vec2<f32>(f32(dims_u.x), f32(dims_u.y));
 
-  // Fetch packed data
-  let packed = sample_packed(uv);
+  // --- ASPECT RATIO ADJUST (COVER) ------------------------------------------
+  // We have a square baked field texture. We want a CSS 'cover' style fit:
+  // keep the field square aspect, fill the entire viewport, cropping excess.
+  // That means we scale the shorter axis up so there is no letter/pillar box.
+  // sample_uv in 0..1 maps to the square field; values outside are cropped.
+  var sample_uv = uv;
+  let aspect = dims.x / dims.y; // >1 => wide, <1 => tall
+  if (aspect > 1.0) {
+    // Wider surface: y is the shorter axis. Expand y range so square covers.
+    // Inverse of previous contain logic: stretch sample coordinates in y.
+    let scale = aspect; // >1
+    sample_uv.y = (uv.y - 0.5) * scale + 0.5;
+  } else if (aspect < 1.0) {
+    // Taller surface: x is the shorter axis. Expand x range.
+    let scale = 1.0 / aspect; // >1
+    sample_uv.x = (uv.x - 0.5) * scale + 0.5;
+  }
+
+  // Background gradient spans full viewport (use original uv) and will be
+  // fully covered by blob shading since we no longer early-return outside.
+  let bg = lerp(
+    vec3<f32>(0.02, 0.03, 0.05),
+    vec3<f32>(0.06, 0.07, 0.10),
+    clamp(uv.y, 0.0, 1.0)
+  );
+  // NOTE: No early return. Regions where sample_uv is outside 0..1 simply
+  // sample the texture outside its baked domain (assumed clamped by sampler)
+  // or produce border; gradients there will fade due to field values.
+  // -------------------------------------------------------------------------
+
+  // Fetch packed data with cover-adjusted UV
+  let packed = sample_packed(sample_uv);
   let field = packed.r;
   let ngrad = vec2<f32>(packed.g, packed.b); // normalized gradient
   let inv_grad_len = packed.a;
@@ -117,22 +147,16 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
   let edge_hi = smoothstep(ISO - ow * 0.5, ISO + ow * 0.5, field);
   let outline = clamp(edge_hi - edge_lo, 0.0, 1.0);
 
-  // Shadow taps (still rely only on field channel)
-  let sh_uv0 = uv + SHADOW_OFF * 0.5;
-  let sh_uv1 = uv + SHADOW_OFF * (1.0 + SHADOW_SOFT);
-  let sh_uv2 = uv + SHADOW_OFF * (1.5 + 2.0 * SHADOW_SOFT);
+  // Shadow taps (still rely only on field channel) within square UV space
+  let sh_uv0 = sample_uv + SHADOW_OFF * 0.5;
+  let sh_uv1 = sample_uv + SHADOW_OFF * (1.0 + SHADOW_SOFT);
+  let sh_uv2 = sample_uv + SHADOW_OFF * (1.5 + 2.0 * SHADOW_SOFT);
 
   let sh0 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv0).r);
   let sh1 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv1).r);
   let sh2 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv2).r);
   let shadow = (sh0 + sh1 + sh2) / 3.0;
 
-  // Background + shadow
-  let bg = lerp(
-    vec3<f32>(0.02, 0.03, 0.05),
-    vec3<f32>(0.06, 0.07, 0.10),
-    clamp(uv.y, 0.0, 1.0)
-  );
   let bg_shadowed = lerp(bg, bg * 0.4, clamp(shadow * SHADOW_INT, 0.0, 1.0));
 
   // Glow primarily outside

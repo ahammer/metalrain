@@ -37,6 +37,6 @@ fn setup_present(
     commands.spawn((
         Mesh2d(quad_handle),
         MeshMaterial2d(material_handle),
-        Transform::from_scale(Vec3::splat(DISPLAY_SCALE)),
+        Transform::from_scale(Vec3::splat(1.0)),
     ));
 }
