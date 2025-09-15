@@ -1,3 +1,16 @@
+// Packed output layout (rgba16float):
+//   R: field value (Σ r_i^2 / d_i^2)
+//   G: normalized gradient x (unit, 0 if length ~ 0)
+//   B: normalized gradient y
+//   A: inverse gradient length (1/|∇field|), clamped; 0 if |∇| tiny.
+//
+// This allows the present shader to:
+//   * Reconstruct a normal from (G,B) without extra texture taps
+//   * Compute signed distance ≈ (field - ISO) * inv_grad_len
+//   * Potentially vary shading by gradient magnitude (thickness)
+//
+// Contract preserved: same bindings, same texture format, no new uniforms.
+
 struct Params {
   screen_size: vec2<f32>,
   num_balls: u32,
@@ -7,6 +20,7 @@ struct Params {
   _unused3: f32,
   _unused4: u32,
 }
+
 struct TimeU {
   time: f32,
 }
@@ -25,34 +39,66 @@ struct Ball {
 const EPS: f32 = 1e-4;
 
 fn ball_center(i: u32) -> vec2<f32> {
-  // Optional subtle orbit using global time (procedural motion)
+  // Procedural wobble (unchanged)
   let b = balls[i];
   let phase = f32(i) * 0.37;
-  let wobble = vec2<f32>(sin(time_u.time * 0.6 + phase) * 12.0, cos(time_u.time * 0.8 + phase * 1.7) * 9.0);
+  let wobble = vec2<f32>(
+    sin(time_u.time * 0.6 + phase) * 12.0,
+    cos(time_u.time * 0.8 + phase * 1.7) * 9.0
+  );
   return b.center + wobble;
 }
 
 @compute @workgroup_size(8, 8, 1)
 fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= u32(params.screen_size.x) || gid.y >= u32(params.screen_size.y)) { return; }
+
+  // Use pixel-space coords (same space as centers)
   let coord = vec2<f32>(f32(gid.x), f32(gid.y));
 
   var field: f32 = 0.0;
+  var grad: vec2<f32> = vec2<f32>(0.0, 0.0);
   let count = min(params.num_balls, arrayLength(&balls));
 
+  // Accumulate field and analytic gradient
+  // For contribution f_i = r^2 / d^2 with d^2 = (x-cx)^2 + (y-cy)^2
+  // ∂f/∂x = -2 r^2 (x-cx) / d^4 ; ∂f/∂y analogous.
   for (var i: u32 = 0u; i < count; i = i + 1u) {
     let c = ball_center(i);
     let d = coord - c;
     let dist2 = max(dot(d, d), EPS);
-    // Classic metaball contribution: r^2 / dist^2
+
     let r = balls[i].radius;
     let r2 = r * r;
-    let inv = 1.0 / dist2;
-    let contrib = r2 * inv;
+
+    let inv_dist2 = 1.0 / dist2;
+    let contrib = r2 * inv_dist2; // r^2 / d^2
     field = field + contrib;
 
+    let inv_dist4 = inv_dist2 * inv_dist2;
+    let scale = -2.0 * r2 * inv_dist4; // shared factor
+    grad = grad + scale * d;
   }
-  // Optionally clamp field for display range (keep it monotonic).
-  let f = field; // Leave unclamped; consumer can normalize.
-  textureStore(output_tex, vec2<i32>(i32(gid.x), i32(gid.y)), vec4<f32>(f, 0.0, 0.0, 1.0));
+
+  // Prepare packed gradient
+  let grad_len = length(grad);
+
+  // Reciprocal gradient length for signed distance; clamp to avoid huge values in flat zones.
+  var inv_grad_len = 0.0;
+  if (grad_len > 1e-6) {
+    inv_grad_len = min(1.0 / grad_len, 2048.0); // clamp for fp16 safety
+  }
+
+  // Normalized gradient (WGSL: use select instead of ternary)
+  let norm_grad = select(
+    vec2<f32>(0.0, 0.0),
+    grad * (1.0 / grad_len),
+    grad_len > 1e-6
+  );
+
+  textureStore(
+    output_tex,
+    vec2<i32>(i32(gid.x), i32(gid.y)),
+    vec4<f32>(field, norm_grad.x, norm_grad.y, inv_grad_len)
+  );
 }
