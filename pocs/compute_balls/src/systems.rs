@@ -16,11 +16,11 @@ fn setup_compute_target(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let mut image = Image::new_fill(
+    let mut image = Image::new(
         Extent3d { width: WIDTH, height: HEIGHT, depth_or_array_layers: 1 },
         TextureDimension::D2,
-        &[0, 0, 0, 255],
-        TextureFormat::Rgba8Unorm,
+        vec![0u8; (WIDTH * HEIGHT * 8) as usize], // 4 channels * 2 bytes (f16) each
+        TextureFormat::Rgba16Float,
         bevy::render::render_asset::RenderAssetUsages::default(),
     );
     image.texture_descriptor.usage =

@@ -17,7 +17,7 @@ struct Ball {
   _pad: f32,
 }
 
-@group(0) @binding(0) var output_tex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(0) var output_tex: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<uniform> time_u: TimeU;
 @group(0) @binding(3) var<storage, read> balls: array<Ball>;

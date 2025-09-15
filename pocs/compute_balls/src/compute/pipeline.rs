@@ -59,7 +59,7 @@ impl FromWorld for GpuMetaballPipeline {
                 BindGroupLayoutEntry { // storage texture
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 },
+                    ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba16Float, view_dimension: TextureViewDimension::D2 },
                     count: None,
                 },
                 BindGroupLayoutEntry { // params uniform
