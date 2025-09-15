@@ -38,23 +38,42 @@ struct Ball {
 
 const EPS: f32 = 1e-4;
 
+// Fixed world-space bounds baked into the shader. The logical "central screen"
+// region (entire render target) is mapped to [-200,-200] -> [200,200]. This
+// provides a stable, resolution‑independent coordinate space for field
+// evaluation and future effects (iso adjustments, SDF usage, etc.).
+const WORLD_MIN: vec2<f32> = vec2<f32>(-1000.0, -1000.0);
+const WORLD_MAX: vec2<f32> = vec2<f32>( 1000.0,  1000.0);
+const WORLD_SIZE: vec2<f32> = WORLD_MAX - WORLD_MIN; 
+
+// Convert pixel-space (0..screen_size) into world space using an affine map.
+// Note: This applies per-axis scaling; if the render target is non-square the
+// world aspect will stretch accordingly. If uniform scaling becomes desirable
+// later, switch to a scalar based on min(screen_size.x, screen_size.y).
+fn to_world(pixel: vec2<f32>) -> vec2<f32> {
+  // Center of pixel: add 0.5 to reduce aliasing bias.
+  let uv = (pixel + vec2<f32>(0.5, 0.5)) / params.screen_size;
+  return WORLD_MIN + uv * WORLD_SIZE;
+}
+
 fn ball_center(i: u32) -> vec2<f32> {
-  // Procedural wobble (unchanged)
+  // Procedural wobble (unchanged) in pixel space, then map to world space.
   let b = balls[i];
   let phase = f32(i) * 0.37;
   let wobble = vec2<f32>(
     sin(time_u.time * 0.6 + phase) * 12.0,
     cos(time_u.time * 0.8 + phase * 1.7) * 9.0
   );
-  return b.center + wobble;
+  let pixel_pos = b.center + wobble;
+  return to_world(pixel_pos);
 }
 
 @compute @workgroup_size(8, 8, 1)
 fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= u32(params.screen_size.x) || gid.y >= u32(params.screen_size.y)) { return; }
 
-  // Use pixel-space coords (same space as centers)
-  let coord = vec2<f32>(f32(gid.x), f32(gid.y));
+  // Sample point in world space (was pixel space previously).
+  let coord = to_world(vec2<f32>(f32(gid.x), f32(gid.y)));
 
   var field: f32 = 0.0;
   var grad: vec2<f32> = vec2<f32>(0.0, 0.0);
