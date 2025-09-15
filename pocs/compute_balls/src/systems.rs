@@ -63,8 +63,8 @@ fn animate_balls(
     let n = params.num_balls.min(bufs.balls.len() as u32) as usize;
     for (i, b) in bufs.balls.iter_mut().take(n).enumerate() {
         let phase = i as f32 * 0.37;
-        b.center[0] += (t * 0.9 + phase).sin() * 0.3;
-        b.center[1] += (t * 0.7 + phase * 1.7).cos() * 0.25;
+        b.center[0] += (t * 0.9 + phase).sin() * 1.0;
+        b.center[1] += (t * 0.7 + phase * 1.7).cos() * 1.0;
     }
 }
 
