@@ -4,14 +4,13 @@ mod present;
 mod systems;
 mod metaball;
 mod bouncy;
+mod metaball_plugin;
 
 use bevy::prelude::*;
 use bevy::window::WindowPlugin;
 
 use constants::*;
-use compute::ComputeMetaballsPlugin;
-use present::MetaballDisplayPlugin as PresentPlugin; // temporary alias if needed
-use systems::MetaballSimulationPlugin as AnimationAndInputPlugin; // temporary alias
+use metaball_plugin::MetaballRendererPlugin;
 
 fn main() {
     App::new()
@@ -28,11 +27,7 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
         )
-        .add_plugins((
-            ComputeMetaballsPlugin,
-            AnimationAndInputPlugin,
-            PresentPlugin,
-        ))
+        .add_plugins(MetaballRendererPlugin::default())
         .run();
 }
 
