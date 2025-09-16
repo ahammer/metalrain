@@ -30,6 +30,7 @@ impl Plugin for MetaballComputePlugin {
             ExtractResourcePlugin::<BallBuffer>::default(),
             ExtractResourcePlugin::<TimeUniform>::default(),
             ExtractResourcePlugin::<ParamsUniform>::default(),
+            ExtractResourcePlugin::<MetaballAlbedoTarget>::default(),
         ));
 
         let render_app = app.sub_app_mut(RenderApp);
@@ -78,6 +79,12 @@ impl FromWorld for GpuMetaballPipeline {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: BufferSize::new((std::mem::size_of::<Ball>() * MAX_BALLS) as u64) },
+                    count: None,
+                },
+                BindGroupLayoutEntry { // albedo storage texture
+                    binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 },
                     count: None,
                 },
             ],
@@ -129,6 +136,7 @@ fn prepare_buffers(
 fn prepare_bind_group(
     mut commands: Commands,
     target: Res<MetaballTarget>,
+    albedo: Res<MetaballAlbedoTarget>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     pipeline: Res<GpuMetaballPipeline>,
     gpu_buffers: Option<Res<GpuBuffers>>,
@@ -136,6 +144,7 @@ fn prepare_bind_group(
 ) {
     let Some(gpu_buffers) = gpu_buffers else { return; };
     let Some(gpu_image) = gpu_images.get(&target.texture) else { return; };
+    let Some(gpu_albedo) = gpu_images.get(&albedo.texture) else { return; };
 
     let bind_group = render_device.create_bind_group(
         Some("metaballs.bind_group"),
@@ -145,6 +154,7 @@ fn prepare_bind_group(
             BindGroupEntry { binding: 1, resource: gpu_buffers.params.as_entire_binding() },
             BindGroupEntry { binding: 2, resource: gpu_buffers.time.as_entire_binding() },
             BindGroupEntry { binding: 3, resource: gpu_buffers.balls.as_entire_binding() },
+            BindGroupEntry { binding: 4, resource: BindingResource::TextureView(&gpu_albedo.texture_view) },
         ],
     );
     commands.insert_resource(GpuMetaballBindGroup(bind_group));

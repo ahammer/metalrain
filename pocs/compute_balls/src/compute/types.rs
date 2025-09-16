@@ -9,6 +9,7 @@ pub use crate::metaball::{
     MetaballParams as ParamsUniform,
     MetaballTime as TimeUniform,
     MetaballOutputTexture as MetaballTarget,
+    MetaballAlbedoTexture as MetaballAlbedoTarget,
     padded_balls_slice,
 };
 

@@ -2,13 +2,15 @@ use bevy::prelude::*;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::render::render_resource::AsBindGroup;
 use crate::constants::*;
-use crate::compute::types::MetaballTarget;
+use crate::compute::types::{MetaballTarget, MetaballAlbedoTarget};
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct MetaballDisplayMaterial {
     #[texture(0)]
-    #[sampler(1)]
     texture: Handle<Image>,
+    #[texture(1)]
+    #[sampler(2)]
+    albedo: Handle<Image>,
 }
 
 impl Material2d for MetaballDisplayMaterial {
@@ -28,12 +30,14 @@ fn setup_present(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<MetaballDisplayMaterial>>,
     target: Res<MetaballTarget>,
+    albedo: Res<MetaballAlbedoTarget>,
     mut commands: Commands,
 ) {
     commands.spawn(Camera2d);
     let quad = Mesh::from(Rectangle::new(WIDTH as f32, HEIGHT as f32));
     let quad_handle = meshes.add(quad);
-    let material_handle = materials.add(MetaballDisplayMaterial { texture: target.texture.clone() });
+
+    let material_handle = materials.add(MetaballDisplayMaterial { texture: target.texture.clone(), albedo: albedo.texture.clone() });
     commands.spawn((
         Mesh2d(quad_handle),
         MeshMaterial2d(material_handle),

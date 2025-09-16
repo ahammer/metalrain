@@ -7,7 +7,8 @@ use crate::constants::MAX_BALLS;
 pub struct Ball {
     pub center: [f32; 2],
     pub radius: f32,
-    pub _pad: f32,
+    pub cluster_id: i32,
+    pub color: [f32; 4],
 }
 
 #[derive(Resource, Clone, ExtractResource)]
@@ -33,10 +34,17 @@ pub struct MetaballParams {
     pub ambient: f32,        // _unused2 in WGSL (currently used here)
     pub rim_power: f32,      // _unused3 in WGSL (currently used here)
     pub show_centers: u32,   // _unused4 in WGSL (currently used here)
+    pub clustering_enabled: u32,
+    pub _pad: f32,
 }
 
 #[derive(Resource, Clone, ExtractResource)]
 pub struct MetaballOutputTexture {
+    pub texture: Handle<Image>,
+}
+
+#[derive(Resource, Clone, ExtractResource)]
+pub struct MetaballAlbedoTexture {
     pub texture: Handle<Image>,
 }
 
@@ -45,7 +53,7 @@ impl Default for MetaballTime {
 }
 
 pub fn padded_balls_slice(src: &[Ball]) -> [Ball; MAX_BALLS] {
-    let mut fixed = [Ball { center: [0.0, 0.0], radius: 0.0, _pad: 0.0 }; MAX_BALLS];
+    let mut fixed = [Ball { center: [0.0, 0.0], radius: 0.0, cluster_id: 0, color: [0.0, 0.0, 0.0, 0.0] }; MAX_BALLS];
     for (i, b) in src.iter().take(MAX_BALLS).enumerate() { fixed[i] = *b; }
     fixed
 }

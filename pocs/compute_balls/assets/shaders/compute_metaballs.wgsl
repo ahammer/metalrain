@@ -2,7 +2,7 @@
 //   R: field value (Σ r_i^2 / d_i^2)
 //   G: normalized gradient x (unit, 0 if length ~ 0)
 //   B: normalized gradient y
-//   A: inverse gradient length (1/|∇field|), clamped; 0 if |∇| tiny.
+//   A: inverse gradient length (1/|∇|), clamped; 0 if |∇| tiny.
 //
 // This allows the present shader to:
 //   * Reconstruct a normal from (G,B) without extra texture taps
@@ -15,10 +15,11 @@ struct Params {
   screen_size: vec2<f32>,
   num_balls: u32,
   _unused0: u32,
-  _unused1: f32,
+  iso: f32,
   _unused2: f32,
   _unused3: f32,
   _unused4: u32,
+  clustering_enabled: u32,
 }
 
 struct TimeU {
@@ -28,13 +29,15 @@ struct TimeU {
 struct Ball {
   center: vec2<f32>,
   radius: f32,
-  _pad: f32,
+  cluster_id: i32,
+  color: vec4<f32>,
 }
 
 @group(0) @binding(0) var output_tex: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<uniform> time_u: TimeU;
 @group(0) @binding(3) var<storage, read> balls: array<Ball>;
+@group(0) @binding(4) var out_albedo: texture_storage_2d<rgba8unorm, write>;
 
 const EPS: f32 = 1e-4;
 
@@ -77,11 +80,13 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   var field: f32 = 0.0;
   var grad: vec2<f32> = vec2<f32>(0.0, 0.0);
+  var blended_color: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   let count = min(params.num_balls, arrayLength(&balls));
 
-  // Accumulate field and analytic gradient
-  // For contribution f_i = r^2 / d^2 with d^2 = (x-cx)^2 + (y-cy)^2
-  // ∂f/∂x = -2 r^2 (x-cx) / d^4 ; ∂f/∂y analogous.
+  // First pass: compute contribs and track dominant cluster by max contribution
+  var max_contrib: f32 = 0.0;
+  var dominant_cluster: i32 = 0;
+
   for (var i: u32 = 0u; i < count; i = i + 1u) {
     let c = ball_center(i);
     let d = coord - c;
@@ -97,6 +102,60 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
     let inv_dist4 = inv_dist2 * inv_dist2;
     let scale = -2.0 * r2 * inv_dist4; // shared factor
     grad = grad + scale * d;
+
+    if (contrib > max_contrib) {
+      max_contrib = contrib;
+      dominant_cluster = balls[i].cluster_id;
+    }
+  }
+
+  // If clustering is enabled, recompute field & gradient considering only dominant cluster
+  if (params.clustering_enabled > 0u) {
+    field = 0.0;
+    grad = vec2<f32>(0.0, 0.0);
+    var cluster_color: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+
+    for (var i: u32 = 0u; i < count; i = i + 1u) {
+      if (balls[i].cluster_id == dominant_cluster) {
+        let c = ball_center(i);
+        let d = coord - c;
+        let dist2 = max(dot(d, d), EPS);
+
+        let r = balls[i].radius;
+        let r2 = r * r;
+
+        let inv_dist2 = 1.0 / dist2;
+        let contrib = r2 * inv_dist2;
+        field = field + contrib;
+
+        let inv_dist4 = inv_dist2 * inv_dist2;
+        let scale = -2.0 * r2 * inv_dist4;
+        grad = grad + scale * d;
+
+        cluster_color = balls[i].color;
+      }
+    }
+
+    blended_color = cluster_color;
+  } else {
+    // clustering disabled: blend colors by influence
+    if (field > 0.0) {
+      var color_acc: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+      for (var i: u32 = 0u; i < count; i = i + 1u) {
+        let c = ball_center(i);
+        let d = coord - c;
+        let dist2 = max(dot(d, d), EPS);
+
+        let r = balls[i].radius;
+        let r2 = r * r;
+
+        let inv_dist2 = 1.0 / dist2;
+        let contrib = r2 * inv_dist2;
+        let bc = balls[i].color.rgb;
+        color_acc = color_acc + bc * contrib;
+      }
+      blended_color = vec4<f32>(color_acc / field, 1.0);
+    }
   }
 
   // Prepare packed gradient
@@ -120,4 +179,11 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
     vec2<i32>(i32(gid.x), i32(gid.y)),
     vec4<f32>(field, norm_grad.x, norm_grad.y, inv_grad_len)
   );
+
+  // Write albedo as pre-multiplied by coverage (we'll use smoothstep in present)
+  // Compute simple coverage based on iso and a small smoothstep width
+  let w = 0.5; // small smoothing factor to avoid hard cutoff in albedo
+  let coverage = smoothstep(params.iso - w, params.iso + w, field);
+  let out_albedo_color = vec4<f32>(blended_color.rgb * coverage, coverage);
+  textureStore(out_albedo, vec2<i32>(i32(gid.x), i32(gid.y)), out_albedo_color);
 }
