@@ -27,7 +27,7 @@ impl Default for BouncyParams {
             restitution: 0.92,
             enable_gravity: false,
             sync_to_gpu: true,
-            speed_dampen: 0.6, // slow overall motion
+            speed_dampen: 0.5, // further slowdown per request
         }
     }
 }
@@ -61,11 +61,11 @@ fn spawn_bouncy_balls(mut commands: Commands) {
 
     let desired = MAX_BOUNCY_BALLS; // spawn full capacity (can reduce later)
     for _ in 0..desired {
-        let radius = rng.gen_range(5.0..10.0);
+    let radius = rng.gen_range(7.5..15.0); // 25% smaller than previous (10..20)
         let x = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
         let y = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
         let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-    let speed = rng.gen_range(20.0..80.0); // slower initial speeds
+    let speed = rng.gen_range(10.0..40.0); // halved speed range
         let vel = Vec2::from_angle(angle) * speed;
         balls.push(BouncyBall { pos: Vec2::new(x, y), vel, radius });
     }
