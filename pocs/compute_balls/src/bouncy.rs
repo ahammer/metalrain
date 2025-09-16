@@ -122,11 +122,22 @@ fn sync_bouncy_into_gpu(
 
     let to_copy = sim.active.min(capacity - 1); // leave space for sentinel if using
 
+    let palette: [ [f32;4]; 4 ] = [
+        [1.0, 0.3, 0.3, 1.0], // red-ish
+        [0.3, 1.0, 0.3, 1.0], // green-ish
+        [0.3, 0.3, 1.0, 1.0], // blue-ish
+        [1.0, 1.0, 0.3, 1.0], // yellow-ish
+    ];
+
     for (i, b) in sim.balls.iter().take(to_copy).enumerate() {
         let pix = world_to_pixel(b.pos, screen_w, screen_h);
         let dst = &mut gpu_buf.balls[i];
         dst.center = [pix.x, pix.y];
         dst.radius = b.radius; // keep radius in world units; shader can treat as world radius if coordinate mapping matches.
+        // Assign cluster id and color by index for now (round-robin into 4 clusters)
+        let cid = (i % 4) as i32;
+        dst.cluster_id = cid;
+        dst.color = palette[cid as usize];
     }
 
     // Sentinel after last active

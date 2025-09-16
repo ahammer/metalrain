@@ -180,10 +180,10 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
     vec4<f32>(field, norm_grad.x, norm_grad.y, inv_grad_len)
   );
 
-  // Write albedo as pre-multiplied by coverage (we'll use smoothstep in present)
-  // Compute simple coverage based on iso and a small smoothstep width
-  let w = 0.5; // small smoothing factor to avoid hard cutoff in albedo
-  let coverage = smoothstep(params.iso - w, params.iso + w, field);
+  // Write albedo as premultiplied by a simple field-derived coverage so the present shader
+  // can recover the base color. Use a clamp on field to produce a stable alpha across
+  // typical field magnitudes.
+  let coverage = clamp(field * 0.5, 0.0, 1.0);
   let out_albedo_color = vec4<f32>(blended_color.rgb * coverage, coverage);
   textureStore(out_albedo, vec2<i32>(i32(gid.x), i32(gid.y)), out_albedo_color);
 }
