@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 # Use crates.io Bevy with default feature set for broad compatibility.
 bevy = { version = "0.16.1" }
 bytemuck = { version = "1", features = ["derive"] }
+rand = "0.8"
 
 [profile.dev.package.bevy]
 opt-level = 3

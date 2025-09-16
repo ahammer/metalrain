@@ -3,6 +3,7 @@ mod compute;
 mod present;
 mod systems;
 mod metaball;
+mod bouncy;
 
 use bevy::prelude::*;
 use bevy::window::WindowPlugin;
