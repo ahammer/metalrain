@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use metaball_renderer::MetaballRendererPlugin;
+use metaball_renderer::{MetaballRendererPlugin, MetaballRenderSettings};
 mod simulation;
 mod debug_vis;
 use simulation::BouncySimulationPlugin;
@@ -9,7 +9,7 @@ fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(DefaultPlugins)
-        .add_plugins(MetaballRendererPlugin::default())
+    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: UVec2::new(512,512) }))
         .add_plugins(BouncySimulationPlugin)
         .add_plugins(DebugVisPlugin)
         .run();

@@ -32,6 +32,13 @@ fn gather_metaballs(
     // Sentinel (negative radius) at next slot if room
     if count < MAX_BALLS { buffer.balls[count].radius = -1.0; }
     params.num_balls = count as u32;
+    static mut LOGGED: bool = false;
+    unsafe {
+        if !LOGGED {
+            if let Some(first) = buffer.balls.get(0) { info!(target: "metaballs", "packed {} balls; first radius {}", count, first.radius); }
+            LOGGED = true;
+        }
+    }
     if query.iter().count() > MAX_BALLS && !warned.0 {
         warned.0 = true;
         warn!(target: "metaballs", "MetaBall entity count exceeded capacity {MAX_BALLS}; truncating");

@@ -59,7 +59,8 @@ fn setup_textures_and_uniforms(
     commands.insert_resource(AlbedoTexture(albedo_h));
     commands.insert_resource(BallBuffer { balls });
     commands.insert_resource(TimeUniform::default());
-    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:2.2, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled:1, _pad:0.0 });
+    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:0.8, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled:0, _pad:0.0 });
+    info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 
 impl FromWorld for GpuMetaballPipeline { fn from_world(world: &mut World) -> Self {
@@ -107,13 +108,11 @@ fn upload_metaball_buffers(
     queue: Res<RenderQueue>,
 ) {
     let Some(gpu) = gpu else { return; };
-    // Only write buffers that changed (time always changes, so always write it)
-    if balls.is_changed() {
-        let fixed = padded_slice(&balls.balls);
-        queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&fixed));
-    }
-    if params.is_changed() { queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&*params)); }
-    if time_u.is_changed() { queue.write_buffer(&gpu.time, 0, bytemuck::bytes_of(&*time_u)); }
+    // Always write (avoid missed updates if extract change detection differs)
+    let fixed = padded_slice(&balls.balls);
+    queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&fixed));
+    queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&*params));
+    queue.write_buffer(&gpu.time, 0, bytemuck::bytes_of(&*time_u));
 }
 
 #[derive(Default)]
