@@ -9,7 +9,7 @@ use rand::prelude::*;
 use metaball_renderer::{MetaBall, MetaBallColor, MetaBallCluster, MetaballRenderSettings, consts::MAX_BALLS};
 
 // World half extent for simulation (logical space: -EXTENT..EXTENT in both axes)
-const HALF_EXTENT: f32 = 200.0;
+pub const HALF_EXTENT: f32 = 200.0; // made public for debug viz
 const WORLD_SIZE: f32 = HALF_EXTENT * 2.0;
 
 #[derive(Component, Clone, Copy)]

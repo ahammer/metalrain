@@ -18,8 +18,9 @@ struct Ball { center: vec2<f32>, radius: f32, cluster_id: i32, color: vec4<f32>,
 @group(0) @binding(3) var<storage, read> balls: array<Ball>;
 @group(0) @binding(4) var out_albedo: texture_storage_2d<rgba8unorm, write>;
 const EPS: f32 = 1e-4;
-const WORLD_MIN: vec2<f32> = vec2<f32>(-1000.0, -1000.0);
-const WORLD_MAX: vec2<f32> = vec2<f32>( 1000.0,  1000.0);
+// Adjusted to match demo simulation HALF_EXTENT = 200 (world range -200..200)
+const WORLD_MIN: vec2<f32> = vec2<f32>(-200.0, -200.0);
+const WORLD_MAX: vec2<f32> = vec2<f32>( 200.0,  200.0);
 const WORLD_SIZE: vec2<f32> = WORLD_MAX - WORLD_MIN; 
 fn to_world(pixel: vec2<f32>) -> vec2<f32> { let uv = (pixel + vec2<f32>(0.5, 0.5)) / params.screen_size; return WORLD_MIN + uv * WORLD_SIZE; }
 fn ball_center(i: u32) -> vec2<f32> { let b = balls[i]; let phase = f32(i) * 0.37; let wobble = vec2<f32>( sin(time_u.time * 0.6 + phase) * 12.0, cos(time_u.time * 0.8 + phase * 1.7) * 9.0 ); let pixel_pos = b.center + wobble; return to_world(pixel_pos); }

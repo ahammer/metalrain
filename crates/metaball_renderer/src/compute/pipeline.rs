@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use bevy::prelude::*;
-use bevy::render::{extract_resource::ExtractResourcePlugin, render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice}, texture::GpuImage, Render, RenderApp, RenderSet};
+use bevy::render::{extract_resource::ExtractResourcePlugin, render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice, RenderQueue}, texture::GpuImage, Render, RenderApp, RenderSet};
 use crate::internal::{MAX_BALLS, WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, BallBuffer, TimeUniform, ParamsUniform, padded_slice};
 use crate::embedded_shaders;
 use super::types::*;
@@ -31,7 +31,9 @@ impl Plugin for ComputeMetaballsPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         // Also ensure shaders exist in the render world prior to pipeline creation.
         crate::embedded_shaders::ensure_loaded(render_app.world_mut());
-        render_app.add_systems(Render, (prepare_buffers, prepare_bind_group.after(prepare_buffers)).in_set(RenderSet::PrepareBindGroups));
+    render_app.add_systems(Render, (prepare_buffers, prepare_bind_group.after(prepare_buffers)).in_set(RenderSet::PrepareBindGroups));
+    // Upload changed CPU-side data into persistent GPU buffers each frame (after they exist, before compute dispatch).
+    render_app.add_systems(Render, upload_metaball_buffers.in_set(RenderSet::Prepare).after(RenderSet::PrepareBindGroups));
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(MetaballPassLabel, MetaballComputeNode::default());
         graph.add_node_edge(MetaballPassLabel, bevy::render::graph::CameraDriverLabel);
@@ -95,6 +97,23 @@ fn prepare_bind_group(mut commands: Commands, field: Res<FieldTexture>, albedo: 
         BindGroupEntry { binding:4, resource: BindingResource::TextureView(&gpu_albedo.texture_view) },
     ]);
     commands.insert_resource(GpuMetaballBindGroup(bind_group));
+}
+
+fn upload_metaball_buffers(
+    balls: Res<BallBuffer>,
+    params: Res<ParamsUniform>,
+    time_u: Res<TimeUniform>,
+    gpu: Option<Res<GpuBuffers>>,
+    queue: Res<RenderQueue>,
+) {
+    let Some(gpu) = gpu else { return; };
+    // Only write buffers that changed (time always changes, so always write it)
+    if balls.is_changed() {
+        let fixed = padded_slice(&balls.balls);
+        queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&fixed));
+    }
+    if params.is_changed() { queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&*params)); }
+    if time_u.is_changed() { queue.write_buffer(&gpu.time, 0, bytemuck::bytes_of(&*time_u)); }
 }
 
 #[derive(Default)]
