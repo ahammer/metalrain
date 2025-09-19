@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use bevy::prelude::*;
 use bevy::render::{extract_resource::ExtractResourcePlugin, render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice, RenderQueue}, texture::GpuImage, Render, RenderApp, RenderSet};
-use crate::internal::{MAX_BALLS, WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, BallBuffer, TimeUniform, ParamsUniform, padded_slice};
+use crate::internal::{MAX_BALLS, WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, BallBuffer, TimeUniform, ParamsUniform, padded_slice, OverflowWarned};
 use crate::embedded_shaders;
 use super::types::*;
 use crate::settings::MetaballRenderSettings;
@@ -24,6 +24,7 @@ impl Plugin for ComputeMetaballsPlugin {
             ExtractResourcePlugin::<TimeUniform>::default(),
             ExtractResourcePlugin::<ParamsUniform>::default(),
             ExtractResourcePlugin::<AlbedoTexture>::default(),
+            ExtractResourcePlugin::<OverflowWarned>::default(),
         ));
 
     app.add_systems(Startup, (setup_textures_and_uniforms,));
@@ -60,6 +61,7 @@ fn setup_textures_and_uniforms(
     commands.insert_resource(BallBuffer { balls });
     commands.insert_resource(TimeUniform::default());
     commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:0.8, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled: if settings.enable_clustering {1} else {0}, _pad:[0,0,0] });
+    commands.insert_resource(OverflowWarned::default());
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 
@@ -84,6 +86,7 @@ fn prepare_buffers(
     params: Res<ParamsUniform>,
     time_u: Res<TimeUniform>,
     balls: Res<BallBuffer>,
+    mut warned: ResMut<OverflowWarned>,
     existing: Option<Res<GpuBuffers>>,
 ) {
     // Allocate once; subsequent frames just update via queue writes.
@@ -98,7 +101,7 @@ fn prepare_buffers(
         contents: bytemuck::bytes_of(&*time_u),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    let fixed = padded_slice(&balls.balls);
+    let fixed = padded_slice(&balls.balls, &mut warned);
     let balls_buf = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("metaballs.balls"),
         contents: bytemuck::cast_slice(&fixed),
@@ -125,12 +128,13 @@ fn upload_metaball_buffers(
     balls: Res<BallBuffer>,
     params: Res<ParamsUniform>,
     time_u: Res<TimeUniform>,
+    mut warned: ResMut<OverflowWarned>,
     gpu: Option<Res<GpuBuffers>>,
     queue: Res<RenderQueue>,
 ) {
     let Some(gpu) = gpu else { return; };
     // Always write (avoid missed updates if extract change detection differs)
-    let fixed = padded_slice(&balls.balls);
+    let fixed = padded_slice(&balls.balls, &mut warned);
     queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&fixed));
     queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&*params));
     queue.write_buffer(&gpu.time, 0, bytemuck::bytes_of(&*time_u));
