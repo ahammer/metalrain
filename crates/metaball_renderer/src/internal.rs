@@ -14,18 +14,21 @@ pub struct BallGpu { pub center: [f32;2], pub radius: f32, pub cluster_id: i32, 
 pub struct TimeUniform { pub time: f32, _pad: [f32;3] }
 impl Default for TimeUniform { fn default() -> Self { Self { time: 0.0, _pad: [0.0;3] } } }
 
-#[repr(C)]
+// NOTE: Keep layout in sync with WGSL `struct Params` (the shader only consumes the
+// leading fields currently; trailing padding is explicit so total size is a 16B multiple).
+// We rely on stable C layout for uniform buffer binding safety.
+#[repr(C, align(16))]
 #[derive(Resource, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, ExtractResource)]
 pub struct ParamsUniform {
-    pub screen_size: [f32;2],
-    pub num_balls: u32,
-    pub _unused0: u32,
-    pub iso: f32,
-    pub _unused2: f32,
-    pub _unused3: f32,
-    pub _unused4: u32,
-    pub clustering_enabled: u32,
-    pub _pad: f32,
+    pub screen_size: [f32;2],      // 0..8
+    pub num_balls: u32,            // 8..12
+    pub _unused0: u32,             // 12..16
+    pub iso: f32,                  // 16..20
+    pub _unused2: f32,             // 20..24
+    pub _unused3: f32,             // 24..28
+    pub _unused4: u32,             // 28..32
+    pub clustering_enabled: u32,   // 32..36
+    pub _pad: [u32;3],             // 36..48 (explicit so no implicit padding; total size 48, 16B aligned)
 }
 
 #[derive(Resource, Clone, ExtractResource)]

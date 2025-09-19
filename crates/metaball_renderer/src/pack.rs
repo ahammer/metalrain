@@ -3,9 +3,13 @@ use crate::{MetaBall, MetaBallColor, MetaBallCluster};
 use crate::internal::{BallBuffer, BallGpu, ParamsUniform, TimeUniform, MAX_BALLS, OverflowWarned};
 use crate::RuntimeSettings;
 
+#[derive(Resource, Default)]
+struct PackLogOnce(bool);
+
 pub(crate) struct PackingPlugin;
 impl Plugin for PackingPlugin { fn build(&self, app: &mut App) {
     app.init_resource::<OverflowWarned>()
+        .init_resource::<PackLogOnce>()
         .add_systems(Update, (advance_time, gather_metaballs, sync_runtime_settings));
 }}
 
@@ -15,13 +19,16 @@ fn gather_metaballs(
     mut buffer: ResMut<BallBuffer>,
     mut params: ResMut<ParamsUniform>,
     mut warned: ResMut<OverflowWarned>,
+    mut logged: ResMut<PackLogOnce>,
     query: Query<(&MetaBall, Option<&MetaBallColor>, Option<&MetaBallCluster>)>,
 ) {
-    // Ensure capacity once
-    if buffer.balls.len() != MAX_BALLS { buffer.balls = vec![BallGpu { center:[0.0,0.0], radius:0.0, cluster_id:0, color:[0.0;4] }; MAX_BALLS]; }
+    if buffer.balls.len() != MAX_BALLS {
+        buffer.balls = vec![BallGpu { center:[0.0,0.0], radius:0.0, cluster_id:0, color:[0.0;4] }; MAX_BALLS];
+    }
     let mut count = 0usize;
+    let mut overflowed = false;
     for (mb, color_opt, cluster_opt) in query.iter() {
-        if count >= MAX_BALLS { break; }
+        if count >= MAX_BALLS { overflowed = true; break; }
         let dst = &mut buffer.balls[count];
         dst.center = [mb.center.x, mb.center.y];
         dst.radius = mb.radius;
@@ -30,17 +37,12 @@ fn gather_metaballs(
         dst.color = [c.red, c.green, c.blue, c.alpha];
         count += 1;
     }
-    // Sentinel (negative radius) at next slot if room
-    if count < MAX_BALLS { buffer.balls[count].radius = -1.0; }
     params.num_balls = count as u32;
-    static mut LOGGED: bool = false;
-    unsafe {
-        if !LOGGED {
-            if let Some(first) = buffer.balls.get(0) { info!(target: "metaballs", "packed {} balls; first radius {}", count, first.radius); }
-            LOGGED = true;
-        }
+    if !logged.0 {
+        info!(target: "metaballs", "packed {} balls (capacity {})", count, MAX_BALLS);
+        logged.0 = true;
     }
-    if query.iter().count() > MAX_BALLS && !warned.0 {
+    if overflowed && !warned.0 {
         warned.0 = true;
         warn!(target: "metaballs", "MetaBall entity count exceeded capacity {MAX_BALLS}; truncating");
     }
@@ -49,7 +51,8 @@ fn gather_metaballs(
 fn sync_runtime_settings(rt: Option<Res<RuntimeSettings>>, params: Option<ResMut<ParamsUniform>>) {
     let (Some(rt), Some(mut params)) = (rt, params) else { return; };
     let desired = if rt.clustering_enabled { 1u32 } else { 0u32 };
-    if params.clustering_enabled != desired { params.clustering_enabled = desired; }
+    if params.clustering_enabled == desired { return; }
+    params.clustering_enabled = desired;
 }
 
 #[cfg(test)]
@@ -60,9 +63,10 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.insert_resource(BallBuffer { balls: Vec::new() });
-        app.insert_resource(ParamsUniform { screen_size:[1024.0,1024.0], num_balls:0,_unused0:0, iso:2.2,_unused2:0.0,_unused3:0.0,_unused4:0, clustering_enabled:1,_pad:0.0 });
+    app.insert_resource(ParamsUniform { screen_size:[1024.0,1024.0], num_balls:0,_unused0:0, iso:2.2,_unused2:0.0,_unused3:0.0,_unused4:0, clustering_enabled:1,_pad:[0,0,0] });
         app.insert_resource(TimeUniform::default());
         app.init_resource::<OverflowWarned>();
+        app.init_resource::<PackLogOnce>();
         // Spawn > capacity
         for i in 0..(MAX_BALLS+5) { app.world_mut().spawn((MetaBall { center: Vec2::new(i as f32, i as f32), radius: 5.0 }, MetaBallColor(LinearRgba::new(1.0,1.0,1.0,1.0)))); }
         app.add_systems(Update, gather_metaballs);

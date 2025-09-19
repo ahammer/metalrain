@@ -59,7 +59,7 @@ fn setup_textures_and_uniforms(
     commands.insert_resource(AlbedoTexture(albedo_h));
     commands.insert_resource(BallBuffer { balls });
     commands.insert_resource(TimeUniform::default());
-    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:0.8, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled: if settings.enable_clustering {1} else {0}, _pad:0.0 });
+    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:0.8, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled: if settings.enable_clustering {1} else {0}, _pad:[0,0,0] });
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 
@@ -78,11 +78,32 @@ impl FromWorld for GpuMetaballPipeline { fn from_world(world: &mut World) -> Sel
     Self { bind_group_layout: layout, pipeline_id }
 } }
 
-fn prepare_buffers(mut commands: Commands, render_device: Res<RenderDevice>, params: Res<ParamsUniform>, time_u: Res<TimeUniform>, balls: Res<BallBuffer>) {
-    let params_buf = render_device.create_buffer_with_data(&BufferInitDescriptor { label: Some("metaballs.params"), contents: bytemuck::bytes_of(&*params), usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST });
-    let time_buf = render_device.create_buffer_with_data(&BufferInitDescriptor { label: Some("metaballs.time"), contents: bytemuck::bytes_of(&*time_u), usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST });
+fn prepare_buffers(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    params: Res<ParamsUniform>,
+    time_u: Res<TimeUniform>,
+    balls: Res<BallBuffer>,
+    existing: Option<Res<GpuBuffers>>,
+) {
+    // Allocate once; subsequent frames just update via queue writes.
+    if existing.is_some() { return; }
+    let params_buf = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("metaballs.params"),
+        contents: bytemuck::bytes_of(&*params),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+    let time_buf = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("metaballs.time"),
+        contents: bytemuck::bytes_of(&*time_u),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
     let fixed = padded_slice(&balls.balls);
-    let balls_buf = render_device.create_buffer_with_data(&BufferInitDescriptor { label: Some("metaballs.balls"), contents: bytemuck::cast_slice(&fixed), usage: BufferUsages::STORAGE | BufferUsages::COPY_DST });
+    let balls_buf = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("metaballs.balls"),
+        contents: bytemuck::cast_slice(&fixed),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    });
     commands.insert_resource(GpuBuffers { params: params_buf, time: time_buf, balls: balls_buf });
 }
 
@@ -142,7 +163,7 @@ impl render_graph::Node for MetaballComputeNode {
         pass.set_bind_group(0, bind_group, &[]);
         // NOTE: use params uniform for dispatch size (dynamic texture size) once packed each frame; for Phase 2 rely on settings inserted
         // For now read from initial params resource
-    let params = world.resource::<ParamsUniform>();
+        let params = world.resource::<ParamsUniform>();
         let w = params.screen_size[0] as u32; let h = params.screen_size[1] as u32;
         let gx = (w + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
         let gy = (h + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
