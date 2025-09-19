@@ -6,7 +6,7 @@ use bevy::prelude::*;
 // Mirrors core behavioral parameters from original PoC while using the
 // structured MetaballRendererPlugin packing + compute pipeline.
 use rand::prelude::*;
-use metaball_renderer::{MetaBall, MetaBallColor, MetaBallCluster, MetaballRenderSettings, consts::MAX_BALLS};
+use metaball_renderer::{MetaBall, MetaBallColor, MetaBallCluster, MetaballRenderSettings, RuntimeSettings, consts::MAX_BALLS};
 
 // World half extent for simulation (logical space: -EXTENT..EXTENT in both axes)
 pub const HALF_EXTENT: f32 = 200.0; // made public for debug viz
@@ -93,10 +93,14 @@ fn update_balls(
 fn input_toggles(
     keys: Res<ButtonInput<KeyCode>>,
     mut bouncy: ResMut<BouncyParams>,
+    rt: Option<ResMut<RuntimeSettings>>,
 ) {
     if keys.just_pressed(KeyCode::KeyG) {
         bouncy.enable_gravity = !bouncy.enable_gravity;
         info!("Gravity {}", if bouncy.enable_gravity { "ON" } else { "OFF" });
+    }
+    if keys.just_pressed(KeyCode::KeyC) {
+        if let Some(mut rt) = rt { rt.clustering_enabled = !rt.clustering_enabled; info!("Clustering {}", if rt.clustering_enabled {"ON"} else {"OFF"}); }
     }
 }
 

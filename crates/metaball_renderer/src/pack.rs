@@ -1,14 +1,15 @@
 use bevy::prelude::*;
 use crate::{MetaBall, MetaBallColor, MetaBallCluster};
 use crate::internal::{BallBuffer, BallGpu, ParamsUniform, TimeUniform, MAX_BALLS, OverflowWarned};
+use crate::RuntimeSettings;
 
 pub(crate) struct PackingPlugin;
 impl Plugin for PackingPlugin { fn build(&self, app: &mut App) {
     app.init_resource::<OverflowWarned>()
-        .add_systems(Update, (advance_time, gather_metaballs));
+        .add_systems(Update, (advance_time, gather_metaballs, sync_runtime_settings));
 }}
 
-fn advance_time(time: Res<Time>, mut uni: Option<ResMut<TimeUniform>>) { if let Some(mut u) = uni { u.time += time.delta_secs(); } }
+fn advance_time(time: Res<Time>, uni: Option<ResMut<TimeUniform>>) { if let Some(mut u) = uni { u.time += time.delta_secs(); } }
 
 fn gather_metaballs(
     mut buffer: ResMut<BallBuffer>,
@@ -45,9 +46,15 @@ fn gather_metaballs(
     }
 }
 
+fn sync_runtime_settings(rt: Option<Res<RuntimeSettings>>, params: Option<ResMut<ParamsUniform>>) {
+    let (Some(rt), Some(mut params)) = (rt, params) else { return; };
+    let desired = if rt.clustering_enabled { 1u32 } else { 0u32 };
+    if params.clustering_enabled != desired { params.clustering_enabled = desired; }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*; use bevy::prelude::*; use crate::{MetaBall, MetaBallColor};
+    use super::*; use crate::{MetaBall, MetaBallColor};
     #[test]
     fn packing_truncates_and_sets_sentinel() {
         let mut app = App::new();

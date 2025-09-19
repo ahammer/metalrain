@@ -9,7 +9,7 @@ fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(DefaultPlugins)
-    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: UVec2::new(512,512) }))
+    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: UVec2::new(512,512), enable_clustering: true }))
         .add_plugins(BouncySimulationPlugin)
         .add_plugins(DebugVisPlugin)
         .run();

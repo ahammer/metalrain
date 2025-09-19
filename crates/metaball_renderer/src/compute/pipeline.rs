@@ -59,7 +59,7 @@ fn setup_textures_and_uniforms(
     commands.insert_resource(AlbedoTexture(albedo_h));
     commands.insert_resource(BallBuffer { balls });
     commands.insert_resource(TimeUniform::default());
-    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:0.8, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled:0, _pad:0.0 });
+    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:0.8, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled: if settings.enable_clustering {1} else {0}, _pad:0.0 });
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 

@@ -33,6 +33,15 @@ mod present;
 pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};
 pub use components::{MetaBall, MetaBallColor, MetaBallCluster};
 
+/// Runtime‑mutable settings (public) allowing user code to toggle certain renderer behaviors
+/// without accessing internal uniform types. Changes are propagated into GPU uniforms by
+/// an internal sync system each frame (cheap compared to full buffer upload already occurring).
+#[derive(Resource, Clone)]
+pub struct RuntimeSettings {
+	pub clustering_enabled: bool,
+}
+impl Default for RuntimeSettings { fn default() -> Self { Self { clustering_enabled: true } } }
+
 // Re-export select constants (namespaced) for advanced users; may become deprecated later.
 pub mod consts { use crate::internal; pub const WORKGROUP_SIZE: u32 = internal::WORKGROUP_SIZE; pub const MAX_BALLS: usize = internal::MAX_BALLS; }
 
