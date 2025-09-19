@@ -14,11 +14,6 @@
 struct Params {
   screen_size: vec2<f32>,
   num_balls: u32,
-  _unused0: u32,
-  iso: f32,
-  _unused2: f32,
-  _unused3: f32,
-  _unused4: u32,
   clustering_enabled: u32,
 }
 

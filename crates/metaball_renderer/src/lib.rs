@@ -43,7 +43,7 @@ pub struct RuntimeSettings {
 impl Default for RuntimeSettings { fn default() -> Self { Self { clustering_enabled: true } } }
 
 // Re-export select constants (namespaced) for advanced users; may become deprecated later.
-pub mod consts { use crate::internal; pub const WORKGROUP_SIZE: u32 = internal::WORKGROUP_SIZE; pub const MAX_BALLS: usize = internal::MAX_BALLS; }
+pub mod consts { use crate::internal; pub const WORKGROUP_SIZE: u32 = internal::WORKGROUP_SIZE; }
 
 use internal::{FieldTexture, AlbedoTexture};
 /// Retrieve the (field, albedo) render texture handles if the renderer is active.

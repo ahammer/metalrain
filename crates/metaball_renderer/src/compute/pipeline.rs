@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use bevy::prelude::*;
 use bevy::render::{extract_resource::ExtractResourcePlugin, render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice, RenderQueue}, texture::GpuImage, Render, RenderApp, RenderSet};
-use crate::internal::{MAX_BALLS, WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, BallBuffer, TimeUniform, ParamsUniform, padded_slice, OverflowWarned};
+use crate::internal::{WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, BallBuffer, TimeUniform, ParamsUniform};
 use crate::embedded_shaders;
 use super::types::*;
 use crate::settings::MetaballRenderSettings;
@@ -24,7 +24,6 @@ impl Plugin for ComputeMetaballsPlugin {
             ExtractResourcePlugin::<TimeUniform>::default(),
             ExtractResourcePlugin::<ParamsUniform>::default(),
             ExtractResourcePlugin::<AlbedoTexture>::default(),
-            ExtractResourcePlugin::<OverflowWarned>::default(),
         ));
 
     app.add_systems(Startup, (setup_textures_and_uniforms,));
@@ -55,13 +54,12 @@ fn setup_textures_and_uniforms(
     albedo.texture_descriptor.usage = TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
     let albedo_h = images.add(albedo);
     // Empty CPU buffer (Phase 2 placeholder)
-    let balls = vec![BallGpu { center:[0.0,0.0], radius: 0.0, cluster_id:0, color:[0.0;4] }; MAX_BALLS];
+    let balls = Vec::new();
     commands.insert_resource(FieldTexture(field_h));
     commands.insert_resource(AlbedoTexture(albedo_h));
     commands.insert_resource(BallBuffer { balls });
     commands.insert_resource(TimeUniform::default());
-    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, _unused0:0, iso:0.8, _unused2:0.0, _unused3:0.0, _unused4:0, clustering_enabled: if settings.enable_clustering {1} else {0}, _pad:[0,0,0] });
-    commands.insert_resource(OverflowWarned::default());
+    commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, clustering_enabled: if settings.enable_clustering {1} else {0} });
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 
@@ -71,7 +69,7 @@ impl FromWorld for GpuMetaballPipeline { fn from_world(world: &mut World) -> Sel
         BindGroupLayoutEntry { binding:0, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba16Float, view_dimension: TextureViewDimension::D2 }, count:None },
     BindGroupLayoutEntry { binding:1, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset:false, min_binding_size: BufferSize::new(std::mem::size_of::<ParamsUniform>() as u64) }, count:None },
     BindGroupLayoutEntry { binding:2, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset:false, min_binding_size: BufferSize::new(std::mem::size_of::<TimeUniform>() as u64) }, count:None },
-        BindGroupLayoutEntry { binding:3, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset:false, min_binding_size: BufferSize::new((std::mem::size_of::<BallGpu>() * MAX_BALLS) as u64) }, count:None },
+        BindGroupLayoutEntry { binding:3, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset:false, min_binding_size: None }, count:None },
         BindGroupLayoutEntry { binding:4, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 }, count:None },
     ]);
     let shader: Handle<Shader> = embedded_shaders::compute_handle();
@@ -86,7 +84,6 @@ fn prepare_buffers(
     params: Res<ParamsUniform>,
     time_u: Res<TimeUniform>,
     balls: Res<BallBuffer>,
-    mut warned: ResMut<OverflowWarned>,
     existing: Option<Res<GpuBuffers>>,
 ) {
     // Allocate once; subsequent frames just update via queue writes.
@@ -101,12 +98,8 @@ fn prepare_buffers(
         contents: bytemuck::bytes_of(&*time_u),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    let fixed = padded_slice(&balls.balls, &mut warned);
-    let balls_buf = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("metaballs.balls"),
-        contents: bytemuck::cast_slice(&fixed),
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-    });
+    // Create zero-sized (valid) buffer; will be resized on first upload if needed.
+    let balls_buf = render_device.create_buffer(&BufferDescriptor { label: Some("metaballs.balls"), size: 16, usage: BufferUsages::STORAGE | BufferUsages::COPY_DST, mapped_at_creation: false });
     commands.insert_resource(GpuBuffers { params: params_buf, time: time_buf, balls: balls_buf });
 }
 
@@ -126,16 +119,40 @@ fn prepare_bind_group(mut commands: Commands, field: Res<FieldTexture>, albedo: 
 
 fn upload_metaball_buffers(
     balls: Res<BallBuffer>,
-    params: Res<ParamsUniform>,
+    mut params: ResMut<ParamsUniform>,
     time_u: Res<TimeUniform>,
-    mut warned: ResMut<OverflowWarned>,
-    gpu: Option<Res<GpuBuffers>>,
+    gpu: Option<ResMut<GpuBuffers>>,
     queue: Res<RenderQueue>,
+    render_device: Res<RenderDevice>,
+    pipeline: Option<Res<GpuMetaballPipeline>>,
+    field: Option<Res<FieldTexture>>,
+    albedo: Option<Res<AlbedoTexture>>,
+    gpu_images: Option<Res<RenderAssets<GpuImage>>>,
+    mut commands: Commands,
 ) {
-    let Some(gpu) = gpu else { return; };
-    // Always write (avoid missed updates if extract change detection differs)
-    let fixed = padded_slice(&balls.balls, &mut warned);
-    queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&fixed));
+    let Some(mut gpu) = gpu else { return; };
+    params.num_balls = balls.balls.len() as u32;
+
+    let required_size = (balls.balls.len() * std::mem::size_of::<BallGpu>()) as u64;
+    if required_size > 0 && required_size > gpu.balls.size() {
+        // Recreate storage buffer with new size.
+        let new_buf = render_device.create_buffer(&BufferDescriptor { label: Some("metaballs.balls"), size: required_size.next_power_of_two(), usage: BufferUsages::STORAGE | BufferUsages::COPY_DST, mapped_at_creation: false });
+        gpu.balls = new_buf;
+        // Rebuild bind group because buffer changed.
+        if let (Some(pipeline), Some(field), Some(albedo), Some(gpu_images)) = (pipeline, field, albedo, gpu_images) {
+            if let (Some(gpu_field), Some(gpu_albedo)) = (gpu_images.get(&field.0), gpu_images.get(&albedo.0)) {
+                let bind_group = render_device.create_bind_group(Some("metaballs.bind_group"), &pipeline.bind_group_layout, &[
+                    BindGroupEntry { binding:0, resource: BindingResource::TextureView(&gpu_field.texture_view) },
+                    BindGroupEntry { binding:1, resource: gpu.params.as_entire_binding() },
+                    BindGroupEntry { binding:2, resource: gpu.time.as_entire_binding() },
+                    BindGroupEntry { binding:3, resource: gpu.balls.as_entire_binding() },
+                    BindGroupEntry { binding:4, resource: BindingResource::TextureView(&gpu_albedo.texture_view) },
+                ]);
+                commands.insert_resource(GpuMetaballBindGroup(bind_group));
+            }
+        }
+    }
+    if required_size > 0 { queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&balls.balls)); }
     queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&*params));
     queue.write_buffer(&gpu.time, 0, bytemuck::bytes_of(&*time_u));
 }

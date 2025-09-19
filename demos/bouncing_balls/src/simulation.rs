@@ -6,7 +6,7 @@ use bevy::prelude::*;
 // Mirrors core behavioral parameters from original PoC while using the
 // structured MetaballRendererPlugin packing + compute pipeline.
 use rand::prelude::*;
-use metaball_renderer::{MetaBall, MetaBallColor, MetaBallCluster, MetaballRenderSettings, RuntimeSettings, consts::MAX_BALLS};
+use metaball_renderer::{MetaBall, MetaBallColor, MetaBallCluster, MetaballRenderSettings, RuntimeSettings};
 
 // World half extent for simulation (logical space: -EXTENT..EXTENT in both axes)
 pub const HALF_EXTENT: f32 = 200.0; // made public for debug viz
@@ -40,7 +40,10 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
     let tex_w = settings.texture_size.x as f32; // square assumed but keep flexible
     let tex_h = settings.texture_size.y as f32;
     let mut rng = StdRng::from_entropy();
-    let desired = MAX_BALLS; // spawn full capacity for parity with PoC
+    // Dynamic count – choose based on texture area heuristic (1 ball per ~ (32x32) tile), clamp.
+    let area = (tex_w * tex_h).max(1.0);
+    let mut desired = (area / (32.0*32.0)) as usize;
+    desired = desired.clamp(64, 10_000); // arbitrary safety cap
     for i in 0..desired {
         let radius = rng.gen_range(7.5..15.0);
         let x = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);

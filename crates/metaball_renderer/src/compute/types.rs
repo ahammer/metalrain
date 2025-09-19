@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::internal::{BallGpu as Ball, BallBuffer, ParamsUniform, TimeUniform, FieldTexture, AlbedoTexture, padded_slice};
+use crate::internal::{BallGpu as Ball, BallBuffer, ParamsUniform, TimeUniform, FieldTexture, AlbedoTexture};
 
 // (Phase 2) keep internal types private to crate; no public re-export required yet.
 
