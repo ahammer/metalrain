@@ -1,0 +1,18 @@
+[package]
+name = "metaball_renderer"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Reusable Bevy compute + material renderer for metaballs via WGSL compute pass"
+repository = "https://github.com/ahammer/metalrain"
+
+[features]
+default = ["present"]
+present = []
+
+[dependencies]
+bevy = { version = "0.16.1", features = ["bevy_winit"] }
+bytemuck = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+bevy = { version = "0.16.1", features = ["bevy_winit"] }

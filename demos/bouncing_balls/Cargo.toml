@@ -1,0 +1,9 @@
+[package]
+name = "bouncing_balls"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.16.1", features=["bevy_winit"] }
+rand = "0.8"
+metaball_renderer = { path = "../../crates/metaball_renderer" }

@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "crates/metaball_renderer",
+    "demos/bouncing_balls",
+    "pocs/compute_balls",
+]
+exclude = [
+    "external/bevy"
+]
+resolver = "2"
