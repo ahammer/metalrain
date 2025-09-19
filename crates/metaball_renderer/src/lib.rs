@@ -26,6 +26,7 @@ mod components;
 mod internal;
 mod compute;
 mod embedded_shaders;
+mod pack;
 #[cfg(feature = "present")]
 mod present;
 
@@ -34,3 +35,11 @@ pub use components::{MetaBall, MetaBallColor, MetaBallCluster};
 
 // Re-export select constants (namespaced) for advanced users; may become deprecated later.
 pub mod consts { use crate::internal; pub const WORKGROUP_SIZE: u32 = internal::WORKGROUP_SIZE; pub const MAX_BALLS: usize = internal::MAX_BALLS; }
+
+use internal::{FieldTexture, AlbedoTexture};
+/// Retrieve the (field, albedo) render texture handles if the renderer is active.
+pub fn metaball_textures(world: &World) -> Option<(Handle<Image>, Handle<Image>)> {
+	let field = world.get_resource::<FieldTexture>()?;
+	let albedo = world.get_resource::<AlbedoTexture>()?;
+	Some((field.0.clone(), albedo.0.clone()))
+}

@@ -7,6 +7,11 @@
 //!
 //! The internal modules (`compute`, `systems` / simulation, `present`) remain available
 //! for custom composition if finer control is required.
+//!
+//! NOTE: A reusable extracted library version of this renderer now lives in
+//! `crates/metaball_renderer` providing a `MetaballRendererPlugin` that consumes
+//! `MetaBall` ECS components for rendering. This POC is kept intact for historical
+//! reference per extraction prompt (2025-09-19).
 
 use bevy::prelude::*;
 

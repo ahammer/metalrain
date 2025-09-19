@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::compute::ComputeMetaballsPlugin;
+use crate::pack::PackingPlugin;
 #[cfg(feature = "present")] use crate::present::MetaballDisplayPlugin;
 
 /// Public settings controlling renderer subsystems.
@@ -17,7 +18,8 @@ impl MetaballRendererPlugin { pub fn with(settings: MetaballRenderSettings) -> S
 impl Plugin for MetaballRendererPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.settings.clone());
-        app.add_plugins(ComputeMetaballsPlugin);
+    app.add_plugins(ComputeMetaballsPlugin);
+    app.add_plugins(PackingPlugin); // Phase 3 packing
         #[cfg(feature = "present")] if self.settings.present { app.add_plugins(MetaballDisplayPlugin); }
     }
 }

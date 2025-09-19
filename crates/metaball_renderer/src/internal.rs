@@ -41,3 +41,6 @@ pub fn padded_slice(src: &[BallGpu]) -> [BallGpu; MAX_BALLS] {
     for (i,b) in src.iter().take(MAX_BALLS).enumerate() { fixed[i] = *b; }
     fixed
 }
+
+#[derive(Resource, Default)]
+pub(crate) struct OverflowWarned(pub bool);
