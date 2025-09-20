@@ -4,6 +4,25 @@
 @group(2) @binding(1) var albedo_tex: texture_2d<f32>;
 @group(2) @binding(2) var present_sampler: sampler;
 
+// Packed metaball field texture layout (rgba16float) produced by compute_metaballs.wgsl:
+//   R: scalar field value  Σ (r_i^2 / d_i^2)
+//      - Monotonically increases toward ball centers; iso surface threshold (ISO) defines silhouette.
+//   G: normalized field gradient X component (∂field/∂x divided by |∇field|). 0 if gradient tiny.
+//   B: normalized field gradient Y component. 0 if gradient tiny.
+//   A: inverse gradient length 1/|∇field| (clamped) – enables approximate signed distance:
+//        signed_distance ≈ (field - ISO) * inv_grad_len
+//
+// Present shader usage summary:
+//   * Edge anti-aliasing width derives from derivatives of the scalar field (fwidth(field)).
+//   * Gradient (G,B) is not yet used for lighting after the simplification, but retained for future
+//     bevel / shading experiments (normals = vec2(G,B)).
+//   * inv_grad_len (A) currently unused here; kept to preserve contract and enable fast SDF-based
+//     effects (outline, glow, thickness) without another pass.
+//   * Albedo comes from a separate RGBA8 texture where alpha encodes coverage (premultiplied).
+//
+// If you change this packing, update both this comment and compute_metaballs.wgsl. Prefer adding
+// features via new passes or repurposed A channel only after confirming size / precision impacts.
+
 // Iso-surface & edge AA
 const ISO: f32             = 0.50;
 const EDGE_BAND: f32       = 1.50;        // widen AA band a bit for smooth edge
