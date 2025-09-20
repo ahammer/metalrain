@@ -40,14 +40,8 @@ const WORLD_MIN: vec2<f32> = vec2<f32>(-256.0, -256.0);
 const WORLD_MAX: vec2<f32> = vec2<f32>( 256.0,  256.0);
 const WORLD_SIZE: vec2<f32> = WORLD_MAX - WORLD_MIN;
 
-// Convert pixel-space (0..screen_size) into world space using an affine map.
-// Note: This applies per-axis scaling; if the render target is non-square the
-// world aspect will stretch accordingly. If uniform scaling becomes desirable
-// later, switch to a scalar based on min(screen_size.x, screen_size.y).
 fn to_world(pixel: vec2<f32>) -> vec2<f32> {
-  // Center of pixel: add 0.5 to reduce aliasing bias.
-  let uv = (pixel + vec2<f32>(0.5, 0.5)) / params.screen_size;
-  return WORLD_MIN + uv * WORLD_SIZE;
+  return pixel;
 }
 
 fn ball_center(i: u32) -> vec2<f32> {

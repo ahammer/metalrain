@@ -67,7 +67,21 @@ fn draw_ball_circles(
             (mb.center.y / tex_h) * world_size - HALF_EXTENT,
         );
         let base = color.map(|c| Color::from(c.0)).unwrap_or(Color::WHITE);
-        let col = base.with_alpha(0.55);
+        // Lighten (50% toward white) and add a subtle green tint so circles remain visible
+        // even when overlapping similarly colored balls.
+        let linear = base.to_linear();
+        let mut r = linear.red + (1.0 - linear.red) * 0.5;
+        let mut g = linear.green + (1.0 - linear.green) * 0.5;
+        let mut b = linear.blue + (1.0 - linear.blue) * 0.5;
+        // Green tint: bias green upward (clamped) for alignment clarity.
+        g = (g + 0.15).min(1.0);
+        // Gentle desaturation: pull channels a bit toward their average so highlight reads uniformly.
+        let avg = (r + g + b) / 3.0;
+        let desat_factor = 0.25; // 0 = none, 1 = full gray
+        r = r + (avg - r) * desat_factor;
+        g = g + (avg - g) * desat_factor;
+        b = b + (avg - b) * desat_factor;
+        let col = Color::linear_rgba(r, g, b, 0.55);
         gizmos.circle_2d(Isometry2d::from_translation(p), mb.radius, col);
     }
 }
