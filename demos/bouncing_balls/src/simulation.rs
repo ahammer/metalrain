@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use std::collections::HashMap;
 // Bouncy simulation demo
 // Controls:
 //   G - toggle gravity
@@ -29,10 +30,8 @@ impl Plugin for BouncySimulationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BouncyParams>()
             .add_systems(Startup, spawn_balls)
-            .add_systems(Update, (
-                update_balls,
-                input_toggles,
-            ));
+            // Order: integrate -> collision resolution -> input toggles (for responsive toggles after physics)
+            .add_systems(Update, (update_balls, resolve_collisions, input_toggles).chain());
     }
 }
 
@@ -45,7 +44,7 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
     let mut desired = (area / (32.0*32.0)) as usize;
     desired = desired.clamp(64, 10_000); // arbitrary safety cap
     for i in 0..desired {
-        let radius = rng.gen_range(7.5..45.0);
+        let radius = rng.gen_range(7.5..15.0);
         let x = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
         let y = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
         let angle = rng.gen_range(0.0..std::f32::consts::TAU);
@@ -90,6 +89,88 @@ fn update_balls(
         if pos.y < min { pos.y = min; vel.0.y = -vel.0.y * params.restitution; }
         else if pos.y > max { pos.y = max; vel.0.y = -vel.0.y * params.restitution; }
         mb.center = world_to_tex(pos, tex_w, tex_h);
+    }
+}
+
+/// Broad phase + narrow phase basic elastic collisions.
+/// Positions & velocities are maintained in (logical) world space during resolution
+/// then mapped back to texture space.
+fn resolve_collisions(
+    params: Res<BouncyParams>,
+    settings: Res<MetaballRenderSettings>,
+    mut q: Query<(&mut MetaBall, &mut Velocity)>
+) {
+    let tex_w = settings.texture_size.x as f32; let tex_h = settings.texture_size.y as f32;
+    // Early exit if trivially small set
+    let count = q.iter_mut().count();
+    if count <= 1 { return; }
+    // Collect snapshot (world positions) so we can freely mutate after pair processing.
+    // Scope to drop first mutable borrow before second pass.
+    struct Temp { pos: Vec2, radius: f32, vel: Vec2, mass: f32 }
+    let mut temps: Vec<Temp> = Vec::with_capacity(count);
+    {
+        for (mb, vel) in q.iter_mut() {
+            let world = tex_to_world(Vec2::new(mb.center.x, mb.center.y), tex_w, tex_h);
+            let r = mb.radius;
+            // Approximate mass proportional to area (r^2) for more natural momentum exchange.
+            temps.push(Temp { pos: world, radius: r, vel: vel.0, mass: r * r });
+        }
+    }
+    // NOTE: Entity ids not required presently.
+
+    // Spatial hash (uniform grid) to reduce O(n^2) cost. Cell size ~ average diameter: pick 2 * median radius ~ use 64 as coarse default.
+    let cell_size: f32 = 64.0;
+    fn cell_key(p: Vec2, cell: f32) -> (i32,i32) { (((p.x + HALF_EXTENT)/cell) as i32, ((p.y + HALF_EXTENT)/cell) as i32) }
+    let mut grid: HashMap<(i32,i32), Vec<usize>> = HashMap::new();
+    for (i, t) in temps.iter().enumerate() { grid.entry(cell_key(t.pos, cell_size)).or_default().push(i); }
+
+    // Pairwise resolution within cell + neighbors.
+    let restitution = params.restitution;
+    for i in 0..temps.len() {
+        let (cx, cy) = cell_key(temps[i].pos, cell_size);
+        for nx in (cx-1)..=(cx+1) { for ny in (cy-1)..=(cy+1) {
+            if let Some(indices) = grid.get(&(nx,ny)) {
+                for &j in indices { if j <= i { continue; }
+                    let (ra, rb) = (temps[i].radius, temps[j].radius);
+                    let sum_r = ra + rb;
+                    let delta = temps[j].pos - temps[i].pos;
+                    let dist2 = delta.length_squared();
+                    if dist2 >= sum_r * sum_r || dist2 == 0.0 { continue; }
+                    let dist = dist2.sqrt();
+                    let penetration = sum_r - dist;
+                    // Normalized direction
+                    let n = if dist > 0.0 { delta / dist } else { Vec2::X };
+                    // Positional correction (distribute by mass)
+                    let (ma, mb) = (temps[i].mass, temps[j].mass);
+                    let inv_sum = 1.0 / (ma + mb);
+                    let move_a = -n * penetration * (mb * inv_sum);
+                    let move_b =  n * penetration * (ma * inv_sum);
+                    // Safe dual mutable borrow via split
+                    let (ai, aj) = if i < j {
+                        let (first, second) = temps.split_at_mut(j);
+                        (&mut first[i], &mut second[0])
+                    } else { continue; };
+                    ai.pos += move_a;
+                    aj.pos += move_b;
+                    // Relative velocity along normal
+                    let rel_v = ai.vel - aj.vel;
+                    let rel_norm = rel_v.dot(n);
+                    if rel_norm > 0.0 { continue; } // moving apart after positional solve
+                    // 1D elastic impulse along normal with masses
+                    let impulse_mag = -(1.0 + restitution) * rel_norm / ( (1.0/ma) + (1.0/mb) );
+                    let impulse = n * impulse_mag;
+                    ai.vel += impulse / ma;
+                    aj.vel -= impulse / mb;
+                }
+            }
+        }}
+    }
+
+    // Write back
+    // Second pass to mutate query safely
+    for ((mut mb, mut vel), t) in q.iter_mut().zip(temps.into_iter()) {
+        mb.center = world_to_tex(t.pos, tex_w, tex_h);
+        vel.0 = t.vel;
     }
 }
 
