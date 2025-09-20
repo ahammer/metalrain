@@ -18,6 +18,11 @@
 @group(2) @binding(0) var present_tex: texture_2d<f32>;
 @group(2) @binding(1) var albedo_tex: texture_2d<f32>;
 @group(2) @binding(2) var present_sampler: sampler;
+@group(2) @binding(3) var<uniform> present_params: PresentParams;
+
+struct PresentParams {
+    scale_offset: vec4<f32>, // (scale_u, offset_u, scale_v, offset_v)
+}
 
 // Core iso-surface & edge AA
 const ISO: f32             = 0.50;
@@ -105,18 +110,13 @@ fn fresnel(dot_nv: f32) -> f32 {
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let uv = v.uv;
+    // Apply CPU-provided cropping params to keep 1:1 aspect while filling screen.
+    // (scale_u, offset_u, scale_v, offset_v)
+    let so = present_params.scale_offset;
+    let sample_uv = vec2<f32>(so.y + uv.x * so.x, so.w + uv.y * so.z);
 
     let dims = vec2<f32>(f32(textureDimensions(present_tex, 0).x),
                          f32(textureDimensions(present_tex, 0).y));
-    var sample_uv = uv;
-    let aspect = dims.x / dims.y;
-    if (aspect > 1.0) {
-        let scale = aspect;
-        sample_uv.y = (uv.y - 0.5) * scale + 0.5;
-    } else if (aspect < 1.0) {
-        let scale = 1.0 / aspect;
-        sample_uv.x = (uv.x - 0.5) * scale + 0.5;
-    }
 
     let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));
 
