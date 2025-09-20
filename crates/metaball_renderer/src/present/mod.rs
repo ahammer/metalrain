@@ -1,21 +1,25 @@
 use bevy::prelude::*;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
+use bevy::window::{PrimaryWindow, WindowResized};
+use bevy::render::camera::{ScalingMode, Projection};
+
 use crate::internal::{FieldTexture, AlbedoTexture};
 use crate::settings::MetaballRenderSettings;
 use crate::embedded_shaders;
-use bevy::window::{PrimaryWindow, WindowResized};
 
 const SIM_TEXTURE_SIZE: f32 = 512.0;
 
 #[derive(Clone, Copy, ShaderType, Debug)]
 pub struct MetaballPresentParams {
-    // (scale_u, offset_u, scale_v, offset_v) — now always identity since we rely on geometry scaling/cropping
+    // (scale_u, offset_u, scale_v, offset_v) — still identity (UVs unchanged)
     pub scale_offset: Vec4,
 }
 
 impl Default for MetaballPresentParams {
-    fn default() -> Self { Self { scale_offset: Vec4::new(1.0, 0.0, 1.0, 0.0) } }
+    fn default() -> Self {
+        Self { scale_offset: Vec4::new(1.0, 0.0, 1.0, 0.0) }
+    }
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -40,8 +44,9 @@ pub struct MetaballDisplayPlugin;
 impl Plugin for MetaballDisplayPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<MetaballDisplayMaterial>::default())
-            .add_systems(PostStartup, (setup_present,))
-            .add_systems(Update, (resize_fit_cover,));
+            .add_systems(PostStartup, setup_present)
+            // Projection-based cover fit (runs on resize events).
+            .add_systems(Update, update_projection_cover);
     }
 }
 
@@ -62,12 +67,13 @@ fn setup_present(
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     if existing_cameras.is_empty() {
+        // Spawn a 2D camera at origin; projection will be adjusted later.
         commands.spawn((Camera2d, MetaballCameraTag));
     }
 
-    let Ok(window) = windows.single() else { return; };
+    let Ok(_window) = windows.single() else { return; };
 
-    // Fixed-size square mesh centered at origin.
+    // Fixed 512x512 mesh centered at origin (Rectangle already centered).
     let quad = Mesh::from(Rectangle::new(SIM_TEXTURE_SIZE, SIM_TEXTURE_SIZE));
     let quad_handle = meshes.add(quad);
 
@@ -77,34 +83,36 @@ fn setup_present(
         params: MetaballPresentParams::default(),
     });
 
-    let scale = cover_scale(window.width(), window.height());
-
     commands.spawn((
         Mesh2d(quad_handle),
         MeshMaterial2d(material_handle),
-        Transform::from_scale(Vec3::new(scale, scale, 1.0)), // uniform scale for cover fit
+        Transform::IDENTITY, // No scaling; projection handles zoom/cropping.
         MetaballPresentQuad,
     ));
 }
 
-// Update scaling on resize so quad "covers" the screen (cropping one axis).
-fn resize_fit_cover(
+// Adjust orthographic projection so the larger window dimension maps to 512 world units (cover fit).
+fn update_projection_cover(
     mut resize_events: EventReader<WindowResized>,
-    mut q: Query<&mut Transform, With<MetaballPresentQuad>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut cams: Query<&mut Projection, With<MetaballCameraTag>>,
 ) {
-    let Some(last) = resize_events.read().last().cloned() else { return; };
-    let scale = cover_scale(last.width, last.height);
-    for mut transform in &mut q {
-        // Preserve any Z / rotation (currently none).
-        transform.scale.x = scale;
-        transform.scale.y = scale;
-    }
-}
+    // Run only on the latest resize event (ignore intermediate).
+    let Some(_last) = resize_events.read().last().cloned() else { return; };
+    let Ok(window) = windows.single() else { return; };
+    let Ok(mut projection) = cams.get_single_mut() else { return; };
 
-// Compute uniform scale so a SIM_TEXTURE_SIZE square covers the window (cropping on the smaller axis).
-fn cover_scale(w: f32, h: f32) -> f32 {
-    if w <= 0.0 || h <= 0.0 { return 1.0; }
-    let target_side = w.max(h); // cover: match the larger screen dimension
-    // target_side / SIM_TEXTURE_SIZE / 2.0
-    1.0
+    let w = window.width().max(1.0);
+    let h = window.height().max(1.0);
+
+    if let Projection::Orthographic(ref mut ortho) = *projection {
+        // Cover logic: fix the larger screen axis to 512 units so the square overflows (crops) on the other axis.
+        if w >= h {
+            // Landscape: width larger -> constrain width to 512 (crop vertically)
+            ortho.scaling_mode = ScalingMode::FixedHorizontal { viewport_width: SIM_TEXTURE_SIZE };
+        } else {
+            // Portrait: height larger -> constrain height to 512 (crop horizontally)
+            ortho.scaling_mode = ScalingMode::FixedVertical { viewport_height: SIM_TEXTURE_SIZE };
+        }
+    }
 }
