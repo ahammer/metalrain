@@ -44,31 +44,19 @@ fn sample_albedo(uv: vec2<f32>) -> vec4<f32> {
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let uv = vec2(v.uv.x,1.0-v.uv.y);
-    // Apply CPU-provided cropping params to keep 1:1 aspect while filling screen.
-    // (scale_u, offset_u, scale_v, offset_v)
     let so = present_params.scale_offset;
     let sample_uv = vec2<f32>(so.y + uv.x * so.x, so.w + uv.y * so.z);
-
     let dims = vec2<f32>(f32(textureDimensions(present_tex, 0).x),
                          f32(textureDimensions(present_tex, 0).y));
-
     let packed       = sample_packed(sample_uv);
     let field        = packed.r;
-
     var w = max(fwidth(field) * EDGE_BAND, 1e-4);
     if (!USE_DERIV_EDGE) { w = 0.01; }
-
     let inside_mask = smoothstep(ISO - w, ISO + w, field);
-
-    // Base fill color: albedo (if any) else constant
     let albedo = sample_albedo(sample_uv);
     let fill_rgb = select(SOLID_COLOR, albedo.rgb / max(albedo.a, 1e-6), albedo.a > 0.001);
-
     let blob_rgb = fill_rgb; // no lighting / shading
-
-    // Background gradient
     let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));
-
     let out_rgb = lerp(bg, blob_rgb, inside_mask);
     return vec4<f32>(out_rgb, 1.0);
 }
