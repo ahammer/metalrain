@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use std::collections::HashMap;
 // Bouncy simulation demo
 // Controls:
 //   G - toggle gravity
@@ -9,9 +8,11 @@ use std::collections::HashMap;
 use rand::prelude::*;
 use metaball_renderer::{MetaBall, MetaBallColor, MetaBallCluster, MetaballRenderSettings, RuntimeSettings};
 
-// World half extent for simulation (logical space: -EXTENT..EXTENT in both axes)
-pub const HALF_EXTENT: f32 = 256.0; // made public for debug viz
-const WORLD_SIZE: f32 = HALF_EXTENT * 2.0;
+// World half extent for simulation (logical space: -HALF_EXTENT..HALF_EXTENT in both axes)
+pub const HALF_EXTENT: f32 = 256.0; // made public for debug viz / debug visualization overlays
+// Interior collision walls are inset by a fixed padding to keep balls away from texture edge artifacts.
+pub const COLLISION_PADDING: f32 = 64.0; // requested collision padding (wall inset)
+const WORLD_SIZE: f32 = HALF_EXTENT * 2.0; // full logical span used for tex mapping (padding only affects collisions)
 
 #[derive(Component, Clone, Copy)]
 pub(crate) struct Velocity(pub Vec2);
@@ -45,10 +46,11 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
     desired = desired.clamp(64, 10_000); // arbitrary safety cap
     for i in 0..desired {
         let radius = rng.gen_range(2.5..5.0);
-        let x = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
-        let y = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
+        // Spawn inside padded collision bounds
+        let x = rng.gen_range((-HALF_EXTENT + COLLISION_PADDING) + radius..(HALF_EXTENT - COLLISION_PADDING) - radius);
+        let y = rng.gen_range((-HALF_EXTENT + COLLISION_PADDING) + radius..(HALF_EXTENT - COLLISION_PADDING) - radius);
         let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-        let speed = rng.gen_range(10.0..40.0);
+        let speed = rng.gen_range(2.0..10.0);
         let vel = Vec2::from_angle(angle) * speed;
         let color_palette = [
             LinearRgba::new(1.0,0.3,0.3,1.0),
@@ -81,9 +83,9 @@ fn update_balls(
         let mut pos = tex_to_world(Vec2::new(mb.center.x, mb.center.y), tex_w, tex_h);
         vel.0 += grav * dt;
         pos += vel.0 * dt;
-        // Bounds
-        let min = -HALF_EXTENT + mb.radius;
-        let max = HALF_EXTENT - mb.radius;
+    // Collision bounds (inset by COLLISION_PADDING)
+    let min = -HALF_EXTENT + COLLISION_PADDING + mb.radius;
+    let max = HALF_EXTENT - COLLISION_PADDING - mb.radius;
         if pos.x < min { pos.x = min; vel.0.x = -vel.0.x * params.restitution; }
         else if pos.x > max { pos.x = max; vel.0.x = -vel.0.x * params.restitution; }
         if pos.y < min { pos.y = min; vel.0.y = -vel.0.y * params.restitution; }
