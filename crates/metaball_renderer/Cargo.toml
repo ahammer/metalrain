@@ -7,8 +7,10 @@ description = "Reusable Bevy compute + material renderer for metaballs via WGSL 
 repository = "https://github.com/ahammer/metalrain"
 
 [features]
-default = ["present"]
+# Enable presentation pass & shader hot reload by default (hot reload auto no-ops on wasm).
+default = ["present", "shader_hot_reload"]
 present = []
+shader_hot_reload = []
 
 [dependencies]
 bevy = { version = "0.16.1", features = ["bevy_winit"] }

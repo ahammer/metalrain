@@ -27,7 +27,7 @@
 
 // Iso-surface & edge AA
 const ISO: f32             = 0.80;
-const EDGE_BAND: f32       = 1.50;        // widen AA band a bit for smooth edge
+const EDGE_BAND: f32       = 0.05;        // widen AA band a bit for smooth edge
 const USE_DERIV_EDGE: bool = true;        // derivative-based width (fast & stable)
 
 // Solid fill color fallback (used if albedo texture has no coverage)

@@ -31,6 +31,7 @@ mod pack;
 mod present;
 
 pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};
+pub use embedded_shaders::MetaballShaderSourcePlugin;
 pub use components::{MetaBall, MetaBallColor, MetaBallCluster};
 
 /// Runtime‑mutable settings (public) allowing user code to toggle certain renderer behaviors

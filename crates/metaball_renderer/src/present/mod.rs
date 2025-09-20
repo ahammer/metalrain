@@ -23,7 +23,7 @@ pub struct MetaballDisplayMaterial {
 
 impl Material2d for MetaballDisplayMaterial {
     fn fragment_shader() -> ShaderRef {
-        ShaderRef::Handle(embedded_shaders::present_handle())
+        embedded_shaders::present_shader_ref()
     }
 }
 

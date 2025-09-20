@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use bevy::prelude::*;
 use bevy::render::{extract_resource::ExtractResourcePlugin, render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice, RenderQueue}, texture::GpuImage, Render, RenderApp, RenderSet};
 use crate::internal::{WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, BallBuffer, TimeUniform, ParamsUniform};
+#[allow(unused_imports)]
 use crate::embedded_shaders;
 use super::types::*;
 use crate::settings::MetaballRenderSettings;
@@ -72,6 +73,13 @@ impl FromWorld for GpuMetaballPipeline { fn from_world(world: &mut World) -> Sel
         BindGroupLayoutEntry { binding:3, visibility: ShaderStages::COMPUTE, ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset:false, min_binding_size: None }, count:None },
         BindGroupLayoutEntry { binding:4, visibility: ShaderStages::COMPUTE, ty: BindingType::StorageTexture { access: StorageTextureAccess::WriteOnly, format: TextureFormat::Rgba8Unorm, view_dimension: TextureViewDimension::D2 }, count:None },
     ]);
+    #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+    let shader: Handle<Shader> = {
+        // Load via custom asset source for hot reload.
+        let asset_server = world.resource::<AssetServer>();
+        asset_server.load("metaball://shaders/compute_metaballs.wgsl")
+    };
+    #[cfg(any(not(feature = "shader_hot_reload"), target_arch = "wasm32"))]
     let shader: Handle<Shader> = embedded_shaders::compute_handle();
     let cache = world.resource::<PipelineCache>();
     let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor { label: Some(Cow::Borrowed("metaballs.compute")), layout: vec![layout.clone()], push_constant_ranges: vec![], shader, shader_defs: vec![], entry_point: Cow::Borrowed("metaballs"), zero_initialize_workgroup_memory:false });
@@ -83,7 +91,7 @@ fn prepare_buffers(
     render_device: Res<RenderDevice>,
     params: Res<ParamsUniform>,
     time_u: Res<TimeUniform>,
-    balls: Res<BallBuffer>,
+    _balls: Res<BallBuffer>,
     existing: Option<Res<GpuBuffers>>,
 ) {
     // Allocate once; subsequent frames just update via queue writes.
