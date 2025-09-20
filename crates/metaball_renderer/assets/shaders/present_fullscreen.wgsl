@@ -66,10 +66,12 @@ const BEVEL_HIGHLIGHT_WIDTH: f32 = 0.80;  // was 0.55; wider band for smoother t
 const BEVEL_HIGHLIGHT_EXP: f32   = 1.2;   // shaping exponent for highlight falloff (kept same)
 
 // Shadow sampling (drop shadow)
-const SHADOW_OFF: vec2<f32> = vec2<f32>(0.006, -0.009); // base offset (in UV units) a bit larger for deeper shadow
-const SHADOW_SOFT: f32      = 1.0;   // was 0.75; increased for more blur (softer shadow edges)
-const SHADOW_INT: f32       = 0.90;  // shadow intensity factor (mix amount, retained)
+const SHADOW_OFF: vec2<f32> = vec2<f32>(0.003, -0.0045); // base offset (in UV units) a bit larger for deeper shadow
+const SHADOW_SOFT: f32      = 0.25;   // was 0.75; increased for more blur (softer shadow edges)
+const SHADOW_INT: f32       = 0.95;  // shadow intensity factor (mix amount, retained)
 const BG_SHADOW_FACTOR: f32 = 0.30;  // was 0.40; darker shadow (background brightness multiplier under blob)
+// New: exponent to shape combined shadow falloff (1.0 = linear)
+const SHADOW_EXP: f32       = 1.10;  // slight >1 tightens near-object darkness
 
 // Background gradient colors (kept subtle color so shadow is visible)
 const BG_TOP: vec3<f32> = vec3<f32>(0.08, 0.09, 0.12);  // slightly lighter top color
@@ -193,12 +195,18 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let sh_uv0 = sample_uv + SHADOW_OFF * 0.5;
-    let sh_uv1 = sample_uv + SHADOW_OFF * (1.0 + SHADOW_SOFT);
-    let sh_uv2 = sample_uv + SHADOW_OFF * (1.5 + 2.0 * SHADOW_SOFT);
+    let sh_uv1 = sample_uv + SHADOW_OFF * (0.5 + SHADOW_SOFT);
+    let sh_uv2 = sample_uv + SHADOW_OFF * (1.0 * SHADOW_SOFT);
     let sh0 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv0).r);
     let sh1 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv1).r);
     let sh2 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv2).r);
-    let shadow = (sh0 + sh1 + sh2) / 3.0;
+
+    // NEW: probabilistic occlusion merge -> single smooth penumbra
+    var shadow = 1.0 - (1.0 - sh0) * (1.0 - sh1) * (1.0 - sh2);
+
+    // Optional shaping to fine-tune softness (slight tightening)
+    shadow = pow(clamp(shadow, 0.0, 1.0), SHADOW_EXP);
+
     let bg_shadowed = lerp(bg, bg * BG_SHADOW_FACTOR, clamp(shadow * SHADOW_INT, 0.0, 1.0));
 
     var out_rgb = bg_shadowed;
