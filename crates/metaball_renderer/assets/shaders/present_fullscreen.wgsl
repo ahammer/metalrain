@@ -65,13 +65,16 @@ const BEVEL_HIGHLIGHT_INT: f32   = 0.40;  // was 0.35; slightly higher for a bit
 const BEVEL_HIGHLIGHT_WIDTH: f32 = 0.80;  // was 0.55; wider band for smoother transition
 const BEVEL_HIGHLIGHT_EXP: f32   = 1.2;   // shaping exponent for highlight falloff (kept same)
 
-// Shadow sampling (drop shadow)
-const SHADOW_OFF: vec2<f32> = vec2<f32>(0.003, -0.0045); // base offset (in UV units) a bit larger for deeper shadow
-const SHADOW_SOFT: f32      = 0.25;   // was 0.75; increased for more blur (softer shadow edges)
-const SHADOW_INT: f32       = 0.95;  // shadow intensity factor (mix amount, retained)
-const BG_SHADOW_FACTOR: f32 = 0.30;  // was 0.40; darker shadow (background brightness multiplier under blob)
-// New: exponent to shape combined shadow falloff (1.0 = linear)
-const SHADOW_EXP: f32       = 1.10;  // slight >1 tightens near-object darkness
+// Shadow sampling (drop shadow) – single lookup, distance-based soft falloff
+// We leverage the signed distance approximation (field, inv_grad_len) at ONE shifted UV.
+// Inside silhouette -> full occlusion; outside -> Gaussian-like / exponential falloff.
+// NOTE: Multi-tap averaging removed to avoid layered penumbra & extra texture fetch cost.
+const SHADOW_OFF: vec2<f32>      = vec2<f32>(0.003, -0.0045); // positional offset of shadow (uv units)
+const SHADOW_SOFT_PX: f32        = 72.0;  // softness radius in pixels (distance at which alpha ~= exp(-1))
+const SHADOW_FALLOFF_EXP: f32    = 1.00;  // >1 tightens core darkness; ~1 for classic Gaussian
+const SHADOW_INT: f32            = 0.95;  // overall intensity multiplier
+const BG_SHADOW_FACTOR: f32      = 0.10;  // background darken factor under full shadow
+const SHADOW_MAX_ALPHA_SCALE: f32= 1.00;  // allow reducing max alpha if wanting lighter contact
 
 // Background gradient colors (kept subtle color so shadow is visible)
 const BG_TOP: vec3<f32> = vec3<f32>(0.08, 0.09, 0.12);  // slightly lighter top color
@@ -194,20 +197,32 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
         blob_rgb = recovered * (AMBIENT + diffuse) + spec + fr;
     }
 
-    let sh_uv0 = sample_uv + SHADOW_OFF * 0.5;
-    let sh_uv1 = sample_uv + SHADOW_OFF * (0.5 + SHADOW_SOFT);
-    let sh_uv2 = sample_uv + SHADOW_OFF * (1.0 * SHADOW_SOFT);
-    let sh0 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv0).r);
-    let sh1 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv1).r);
-    let sh2 = smoothstep(ISO - w, ISO + w, sample_packed(sh_uv2).r);
+    // --- Single-sample soft shadow ---
+    let sh_uv = sample_uv + SHADOW_OFF;
+    let sh_packed = sample_packed(sh_uv);
+    let sh_field = sh_packed.r;
+    let sh_inv_grad = sh_packed.a; // 1/|∇| or 0 if unreliable
 
-    // NEW: probabilistic occlusion merge -> single smooth penumbra
-    var shadow = 1.0 - (1.0 - sh0) * (1.0 - sh1) * (1.0 - sh2);
+    // Approx signed distance (in field units) then convert to pixels using texture width.
+    // NOTE: approx_sd returns (field - ISO) * inv_grad_len. With inside_mask based on field > ISO,
+    //       interior => sh_sd > 0.0, exterior => sh_sd < 0.0.
+    let sh_sd = approx_sd(sh_field, ISO, sh_inv_grad); // positive = inside silhouette, negative = outside
+    let sh_sd_px = sh_sd * dims.x; // assume roughly isotropic scale; using width is fine for screen-space
 
-    // Optional shaping to fine-tune softness (slight tightening)
-    shadow = pow(clamp(shadow, 0.0, 1.0), SHADOW_EXP);
+    var shadow_alpha = 0.0;
+    if (sh_inv_grad > 0.0) {
+        if (sh_sd_px >= 0.0) {
+            // Inside shadow core (under blob footprint)
+            shadow_alpha = SHADOW_MAX_ALPHA_SCALE;
+        } else {
+            // Outside: smooth exponential falloff using squared distance (Gaussian-esque)
+            let t = (-sh_sd_px) / max(SHADOW_SOFT_PX, 1e-4); // distance outside
+            let gauss = exp(-t * t);
+            shadow_alpha = pow(gauss, SHADOW_FALLOFF_EXP) * SHADOW_MAX_ALPHA_SCALE;
+        }
+    }
 
-    let bg_shadowed = lerp(bg, bg * BG_SHADOW_FACTOR, clamp(shadow * SHADOW_INT, 0.0, 1.0));
+    let bg_shadowed = lerp(bg, bg * BG_SHADOW_FACTOR, clamp(shadow_alpha * SHADOW_INT, 0.0, 1.0));
 
     var out_rgb = bg_shadowed;
     out_rgb = lerp(out_rgb, blob_rgb, inside_mask);
