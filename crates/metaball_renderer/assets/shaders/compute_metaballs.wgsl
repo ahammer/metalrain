@@ -55,15 +55,9 @@ fn to_world(pixel: vec2<f32>) -> vec2<f32> {
 }
 
 fn ball_center(i: u32) -> vec2<f32> {
-  // Procedural wobble (unchanged) in pixel space, then map to world space.
+  // Wobble removed: use static center. (Binding layout preserved; time uniform now unused.)
   let b = balls[i];
-  let phase = f32(i) * 0.37;
-  let wobble = vec2<f32>(
-    sin(time_u.time * 0.6 + phase) * 12.0,
-    cos(time_u.time * 0.8 + phase * 1.7) * 9.0
-  );
-  let pixel_pos = b.center + wobble;
-  return to_world(pixel_pos);
+  return to_world(b.center);
 }
 
 @compute @workgroup_size(8, 8, 1)
