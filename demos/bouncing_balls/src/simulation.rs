@@ -14,10 +14,10 @@ pub const HALF_EXTENT: f32 = 200.0; // made public for debug viz
 const WORLD_SIZE: f32 = HALF_EXTENT * 2.0;
 
 #[derive(Component, Clone, Copy)]
-struct Velocity(Vec2);
+pub(crate) struct Velocity(pub Vec2);
 
 #[derive(Resource, Clone)]
-struct BouncyParams {
+pub(crate) struct BouncyParams {
     gravity: Vec2,
     restitution: f32,
     enable_gravity: bool,
@@ -95,7 +95,7 @@ fn update_balls(
 /// Broad phase + narrow phase basic elastic collisions.
 /// Positions & velocities are maintained in (logical) world space during resolution
 /// then mapped back to texture space.
-fn resolve_collisions(
+pub(crate) fn resolve_collisions(
     params: Res<BouncyParams>,
     settings: Res<MetaballRenderSettings>,
     mut q: Query<(&mut MetaBall, &mut Velocity)>

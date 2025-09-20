@@ -114,7 +114,7 @@ fn fresnel(dot_nv: f32) -> f32 {
 
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = v.uv;
+    let uv = vec2(v.uv.x,1.0-v.uv.y);
     // Apply CPU-provided cropping params to keep 1:1 aspect while filling screen.
     // (scale_u, offset_u, scale_v, offset_v)
     let so = present_params.scale_offset;

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::sprite::MeshMaterial2d;
-use crate::simulation::HALF_EXTENT;
+use crate::simulation::{HALF_EXTENT, resolve_collisions};
+use metaball_renderer::{MetaBall, MetaBallColor, MetaballRenderSettings};
 
 #[derive(Resource, Default)]
 pub struct DebugVisToggle(pub bool);
@@ -10,7 +11,7 @@ impl Plugin for DebugVisPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DebugVisToggle>()
             .add_systems(Startup, setup_lines)
-            .add_systems(Update, (toggle_debug, apply_visibility));
+            .add_systems(Update, (toggle_debug, apply_visibility, draw_ball_circles.after(resolve_collisions)));
     }
 }
 
@@ -48,4 +49,25 @@ fn apply_visibility(toggle: Res<DebugVisToggle>, mut q: Query<&mut Visibility, W
     if !toggle.is_changed() { return; }
     let vis = if toggle.0 { Visibility::Visible } else { Visibility::Hidden };
     for mut v in q.iter_mut() { *v = vis.clone(); }
+}
+
+// Draw per-ball simulation circles (world space) via gizmos (transient, no entities).
+fn draw_ball_circles(
+    toggle: Res<DebugVisToggle>,
+    settings: Res<MetaballRenderSettings>,
+    q: Query<(&MetaBall, Option<&MetaBallColor>)>,
+    mut gizmos: Gizmos,
+) {
+    if !toggle.0 { return; }
+    let tex_w = settings.texture_size.x as f32; let tex_h = settings.texture_size.y as f32;
+    let world_size = HALF_EXTENT * 2.0;
+    for (mb, color) in q.iter() {
+        let p = Vec2::new(
+            (mb.center.x / tex_w) * world_size - HALF_EXTENT,
+            (mb.center.y / tex_h) * world_size - HALF_EXTENT,
+        );
+        let base = color.map(|c| Color::from(c.0)).unwrap_or(Color::WHITE);
+        let col = base.with_alpha(0.55);
+        gizmos.circle_2d(Isometry2d::from_translation(p), mb.radius, col);
+    }
 }

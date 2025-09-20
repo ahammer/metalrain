@@ -6,9 +6,11 @@ use crate::settings::MetaballRenderSettings;
 use crate::embedded_shaders;
 use bevy::window::{PrimaryWindow, WindowResized};
 
+const SIM_TEXTURE_SIZE: f32 = 512.0;
+
 #[derive(Clone, Copy, ShaderType, Debug)]
 pub struct MetaballPresentParams {
-    // (scale_u, offset_u, scale_v, offset_v)
+    // (scale_u, offset_u, scale_v, offset_v) — now always identity since we rely on geometry scaling/cropping
     pub scale_offset: Vec4,
 }
 
@@ -39,8 +41,7 @@ impl Plugin for MetaballDisplayPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<MetaballDisplayMaterial>::default())
             .add_systems(PostStartup, (setup_present,))
-            // Update quad mesh when window size changes.
-            .add_systems(Update, (resize_present_quad,));
+            .add_systems(Update, (resize_fit_cover,));
     }
 }
 
@@ -63,54 +64,47 @@ fn setup_present(
     if existing_cameras.is_empty() {
         commands.spawn((Camera2d, MetaballCameraTag));
     }
-    // Safely get the primary window; if it's not yet available, abort setup for this frame.
+
     let Ok(window) = windows.single() else { return; };
-    let quad = Mesh::from(Rectangle::new(window.width(), window.height()));
+
+    // Fixed-size square mesh centered at origin.
+    let quad = Mesh::from(Rectangle::new(SIM_TEXTURE_SIZE, SIM_TEXTURE_SIZE));
     let quad_handle = meshes.add(quad);
-    let params = aspect_params(window.width(), window.height());
+
     let material_handle = materials.add(MetaballDisplayMaterial {
         texture: field.0.clone(),
         albedo: albedo.0.clone(),
-        params,
+        params: MetaballPresentParams::default(),
     });
+
+    let scale = cover_scale(window.width(), window.height());
+
     commands.spawn((
         Mesh2d(quad_handle),
         MeshMaterial2d(material_handle),
-        Transform::from_scale(Vec3::splat(1.0)),
+        Transform::from_scale(Vec3::new(scale, scale, 1.0)), // uniform scale for cover fit
         MetaballPresentQuad,
     ));
 }
 
-// Regenerate the fullscreen quad mesh when the primary window is resized.
-fn resize_present_quad(
+// Update scaling on resize so quad "covers" the screen (cropping one axis).
+fn resize_fit_cover(
     mut resize_events: EventReader<WindowResized>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<MetaballDisplayMaterial>>,
-    q: Query<(&Mesh2d, &MeshMaterial2d<MetaballDisplayMaterial>), With<MetaballPresentQuad>>,
+    mut q: Query<&mut Transform, With<MetaballPresentQuad>>,
 ) {
     let Some(last) = resize_events.read().last().cloned() else { return; };
-    for (mesh2d, mat_handle) in q.iter() {
-        if let Some(mesh) = meshes.get_mut(&mesh2d.0) {
-            *mesh = Mesh::from(Rectangle::new(last.width, last.height));
-        }
-        if let Some(mat) = materials.get_mut(&mat_handle.0) {
-            mat.params = aspect_params(last.width, last.height);
-        }
+    let scale = cover_scale(last.width, last.height);
+    for mut transform in &mut q {
+        // Preserve any Z / rotation (currently none).
+        transform.scale.x = scale;
+        transform.scale.y = scale;
     }
 }
 
-fn aspect_params(w: f32, h: f32) -> MetaballPresentParams {
-    if w <= 0.0 || h <= 0.0 { return MetaballPresentParams::default(); }
-    let aspect = w / h;
-    if aspect >= 1.0 {
-        // Landscape: crop vertically (inset V)
-        let scale_v = 1.0 / aspect; // < 1
-        let offset_v = (1.0 - scale_v) * 0.5;
-        MetaballPresentParams { scale_offset: Vec4::new(1.0, 0.0, scale_v, offset_v) }
-    } else {
-        // Portrait: crop horizontally (inset U)
-        let scale_u = aspect; // < 1
-        let offset_u = (1.0 - scale_u) * 0.5;
-        MetaballPresentParams { scale_offset: Vec4::new(scale_u, offset_u, 1.0, 0.0) }
-    }
+// Compute uniform scale so a SIM_TEXTURE_SIZE square covers the window (cropping on the smaller axis).
+fn cover_scale(w: f32, h: f32) -> f32 {
+    if w <= 0.0 || h <= 0.0 { return 1.0; }
+    let target_side = w.max(h); // cover: match the larger screen dimension
+    // target_side / SIM_TEXTURE_SIZE / 2.0
+    1.0
 }
