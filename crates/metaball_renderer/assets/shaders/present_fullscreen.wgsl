@@ -1,21 +1,8 @@
-// Present fragment shader – simplified solid fill version
-//
-// Goal: remove bevel, edge tinting, specular, fresnel, highlight bands, and shadow logic.
-// Only keep:
-//   * Iso evaluation + smooth edge AA
-//   * Optional per‑pixel albedo override (if albedo tex supplies coverage)
-//   * Subtle background vertical gradient (can be removed if desired)
-// Result: metaball silhouette filled with a constant (or albedo) color, no lighting.
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
 @group(2) @binding(0) var present_tex: texture_2d<f32>;
 @group(2) @binding(1) var albedo_tex: texture_2d<f32>;
 @group(2) @binding(2) var present_sampler: sampler;
-@group(2) @binding(3) var<uniform> present_params: PresentParams;
-
-struct PresentParams {
-    scale_offset: vec4<f32>, // (scale_u, offset_u, scale_v, offset_v)
-}
 
 // Iso-surface & edge AA
 const ISO: f32             = 0.50;
@@ -59,17 +46,13 @@ fn compute_surface_fill(field: f32, iso: f32, width: f32, fill_rgb: vec3<f32>) -
 
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = vec2(v.uv.x,1.0-v.uv.y);
-    let so = present_params.scale_offset;
-    let sample_uv = vec2<f32>(so.y + uv.x * so.x, so.w + uv.y * so.z);
-    let dims = vec2<f32>(f32(textureDimensions(present_tex, 0).x),
-                         f32(textureDimensions(present_tex, 0).y));
-    let packed       = sample_packed(sample_uv);
+    let uv = vec2(v.uv.x, 1.0 - v.uv.y);
+    let packed       = sample_packed(uv);
     let field        = packed.r;
     var w = max(fwidth(field) * EDGE_BAND, 1e-4);
     if (!USE_DERIV_EDGE) { w = 0.01; }
     let inside_mask = smoothstep(ISO - w, ISO + w, field);
-    let albedo = sample_albedo(sample_uv);
+    let albedo = sample_albedo(uv);
     let fill_rgb = select(SOLID_COLOR, albedo.rgb / max(albedo.a, 1e-6), albedo.a > 0.001);
     let blob_rgb = compute_surface_fill(field, ISO, w, fill_rgb);
     let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));

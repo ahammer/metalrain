@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy::sprite::MeshMaterial2d;
-use crate::simulation::{HALF_EXTENT, resolve_collisions};
+use crate::simulation::{HALF_EXTENT};
 use metaball_renderer::{MetaBall, MetaBallColor, MetaballRenderSettings};
 
 #[derive(Resource, Default)]
@@ -11,7 +11,7 @@ impl Plugin for DebugVisPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DebugVisToggle>()
             .add_systems(Startup, setup_lines)
-            .add_systems(Update, (toggle_debug, apply_visibility, draw_ball_circles.after(resolve_collisions)));
+            .add_systems(Update, (toggle_debug, apply_visibility, draw_ball_circles));
     }
 }
 

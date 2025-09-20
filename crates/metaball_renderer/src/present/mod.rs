@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
-use bevy::render::render_resource::{AsBindGroup, ShaderRef, ShaderType};
+use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::window::{PrimaryWindow, WindowResized};
 use bevy::render::camera::{ScalingMode, Projection};
 
@@ -10,17 +10,7 @@ use crate::embedded_shaders;
 
 const SIM_TEXTURE_SIZE: f32 = 512.0;
 
-#[derive(Clone, Copy, ShaderType, Debug)]
-pub struct MetaballPresentParams {
-    // (scale_u, offset_u, scale_v, offset_v) — still identity (UVs unchanged)
-    pub scale_offset: Vec4,
-}
-
-impl Default for MetaballPresentParams {
-    fn default() -> Self {
-        Self { scale_offset: Vec4::new(1.0, 0.0, 1.0, 0.0) }
-    }
-}
+// Removed MetaballPresentParams (scale_offset) – UVs now pass through directly.
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct MetaballDisplayMaterial {
@@ -29,8 +19,6 @@ pub struct MetaballDisplayMaterial {
     #[texture(1)]
     #[sampler(2)]
     albedo: Handle<Image>,
-    #[uniform(3)]
-    params: MetaballPresentParams,
 }
 
 impl Material2d for MetaballDisplayMaterial {
@@ -80,7 +68,6 @@ fn setup_present(
     let material_handle = materials.add(MetaballDisplayMaterial {
         texture: field.0.clone(),
         albedo: albedo.0.clone(),
-        params: MetaballPresentParams::default(),
     });
 
     commands.spawn((
