@@ -27,15 +27,15 @@ struct PresentParams {
 // Core iso-surface & edge AA
 const ISO: f32             = 0.50;
 const EDGE_BAND: f32       = 1.50;
-const USE_DERIV_EDGE: bool = false;
+const USE_DERIV_EDGE: bool = true;
 
 // Bevel (surface shading) controls
-const BEVEL_PX: f32        = 18.0;
+const BEVEL_PX: f32        = 5.0;
 const BEVEL_CURVE_EXP: f32 = 1.4;
-const BEVEL_SECOND_EXP: f32= 1.0;    // (disable second shaping by =1.0)
+const BEVEL_SECOND_EXP: f32= 1.2;    // (disable second shaping by =1.0)
 
 // Interior flattening (keeps top relatively flat after bevel region)
-const FLAT_PX: f32         = 42.0;
+const FLAT_PX: f32         = 5.2;
 const EDGE_FADE_EXP: f32   = 1.3;    // how quickly edge effects fade toward center
 
 // Lighting constants for soft plastic/silicone look
