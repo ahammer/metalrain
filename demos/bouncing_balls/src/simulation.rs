@@ -10,7 +10,7 @@ use rand::prelude::*;
 use metaball_renderer::{MetaBall, MetaBallColor, MetaBallCluster, MetaballRenderSettings, RuntimeSettings};
 
 // World half extent for simulation (logical space: -EXTENT..EXTENT in both axes)
-pub const HALF_EXTENT: f32 = 200.0; // made public for debug viz
+pub const HALF_EXTENT: f32 = 256.0; // made public for debug viz
 const WORLD_SIZE: f32 = HALF_EXTENT * 2.0;
 
 #[derive(Component, Clone, Copy)]
@@ -44,7 +44,7 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
     let mut desired = (area / (32.0*32.0)) as usize;
     desired = desired.clamp(64, 10_000); // arbitrary safety cap
     for i in 0..desired {
-        let radius = rng.gen_range(7.5..15.0);
+        let radius = rng.gen_range(2.5..5.0);
         let x = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
         let y = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
         let angle = rng.gen_range(0.0..std::f32::consts::TAU);

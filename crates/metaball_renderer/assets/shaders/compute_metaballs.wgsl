@@ -36,12 +36,8 @@ struct Ball {
 
 const EPS: f32 = 1e-4;
 
-// Fixed world-space bounds baked into the shader. The logical "central screen"
-// region (entire render target) is mapped to [-200,-200] -> [200,200]. This
-// provides a stable, resolution‑independent coordinate space for field
-// evaluation and future effects (iso adjustments, SDF usage, etc.).
-const WORLD_MIN: vec2<f32> = vec2<f32>(-1000.0, -1000.0);
-const WORLD_MAX: vec2<f32> = vec2<f32>( 1000.0,  1000.0);
+const WORLD_MIN: vec2<f32> = vec2<f32>(-256.0, -256.0);
+const WORLD_MAX: vec2<f32> = vec2<f32>( 256.0,  256.0);
 const WORLD_SIZE: vec2<f32> = WORLD_MAX - WORLD_MIN;
 
 // Convert pixel-space (0..screen_size) into world space using an affine map.
