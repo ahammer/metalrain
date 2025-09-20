@@ -100,7 +100,7 @@ fn update_projection_cover(
     // Run only on the latest resize event (ignore intermediate).
     let Some(_last) = resize_events.read().last().cloned() else { return; };
     let Ok(window) = windows.single() else { return; };
-    let Ok(mut projection) = cams.get_single_mut() else { return; };
+    let Ok(mut projection) = cams.single_mut() else { return; };
 
     let w = window.width().max(1.0);
     let h = window.height().max(1.0);
