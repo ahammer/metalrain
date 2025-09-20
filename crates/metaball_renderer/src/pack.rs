@@ -28,7 +28,7 @@ fn advance_time(time: Res<Time>, uni: Option<ResMut<TimeUniform>>) { if let Some
 fn mark_repack(
     mut flag: ResMut<NeedsRepack>,
     added_ball: Query<Entity, Added<MetaBall>>,
-    changed_ball: Query<Entity, (Changed<MetaBall>, Without<MetaBallCluster>, Without<MetaBallColor>)>,
+    changed_ball: Query<Entity, (Changed<MetaBall>, With<MetaBallCluster>, With<MetaBallColor>)>,
     changed_color: Query<Entity, Changed<MetaBallColor>>,
     changed_cluster: Query<Entity, Changed<MetaBallCluster>>,
     removed_ball: RemovedComponents<MetaBall>,

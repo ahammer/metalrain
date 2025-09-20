@@ -55,7 +55,6 @@ fn to_world(pixel: vec2<f32>) -> vec2<f32> {
 }
 
 fn ball_center(i: u32) -> vec2<f32> {
-  // Wobble removed: use static center. (Binding layout preserved; time uniform now unused.)
   let b = balls[i];
   return to_world(b.center);
 }
