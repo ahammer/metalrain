@@ -41,6 +41,22 @@ fn sample_albedo(uv: vec2<f32>) -> vec4<f32> {
 }
 // (All previous bevel / lighting helpers removed.)
 
+// Computes the interior surface fill color for the metaball silhouette.
+// Rationale: we will later expand this to support bevel / lighting again; isolating
+// the logic now makes future experimentation cheap. For now we simply modulate
+// the flat fill color by a density term so there is a very subtle gradient from
+// center (higher field value) toward the iso edge.
+// Parameters:
+//   field    – raw scalar field sample (0..~1)
+//   iso      – iso threshold defining the surface
+//   width    – derivative based edge width (currently unused but kept for future AA-aware shading)
+//   fill_rgb – base (albedo) color prior to shading
+// Returns a color already premultiplied by a simple density factor.
+fn compute_surface_fill(field: f32, iso: f32, width: f32, fill_rgb: vec3<f32>) -> vec3<f32> {
+    let nfield = (field - iso) / (1.0 - iso);
+    return fill_rgb * vec3(nfield, nfield, nfield);
+}
+
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let uv = vec2(v.uv.x,1.0-v.uv.y);
@@ -55,7 +71,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let inside_mask = smoothstep(ISO - w, ISO + w, field);
     let albedo = sample_albedo(sample_uv);
     let fill_rgb = select(SOLID_COLOR, albedo.rgb / max(albedo.a, 1e-6), albedo.a > 0.001);
-    let blob_rgb = fill_rgb; // no lighting / shading
+    let blob_rgb = compute_surface_fill(field, ISO, w, fill_rgb);
     let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));
     let out_rgb = lerp(bg, blob_rgb, inside_mask);
     return vec4<f32>(out_rgb, 1.0);
