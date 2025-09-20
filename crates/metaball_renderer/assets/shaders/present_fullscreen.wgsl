@@ -27,7 +27,7 @@ struct PresentParams {
 // Core iso-surface & edge AA
 const ISO: f32             = 0.50;
 const EDGE_BAND: f32       = 1.50;
-const USE_DERIV_EDGE: bool = true;
+const USE_DERIV_EDGE: bool = false;
 
 // Bevel (surface shading) controls
 const BEVEL_PX: f32        = 18.0;
