@@ -155,7 +155,7 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
   textureStore(
     output_tex,
     vec2<i32>(i32(gid.x), i32(gid.y)),
-    vec4<f32>(field, norm_grad.x, norm_grad.y, inv_grad_len)
+    vec4<f32>(field * 0.5, norm_grad.x, norm_grad.y, inv_grad_len)
   );
 
   // Write albedo as premultiplied by a simple field-derived coverage so the present shader
