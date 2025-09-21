@@ -83,5 +83,5 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     var blob_rgb = compute_surface_fill(field, ISO, w, fill_rgb);
     let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));
     let out_rgb = lerp(bg, blob_rgb, inside_mask);
-    return vec4<f32>(out_rgb, 1.0) * field;
+    return vec4<f32>(normals_sample.rgb, 1.0) * field;
 }

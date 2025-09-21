@@ -19,9 +19,13 @@ struct Params {
 @group(0) @binding(1) var<uniform> params: Params; // for screen_size
 @group(0) @binding(2) var normals_tex: texture_storage_2d<rgba16float, write>;
 
-const ISO: f32 = 0.80;               // Keep in sync with present shader constant for now
-const HEIGHT_HALF_EXTENT: f32 = 4.0; // Tunable: widens plateau regions
-const NORMAL_Z_SCALE: f32 = 40.0;    // Vertical exaggeration before normalization
+// Banded normal shaping:
+// Everything below BAND_MIN and above BAND_MAX becomes flat (normal = (0,0,1), height plateaus 0 / 1).
+// Only the field interval [BAND_MIN, BAND_MAX] produces curvature & eased height.
+const BAND_MIN: f32 = 0.70;
+const BAND_MAX: f32 = 0.90;
+const BAND_WIDTH: f32 = (BAND_MAX - BAND_MIN);
+const NORMAL_Z_SCALE: f32 = 10.0;    // Vertical exaggeration inside the active band
 
 fn in_out_circ(u: f32) -> f32 {
   if (u < 0.5) {
@@ -51,19 +55,27 @@ fn compute_normals(@builtin(global_invocation_id) gid: vec3<u32>) {
   let gy = packed.b;
   let inv_grad_len = packed.a;
 
-  // Signed distance approximation
-  let sd = (field - ISO) * inv_grad_len;
-  let h_extent = max(HEIGHT_HALF_EXTENT, 1e-4);
-  let sd_clamped = clamp(sd, -h_extent, h_extent);
-  let u = 0.5 + 0.5 * (sd_clamped / h_extent); // maps [-H,0,H] -> [0,0.5,1]
+  // Clamp field into band then remap to [0,1]. Outside band this produces plateaus (u=0 or 1).
+  let field_clamped = clamp(field, BAND_MIN, BAND_MAX);
+  let u = (field_clamped - BAND_MIN) / max(BAND_WIDTH, 1e-6);
 
+  // Height easing (inOutCirc) gives smooth curvature only inside band.
   let height = in_out_circ(u);
-  let du_dsd = 0.5 / h_extent;
-  let slope_factor = in_out_circ_derivative(u) * du_dsd;
 
+  // Determine if fragment actually lies inside band (not just clamped to an edge).
+  let in_band = field >= BAND_MIN && field <= BAND_MAX;
   let grad_valid = inv_grad_len > 0.0;
+
+  // d(height)/d(field) only meaningful inside band.
+  var slope_factor = 0.0;
+  if (in_band && grad_valid) {
+    let dh_df = in_out_circ_derivative(u) * (1.0 / max(BAND_WIDTH, 1e-6));
+    let grad_len = 1.0 / max(inv_grad_len, 1e-6); // |grad(field)|
+    slope_factor = dh_df * grad_len;
+  }
+
   var horiz = vec2<f32>(0.0, 0.0);
-  if (grad_valid) { horiz = -vec2<f32>(gx, gy) * slope_factor * NORMAL_Z_SCALE; }
+  if (slope_factor != 0.0) { horiz = -vec2<f32>(gx, gy) * slope_factor * NORMAL_Z_SCALE; }
 
   var n = vec3<f32>(horiz.x, horiz.y, 1.0);
   n = normalize(n);

@@ -103,7 +103,9 @@ impl render_graph::Node for NormalsComputeNode {
         let pipeline_res = world.resource::<GpuNormalsPipeline>();
         let cache = world.resource::<PipelineCache>();
         let gpu_pipeline = cache.get_compute_pipeline(pipeline_res.pipeline_id).expect("normals pipeline ready");
-        let bind_group = &world.resource::<GpuNormalsBindGroup>().0;
+        // Gracefully skip until bind group prepared instead of panicking when first few frames
+        let Some(bg_res) = world.get_resource::<GpuNormalsBindGroup>() else { return Ok(()); };
+        let bind_group = &bg_res.0;
         let params = world.resource::<ParamsUniform>();
         let mut pass = render_context.command_encoder().begin_compute_pass(&ComputePassDescriptor::default());
         pass.set_pipeline(gpu_pipeline);
