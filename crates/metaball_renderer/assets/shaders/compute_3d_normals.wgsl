@@ -22,8 +22,8 @@ struct Params {
 // Banded normal shaping:
 // Everything below BAND_MIN and above BAND_MAX becomes flat (normal = (0,0,1), height plateaus 0 / 1).
 // Only the field interval [BAND_MIN, BAND_MAX] produces curvature & eased height.
-const BAND_MIN: f32 = 0.70;
-const BAND_MAX: f32 = 0.90;
+const BAND_MIN: f32 = 0.0;
+const BAND_MAX: f32 = 1.0;
 const BAND_WIDTH: f32 = (BAND_MAX - BAND_MIN);
 const NORMAL_Z_SCALE: f32 = 10.0;    // Vertical exaggeration inside the active band
 
