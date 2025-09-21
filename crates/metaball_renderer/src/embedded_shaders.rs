@@ -6,11 +6,15 @@ use std::sync::OnceLock;
 // Embedded shader handles (fallback + wasm path). Hot reload path uses ShaderRef::Path.
 #[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
 static COMPUTE_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
+#[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
+static NORMALS_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 #[cfg(all(feature = "present", any(target_arch = "wasm32", not(feature = "shader_hot_reload"))))]
 static PRESENT_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
 #[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
 const COMPUTE_WGSL: &str = include_str!("../assets/shaders/compute_metaballs.wgsl");
+#[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
+const NORMALS_WGSL: &str = include_str!("../assets/shaders/compute_3d_normals.wgsl");
 #[cfg(all(feature = "present", any(target_arch = "wasm32", not(feature = "shader_hot_reload"))))]
 const PRESENT_WGSL: &str = include_str!("../assets/shaders/present_fullscreen.wgsl");
 
@@ -26,6 +30,10 @@ pub fn ensure_loaded(world: &mut World) {
             let shader = Shader::from_wgsl(COMPUTE_WGSL, file!());
             shaders.add(shader)
         });
+        NORMALS_SHADER_HANDLE.get_or_init(|| {
+            let shader = Shader::from_wgsl(NORMALS_WGSL, file!());
+            shaders.add(shader)
+        });
         #[cfg(feature = "present")]
         {
             PRESENT_SHADER_HANDLE.get_or_init(|| {
@@ -38,6 +46,8 @@ pub fn ensure_loaded(world: &mut World) {
 
 #[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
 pub fn compute_handle() -> Handle<Shader> { COMPUTE_SHADER_HANDLE.get().cloned().expect("compute shader loaded") }
+#[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
+pub fn normals_handle() -> Handle<Shader> { NORMALS_SHADER_HANDLE.get().cloned().expect("normals shader loaded") }
 #[cfg(all(feature = "present", any(target_arch = "wasm32", not(feature = "shader_hot_reload"))))]
 pub fn present_handle() -> Handle<Shader> { PRESENT_SHADER_HANDLE.get().cloned().expect("present shader loaded") }
 

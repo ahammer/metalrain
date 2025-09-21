@@ -3,6 +3,7 @@
 @group(2) @binding(0) var present_tex: texture_2d<f32>;
 @group(2) @binding(1) var albedo_tex: texture_2d<f32>;
 @group(2) @binding(2) var present_sampler: sampler;
+@group(2) @binding(3) var normals_tex: texture_2d<f32>; // sampled (prepared) but not yet used for shading
 
 // Packed metaball field texture layout (rgba16float) produced by compute_metaballs.wgsl:
 //   R: scalar field value  Σ (r_i^2 / d_i^2)
@@ -47,6 +48,9 @@ fn sample_packed(uv: vec2<f32>) -> vec4<f32> {
 fn sample_albedo(uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(albedo_tex, present_sampler, uv, 0.0);
 }
+fn sample_normals(uv: vec2<f32>) -> vec4<f32> {
+    return textureSampleLevel(normals_tex, present_sampler, uv, 0.0);
+}
 
 // Computes the interior surface fill color for the metaball silhouette.
 // Rationale: we will later expand this to support bevel / lighting again; isolating
@@ -69,6 +73,8 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let uv = vec2(v.uv.x, 1.0 - v.uv.y);
     let packed       = sample_packed(uv);
     let field        = packed.r;
+    // Sample normals texture (currently unused to preserve visual parity; ensures pipeline & data path are valid)
+    let normals_sample = sample_normals(uv);
     var w = max(fwidth(field) * EDGE_BAND, 1e-4);
     if (!USE_DERIV_EDGE) { w = 0.01; }
     let inside_mask = smoothstep(ISO - w, ISO + w, field);

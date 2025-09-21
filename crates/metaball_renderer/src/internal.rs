@@ -35,6 +35,9 @@ pub struct FieldTexture(pub Handle<Image>);
 #[derive(Resource, Clone, Debug, ExtractResource)]
 pub struct AlbedoTexture(pub Handle<Image>);
 
+#[derive(Resource, Clone, Debug, ExtractResource)]
+pub struct NormalTexture(pub Handle<Image>);
+
 #[derive(Resource, Clone, Debug, ExtractResource, Default)]
 pub struct BallBuffer { pub balls: Vec<BallGpu> }
 

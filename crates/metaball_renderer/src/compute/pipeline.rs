@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use bevy::prelude::*;
 use bevy::render::{extract_resource::ExtractResourcePlugin, render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice, RenderQueue}, texture::GpuImage, Render, RenderApp, RenderSet};
-use crate::internal::{WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, BallBuffer, TimeUniform, ParamsUniform};
+use crate::internal::{WORKGROUP_SIZE, BallGpu, FieldTexture, AlbedoTexture, NormalTexture, BallBuffer, TimeUniform, ParamsUniform};
 #[allow(unused_imports)]
 use crate::embedded_shaders;
 use super::types::*;
@@ -25,6 +25,7 @@ impl Plugin for ComputeMetaballsPlugin {
             ExtractResourcePlugin::<TimeUniform>::default(),
             ExtractResourcePlugin::<ParamsUniform>::default(),
             ExtractResourcePlugin::<AlbedoTexture>::default(),
+            ExtractResourcePlugin::<NormalTexture>::default(),
         ));
 
     app.add_systems(Startup, (setup_textures_and_uniforms,));
@@ -37,7 +38,7 @@ impl Plugin for ComputeMetaballsPlugin {
     render_app.add_systems(Render, upload_metaball_buffers.in_set(RenderSet::Prepare).after(RenderSet::PrepareBindGroups));
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(MetaballPassLabel, MetaballComputeNode::default());
-        graph.add_node_edge(MetaballPassLabel, bevy::render::graph::CameraDriverLabel);
+        // Edge to camera driver is now added by normals pass (if enabled) so that normals can depend on this pass.
     }
     fn finish(&self, app: &mut App) { app.sub_app_mut(RenderApp).init_resource::<GpuMetaballPipeline>(); }
 }
@@ -54,6 +55,10 @@ fn setup_textures_and_uniforms(
     let mut albedo = Image::new_fill(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, &[0u8;4], TextureFormat::Rgba8Unorm, bevy::render::render_asset::RenderAssetUsages::default());
     albedo.texture_descriptor.usage = TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
     let albedo_h = images.add(albedo);
+    // Normal texture (second pass output)
+    let mut normal_img = Image::new_fill(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, &[0u8;8], TextureFormat::Rgba16Float, bevy::render::render_asset::RenderAssetUsages::default());
+    normal_img.texture_descriptor.usage = TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
+    let normal_h = images.add(normal_img);
     // Empty CPU buffer (Phase 2 placeholder)
     let balls = Vec::new();
     commands.insert_resource(FieldTexture(field_h));
@@ -61,6 +66,7 @@ fn setup_textures_and_uniforms(
     commands.insert_resource(BallBuffer { balls });
     commands.insert_resource(TimeUniform::default());
     commands.insert_resource(ParamsUniform { screen_size: [w as f32, h as f32], num_balls: 0, clustering_enabled: if settings.enable_clustering {1} else {0} });
+    commands.insert_resource(NormalTexture(normal_h));
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 

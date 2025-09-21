@@ -4,7 +4,7 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::window::{PrimaryWindow, WindowResized};
 use bevy::render::camera::{ScalingMode, Projection};
 
-use crate::internal::{FieldTexture, AlbedoTexture};
+use crate::internal::{FieldTexture, AlbedoTexture, NormalTexture};
 use crate::settings::MetaballRenderSettings;
 use crate::embedded_shaders;
 
@@ -19,6 +19,8 @@ pub struct MetaballDisplayMaterial {
     #[texture(1)]
     #[sampler(2)]
     albedo: Handle<Image>,
+    #[texture(3)]
+    normals: Handle<Image>,
 }
 
 impl Material2d for MetaballDisplayMaterial {
@@ -49,6 +51,7 @@ fn setup_present(
     mut materials: ResMut<Assets<MetaballDisplayMaterial>>,
     field: Res<FieldTexture>,
     albedo: Res<AlbedoTexture>,
+    normals: Res<NormalTexture>,
     mut commands: Commands,
     _settings: Res<MetaballRenderSettings>,
     existing_cameras: Query<Entity, With<Camera>>,
@@ -68,6 +71,7 @@ fn setup_present(
     let material_handle = materials.add(MetaballDisplayMaterial {
         texture: field.0.clone(),
         albedo: albedo.0.clone(),
+        normals: normals.0.clone(),
     });
 
     commands.spawn((
