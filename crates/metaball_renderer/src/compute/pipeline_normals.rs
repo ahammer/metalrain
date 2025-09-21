@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use bevy::prelude::*;
-use bevy::render::{extract_resource::ExtractResourcePlugin, render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice}, texture::GpuImage, Render, RenderApp};
+use bevy::render::{render_asset::RenderAssets, render_graph::{self, RenderGraph, RenderLabel}, render_resource::*, renderer::{RenderContext, RenderDevice}, texture::GpuImage, Render, RenderApp};
 use crate::internal::{FieldTexture, NormalTexture, ParamsUniform};
 use super::types::GpuMetaballBindGroup; // ensure compute pass ran
 use crate::compute::MetaballPassLabel;
@@ -19,23 +19,20 @@ pub struct GpuNormalsBindGroup(pub BindGroup);
 
 impl Plugin for NormalComputePlugin {
     fn build(&self, app: &mut App) {
-        // Ensure shaders embedded & resources extracted
+        // Shaders embedded; required resources already extracted by the primary compute plugin.
         crate::embedded_shaders::ensure_loaded(app.world_mut());
-        app.add_plugins((
-            ExtractResourcePlugin::<FieldTexture>::default(),
-            ExtractResourcePlugin::<NormalTexture>::default(),
-            ExtractResourcePlugin::<ParamsUniform>::default(),
-        ));
         let render_app = app.sub_app_mut(RenderApp);
         crate::embedded_shaders::ensure_loaded(render_app.world_mut());
         render_app
-            .init_resource::<GpuNormalsPipeline>()
             .add_systems(Render, prepare_normals_bind_group.in_set(bevy::render::RenderSet::PrepareBindGroups));
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(NormalsPassLabel, NormalsComputeNode::default());
         // Order: metaballs -> normals -> camera driver
         graph.add_node_edge(MetaballPassLabel, NormalsPassLabel);
         graph.add_node_edge(NormalsPassLabel, bevy::render::graph::CameraDriverLabel);
+    }
+    fn finish(&self, app: &mut App) {
+        app.sub_app_mut(RenderApp).init_resource::<GpuNormalsPipeline>();
     }
 }
 
@@ -65,14 +62,13 @@ fn prepare_normals_bind_group(
     pipeline: Res<GpuNormalsPipeline>,
     field: Option<Res<FieldTexture>>,
     normals: Option<Res<NormalTexture>>,
-    params: Option<Res<ParamsUniform>>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     render_device: Res<RenderDevice>,
     gpu_metaball: Option<Res<GpuMetaballBindGroup>>, // ensure first pass prepared
     gpu_buffers: Option<Res<super::types::GpuBuffers>>,
 ) {
-    let (_first_pass_ready, field, normals, params, gpu_buffers) = match (gpu_metaball, field, normals, params, gpu_buffers) {
-        (Some(_), Some(f), Some(n), Some(p), Some(bufs)) => (true, f, n, p, bufs),
+    let (_first_pass_ready, field, normals, gpu_buffers) = match (gpu_metaball, field, normals, gpu_buffers) {
+        (Some(_), Some(f), Some(n), Some(bufs)) => (true, f, n, bufs),
         _ => return,
     };
     let Some(field_img) = gpu_images.get(&field.0) else { return; };

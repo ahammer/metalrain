@@ -44,7 +44,8 @@ fn in_out_circ_derivative(u: f32) -> f32 {
 fn compute_normals(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= u32(params.screen_size.x) || gid.y >= u32(params.screen_size.y)) { return; }
   let coord = vec2<i32>(i32(gid.x), i32(gid.y));
-  let packed = textureLoad(field_tex, coord, 0);
+  // storage textures use textureLoad(texture, coords) (no mip level param)
+  let packed = textureLoad(field_tex, coord);
   let field = packed.r;
   let gx = packed.g;
   let gy = packed.b;

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::compute::ComputeMetaballsPlugin;
+use crate::compute::{ComputeMetaballsPlugin, NormalComputePlugin};
 use crate::pack::PackingPlugin;
 #[cfg(feature = "present")] use crate::present::MetaballDisplayPlugin;
 
@@ -27,6 +27,8 @@ impl Plugin for MetaballRendererPlugin {
             rt.clustering_enabled = self.settings.enable_clustering;
         }
     app.add_plugins(ComputeMetaballsPlugin);
+    // Second pass: derive normals from packed field
+    app.add_plugins(NormalComputePlugin);
     app.add_plugins(PackingPlugin); // Phase 3 packing
         #[cfg(feature = "present")] if self.settings.present { app.add_plugins(MetaballDisplayPlugin); }
     }
