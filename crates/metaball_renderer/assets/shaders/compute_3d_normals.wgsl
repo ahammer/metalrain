@@ -6,7 +6,12 @@
 //  A: inverse gradient length (inv_grad_len)
 // Output (rgba16f):
 //  RGB: pseudo 3D normal
-//  A:   height (smooth bump) inside band, 0 outside
+//  A:   height (profile-dependent) (0 outside lighting region)
+//
+// PROFILE MODES:
+// 0 = Legacy symmetric band (old behavior)
+// 1 = Monotonic interior-only (peak slope at iso, height grows inward)  [DEFAULT]
+// 2 = Gaussian interior-only (softer falloff; parameterized by GAUSS_WIDTH_PX)
 
 struct Params {
   screen_size: vec2<f32>,
@@ -20,12 +25,15 @@ struct Params {
 
 const ISO: f32 = 1.0;
 
-// Desired half thickness in SCREEN PIXELS (so visible width = ~2 * HALF_THICKNESS_PX).
-// Increase if still flickering (e.g. 3.0 - 4.0), decrease for crisper rim.
-const HALF_THICKNESS_PX: f32 = 2.5;
+// Screen‑space target half thickness (pixels) for legacy & interior profiles.
+const HALF_THICKNESS_PX: f32 = 5.5;
 
-// Vertical exaggeration for surface curvature.
-const NORMAL_Z_SCALE: f32 = 8.0;
+// Vertical exaggeration for surface curvature (affects perceived “bulge”).
+const NORMAL_Z_SCALE: f32 = 10.0;
+
+// Profile selection.
+const PROFILE_MODE: u32 = 1u;          // 0 legacy symmetric, 1 interior monotonic, 2 gaussian
+const GAUSS_WIDTH_PX: f32 = 10.0;       // Used only in mode 2
 
 @compute @workgroup_size(8, 8, 1)
 fn compute_normals(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -43,43 +51,71 @@ fn compute_normals(@builtin(global_invocation_id) gid: vec3<u32>) {
   // Reconstruct gradient length; guard zero.
   let grad_len = select(0.0, 1.0 / inv_grad_len, inv_grad_len > 0.0);
 
-  // Signed offset from iso in field units.
+  // Signed offset from iso in field units (positive inside, field grows toward centers).
   let s = field - ISO;
 
-  // Approximate pixel distance from iso surface.
-  // dist_px ≈ |s| * |∇field| (since field changes ~ grad_len per pixel screen-space).
+  // Approximate pixel distance from iso surface (always positive).
   let dist_px = abs(s) * grad_len;
 
-  // Inside band if within desired screen-space half thickness.
-  let inside = dist_px < HALF_THICKNESS_PX;
+  // Outputs we will determine per profile:
+  var height: f32 = 0.0;
+  var slope_factor: f32 = 0.0;
 
-  // k scales field offset into normalized band space: when |s| = HALF_THICKNESS_PX / grad_len => k^2 * s^2 = 1.
-  // Avoid division by zero (if HALF_THICKNESS_PX very small or grad_len=0).
-  let safe_half = max(HALF_THICKNESS_PX, 1e-6);
-  let k = grad_len / safe_half;
+  if (PROFILE_MODE == 0u) {
+    // --- Legacy symmetric band (original) ---
+    let inside = dist_px < HALF_THICKNESS_PX;
+    let safe_half = max(HALF_THICKNESS_PX, 1e-6);
+    let k = grad_len / safe_half;
+    let ks = k * s;
+    let ks2 = ks * ks;
+    let base = 1.0 - ks2;
+    height = select(0.0, base * base, inside);
 
-  // base = 1 - (k^2 * s^2). We square 'base' for smoother derivative (zero at edge) reducing flicker.
-  let ks = k * s;
-  let ks2 = ks * ks;
-  let base = 1.0 - ks2;
-  let height = select(0.0, base * base, inside);
+    // dh/ds = -4 k^2 s (1 - k^2 s^2)
+    let dh_ds = select(0.0, -4.0 * (k * k) * s * base, inside);
+    slope_factor = dh_ds * grad_len;
+  } else if (PROFILE_MODE == 1u) {
+    // --- Monotonic interior-only profile ---
+    // We only light interior (field > ISO). No exterior band -> highlight hugs silhouette.
+    let inside = field > ISO;
+    if (inside) {
+      // Interior pixel distance from iso:
+      let d = (field - ISO) * grad_len;
+      let half = max(HALF_THICKNESS_PX, 1e-6);
+      let t = clamp(d / half, 0.0, 1.0);
+      // Height starts 0 at iso (t=0) and shrinks toward interior (t→1):
+      // Choose h = (1 - t)^2 (smooth, with zero slope at deep interior).
+      height = (1.0 - t) * (1.0 - t);
 
-  // Derivative dh/ds inside band:
-  // h = (1 - k^2 s^2)^2
-  // dh/ds = -4 k^2 s (1 - k^2 s^2)
-  // (Treat k constant per pixel; variation of k not differentiated for stability.)
-  let dh_ds = select(0.0, -4.0 * (k * k) * s * base, inside);
+      // Derivative wrt t: dh/dt = -2 (1 - t)
+      // dt/ds = grad_len / half   (since d = s * grad_len, s>0 inside)
+      // dh/ds = -2 (1 - t) * grad_len / half
+      let dh_ds = -2.0 * (1.0 - t) * (grad_len / half);
 
-  // Slope factor multiplies gradient vector (|∇field| already separated).
-  let slope_factor = dh_ds * grad_len;
+      slope_factor = dh_ds * grad_len;
+    }
+  } else {
+    // --- Gaussian interior-only profile (PROFILE_MODE == 2) ---
+    // h = exp(-a * d^2), a chosen from width so that d = GAUSS_WIDTH_PX -> small value.
+    let inside = field > ISO;
+    if (inside) {
+      let d = (field - ISO) * grad_len;
+      let width = max(GAUSS_WIDTH_PX, 1e-6);
+      let a = 1.0 / (width * width);          // controlling falloff
+      height = exp(-a * d * d);
+      // dh/dd = -2 a d * exp(-a d^2) = -2 a d * h
+      // dd/ds = grad_len
+      // dh/ds = (-2 a d) * h * grad_len
+      let dh_ds = (-2.0 * a * d) * height * grad_len;
+      slope_factor = dh_ds * grad_len;
+    }
+  }
 
-  // Horizontal normal components (negated gradient scaled by slope, masked).
-  let horiz = -grad_dir * slope_factor * f32(inside);
+  // Horizontal normal components (negative gradient gives outward surface direction).
+  let horiz = -grad_dir * slope_factor;
 
-  // Strengthen curvature visually.
-  let horiz_scaled = horiz * NORMAL_Z_SCALE;
-
-  var n = vec3<f32>(horiz_scaled.x, horiz_scaled.y, 1.0);
+  // Apply curvature exaggeration then compose with Z.
+  var n = vec3<f32>(horiz.x * NORMAL_Z_SCALE, horiz.y * NORMAL_Z_SCALE, 1.0);
   n = normalize(n);
 
   textureStore(normals_tex, coord, vec4<f32>(n, height));

@@ -42,10 +42,10 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
     let mut rng = StdRng::from_entropy();
     // Dynamic count – choose based on texture area heuristic (1 ball per ~ (32x32) tile), clamp.
     let area = (tex_w * tex_h).max(1.0);
-    let mut desired = (area / (24.0*24.0)) as usize;
+    let mut desired = (area / (48.0*48.0)) as usize;
     desired = desired.clamp(64, 10_000); // arbitrary safety cap
     for i in 0..desired {
-        let radius = rng.gen_range(2.5..5.0);
+        let radius = rng.gen_range(2.5..15.0);
         // Spawn inside padded collision bounds
         let x = rng.gen_range((-HALF_EXTENT + COLLISION_PADDING) + radius..(HALF_EXTENT - COLLISION_PADDING) - radius);
         let y = rng.gen_range((-HALF_EXTENT + COLLISION_PADDING) + radius..(HALF_EXTENT - COLLISION_PADDING) - radius);
