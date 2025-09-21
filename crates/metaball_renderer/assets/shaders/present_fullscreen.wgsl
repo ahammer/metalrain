@@ -38,6 +38,16 @@ const SOLID_COLOR: vec3<f32> = vec3<f32>(0.60, 0.62, 0.70);
 const BG_TOP: vec3<f32> = vec3<f32>(0.09, 0.10, 0.13);
 const BG_BOT: vec3<f32> = vec3<f32>(0.03, 0.035, 0.06);
 
+// Lighting constants (simple two-directional light rig + ambient). These are intentionally
+// conservative to preserve existing color palette while adding shape definition.
+const AMBIENT_INTENSITY: f32 = 0.35;
+const SPECULAR_POWER: f32    = 48.0;
+const SPECULAR_STRENGTH: f32 = 0.55;   // scales specular term (premultiplied by mask later)
+const LIGHT0_DIR: vec3<f32>  = vec3<f32>(-0.35, 0.60, 0.72); // key
+const LIGHT0_COLOR: vec3<f32> = vec3<f32>(1.00, 0.96, 0.90);
+const LIGHT1_DIR: vec3<f32>  = vec3<f32>(0.80, 0.25, 0.50);  // fill / rim
+const LIGHT1_COLOR: vec3<f32> = vec3<f32>(0.45, 0.55, 1.00);
+
 // Utility functions
 fn lerp(a: vec3<f32>, b: vec3<f32>, t: f32) -> vec3<f32> {
     return a * (1.0 - t) + b * t;
@@ -68,6 +78,35 @@ fn compute_surface_fill(field: f32, iso: f32, width: f32, fill_rgb: vec3<f32>) -
     return fill_rgb;
 }
 
+// Decode normal from the normals texture. We assume it is stored in 0..1 space and needs to be
+// remapped to -1..1. If the producer later changes packing (e.g. octahedral), update here only.
+fn decode_normal(rgb: vec3<f32>) -> vec3<f32> {
+    return normalize(rgb * 2.0 - vec3<f32>(1.0));
+}
+
+// Apply simple lighting to the metaball surface color. Lighting is only applied where mask > 0
+// (the smooth silhouette region). We keep it branch‑free by math mixing. The supplied color is
+// the already composited scene (bg blended with blob) when called following the requested
+// pattern (out_pre_lighting -> out_rgb = add_lighting). To avoid tinting the background we also
+// accept the mask so we can lerp the lit & unlit colors.
+fn add_lighting(color: vec3<f32>, normal: vec3<f32>, mask: f32) -> vec3<f32> {
+    let n = normalize(normal);
+    let l0 = normalize(LIGHT0_DIR);
+    let l1 = normalize(LIGHT1_DIR);
+    let ndotl0 = max(dot(n, l0), 0.0);
+    let ndotl1 = max(dot(n, l1), 0.0);
+    let diffuse = ndotl0 * LIGHT0_COLOR + ndotl1 * LIGHT1_COLOR;
+    let view_dir = vec3<f32>(0.0, 0.0, 1.0); // screen‑space camera facing -Z toward viewer
+    let half0 = normalize(l0 + view_dir);
+    let half1 = normalize(l1 + view_dir);
+    let spec0 = pow(max(dot(n, half0), 0.0), SPECULAR_POWER);
+    let spec1 = pow(max(dot(n, half1), 0.0), SPECULAR_POWER);
+    let spec = (spec0 * LIGHT0_COLOR + spec1 * LIGHT1_COLOR) * SPECULAR_STRENGTH;
+    let lit = color * (AMBIENT_INTENSITY + diffuse) + spec;
+    // Prevent background lighting: blend only where mask > 0 (smooth edge preserved)
+    return mix(color, lit, clamp(mask, 0.0, 1.0));
+}
+
 @fragment
 fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let uv = vec2(v.uv.x, 1.0 - v.uv.y);
@@ -82,6 +121,10 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let fill_rgb = select(SOLID_COLOR, albedo.rgb / max(albedo.a, 1e-6), albedo.a > 0.001);
     var blob_rgb = compute_surface_fill(field, ISO, w, fill_rgb);
     let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));
-    let out_rgb = lerp(bg, blob_rgb, inside_mask);
-    return vec4<f32>(normals_sample.rgb, 1.0);
+    // Compose unlit color first (requested naming: out_pre_lighting)
+    let out_pre_lighting = lerp(bg, blob_rgb, inside_mask);
+    // Decode normal & apply lighting only on metaball surface
+    let normal = decode_normal(normals_sample.rgb);
+    let out_rgb = add_lighting(out_pre_lighting, normal, inside_mask);
+    return vec4<f32>(out_rgb, 1.0);
 }
