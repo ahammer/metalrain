@@ -31,11 +31,9 @@ fn compute_normals(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   let range = max(FIELD_MAX - ISO, 1e-6);
-  let height = clamp((field - ISO) / range, 0.0, 1.0);
-
+  let height = 1.0 - clamp((field - ISO) / range, 0.0, 1.0);
 
   let h_smooth = smoothstep(0.0, 1.0, height);
-
   let slope_magnitude = sqrt(h_smooth * (2.0 - h_smooth)); // Maps [0,1] to a circular profile
   let slope = -grad_dir * slope_magnitude;
 
