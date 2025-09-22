@@ -27,7 +27,7 @@
 // features via new passes or repurposed A channel only after confirming size / precision impacts.
 
 // Iso-surface & edge AA
-const ISO: f32             = 0.5;
+const ISO: f32             = 1.0;
 const EDGE_BAND: f32       = 0.05;        // widen AA band a bit for smooth edge
 const USE_DERIV_EDGE: bool = true;        // derivative-based width (fast & stable)
 
@@ -128,12 +128,10 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let out_rgb = add_lighting(out_pre_lighting, normal, inside_mask);
     // return vec4<f32>(out_rgb, 1.0);
 
-    if (field > 1.0) {
-        return vec4(field - 1.0, field - 1.0, 1.0, 1.0);
-    } else if (field < 0.5) {
-        return vec4(field, field, field, 1.0);
+    if (field > ISO) {
+        return vec4(normals_sample.rgb, 1.0);
     } else {
-        return vec4(1.0 - field, 1.0 - field, 0.0, 1.0);
+        return vec4(field, field, field, 1.0);
     }
     // return vec4(normal.rgb, 1.0);
 
