@@ -78,10 +78,13 @@ fn compute_surface_fill(field: f32, iso: f32, width: f32, fill_rgb: vec3<f32>) -
     return fill_rgb;
 }
 
-// Decode normal from the normals texture. We assume it is stored in 0..1 space and needs to be
-// remapped to -1..1. If the producer later changes packing (e.g. octahedral), update here only.
+// Decode normal from the normals texture. The compute shader already stores normalized
+// vectors in the [-1, 1] range. This function simply ensures they remain normalized
+// after sampling. The previous `rgb * 2.0 - 1.0` was incorrect as it assumed [0,1] packing.
 fn decode_normal(rgb: vec3<f32>) -> vec3<f32> {
-    return normalize(rgb * 2.0 - vec3<f32>(1.0));
+    // The normals are already in the correct [-1, 1] range.
+    // We just re-normalize to be safe from any potential interpolation artifacts.
+    return normalize(rgb);
 }
 
 // Apply simple lighting to the metaball surface color. Lighting is only applied where mask > 0
@@ -133,6 +136,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     } else {
         return vec4(field, field, field, 1.0);
     }
+
     // return vec4(normal.rgb, 1.0);
 
 }
