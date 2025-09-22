@@ -96,7 +96,7 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
     for (var i: u32 = 0u; i < count; i = i + 1u) {
       if (balls[i].cluster_id == dominant_cluster) {
         let c = ball_center(i);
-        let d = coord - c;
+        let d = (coord - c);
         let dist2 = max(dot(d, d), EPS);
 
         let r = balls[i].radius;
