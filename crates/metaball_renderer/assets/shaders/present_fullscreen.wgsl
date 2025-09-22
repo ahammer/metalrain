@@ -28,7 +28,7 @@
 
 // Iso-surface & edge AA
 const ISO: f32             = 1.0;
-const EDGE_BAND: f32       = 0.05;        // widen AA band a bit for smooth edge
+const EDGE_BAND: f32       = 0.50;        // widen AA band a bit for smooth edge
 const USE_DERIV_EDGE: bool = true;        // derivative-based width (fast & stable)
 
 // Solid fill color fallback (used if albedo texture has no coverage)
@@ -41,12 +41,19 @@ const BG_BOT: vec3<f32> = vec3<f32>(0.03, 0.035, 0.06);
 // Lighting constants (simple two-directional light rig + ambient). These are intentionally
 // conservative to preserve existing color palette while adding shape definition.
 const AMBIENT_INTENSITY: f32 = 0.35;
-const SPECULAR_POWER: f32    = 48.0;
-const SPECULAR_STRENGTH: f32 = 0.55;   // scales specular term (premultiplied by mask later)
+const SPECULAR_POWER: f32    = 64.0;
+const SPECULAR_STRENGTH: f32 = 1.55;   // scales specular term (premultiplied by mask later)
 const LIGHT0_DIR: vec3<f32>  = vec3<f32>(-0.35, 0.60, 0.72); // key
 const LIGHT0_COLOR: vec3<f32> = vec3<f32>(1.00, 0.96, 0.90);
 const LIGHT1_DIR: vec3<f32>  = vec3<f32>(0.80, 0.25, 0.50);  // fill / rim
 const LIGHT1_COLOR: vec3<f32> = vec3<f32>(0.45, 0.55, 1.00);
+
+// Soft shadow constants (newly added)
+const SHADOW_DISTANCE: f32 = 0.005; // Controls how far the shadow is cast.
+const SHADOW_OFFSET: vec2<f32> = LIGHT0_DIR.xy * SHADOW_DISTANCE; // Shadow direction derived from key light.
+const SHADOW_COLOR: vec3<f32>  = vec3<f32>(0.0, 0.0, 0.0);
+const SHADOW_FALLOFF_START: f32 = 0.5; // Field value where shadow begins to fade out
+const SHADOW_FALLOFF_END: f32   = 1.5; // Field value where shadow is at full strength (ISO)
 
 // Utility functions
 fn lerp(a: vec3<f32>, b: vec3<f32>, t: f32) -> vec3<f32> {
@@ -60,6 +67,18 @@ fn sample_albedo(uv: vec2<f32>) -> vec4<f32> {
 }
 fn sample_normals(uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(normals_tex, present_sampler, uv, 0.0);
+}
+
+// Computes a soft shadow occlusion factor by sampling the field at an offset.
+// If the offset sample is inside a metaball, it contributes to the shadow.
+// Returns:
+//   A value from 0.0 (no shadow) to 1.0 (full shadow).
+fn compute_soft_shadow(uv: vec2<f32>) -> f32 {
+    let shadow_uv = uv + SHADOW_OFFSET;
+    let shadow_field = sample_packed(shadow_uv).r;
+    // Calculate occlusion: 1.0 if shadow_field is >= END, 0.0 if <= START
+    let occlusion = smoothstep(SHADOW_FALLOFF_START, SHADOW_FALLOFF_END, shadow_field);
+    return occlusion;
 }
 
 // Computes the interior surface fill color for the metaball silhouette.
@@ -124,9 +143,17 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let fill_rgb = select(SOLID_COLOR, albedo.rgb / max(albedo.a, 1e-6), albedo.a > 0.001);
     var blob_rgb = compute_surface_fill(field, ISO, w, fill_rgb);
     let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));
-    // Compose unlit color first (requested naming: out_pre_lighting)
-    let out_pre_lighting = lerp(bg, blob_rgb, inside_mask);
-    // Decode normal & apply lighting only on metaball surface
+
+    // 1. Calculate soft shadow occlusion
+    let shadow_occlusion = compute_soft_shadow(uv);
+
+    // 2. Apply shadow to background (don't shadow the metaballs themselves)
+    let shaded_bg = lerp(bg, SHADOW_COLOR, shadow_occlusion * (1.0 - inside_mask));
+
+    // 3. Compose unlit color first, now over the shaded background
+    let out_pre_lighting = lerp(shaded_bg, blob_rgb, inside_mask);
+
+    // 4. Decode normal & apply lighting only on metaball surface
     let normal = decode_normal(normals_sample.rgb);
     let out_rgb = add_lighting(out_pre_lighting, normal, inside_mask);
     return vec4<f32>(out_rgb, 1.0);
