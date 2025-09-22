@@ -126,7 +126,7 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     // Decode normal & apply lighting only on metaball surface
     let normal = decode_normal(normals_sample.rgb);
     let out_rgb = add_lighting(out_pre_lighting, normal, inside_mask);
-    // return vec4<f32>(out_rgb, 1.0);
+    return vec4<f32>(out_rgb, 1.0);
     // return vec4(normal.rgb, 1.0);
-    return vec4(field, field, field, 1.0);
+    // return vec4(field, field, field, 1.0);
 }

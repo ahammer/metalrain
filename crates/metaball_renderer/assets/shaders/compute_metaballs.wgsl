@@ -121,7 +121,7 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
       var color_acc: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
       for (var i: u32 = 0u; i < count; i = i + 1u) {
         let c = ball_center(i);
-        let d = coord - c;
+        let d = (coord - c);
         let dist2 = max(dot(d, d), EPS);
 
         let r = balls[i].radius;

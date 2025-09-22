@@ -23,7 +23,7 @@ struct Params {
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var normals_tex: texture_storage_2d<rgba16float, write>;
 
-const ISO: f32 = 1.0;
+const ISO: f32 = 0.5;
 
 // Screen‑space target half thickness (pixels) for legacy & interior profiles.
 const HALF_THICKNESS_PX: f32 = 5.5;
