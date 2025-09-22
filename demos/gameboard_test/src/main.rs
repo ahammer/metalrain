@@ -9,7 +9,7 @@ const TEX_SIZE: UVec2 = UVec2::new(512,512); // texture used by metaball rendere
 const WALL_THICKNESS: f32 = 10.0;
 const NUM_BALLS: usize = 400; // reasonable default; adjust as desired
 // We rely on Rapier's default gravity (approx -9.81 on Y). To exaggerate the effect, we apply a GravityScale > 1 on each ball.
-const GRAVITY_SCALE: f32 = 35.0; // amplifies default gravity strength per ball
+const GRAVITY_SCALE: f32 = 0.0; // amplifies default gravity strength per ball
 
 fn main() {
     App::new()
@@ -19,10 +19,8 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: TEX_SIZE, enable_clustering: true }))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
-        //.add_plugins(RapierDebugRenderPlugin::default()) // optional physics debug
-        .add_systems(Startup, (setup_camera, spawn_walls, spawn_balls))
-        // After physics step, sync metaball GPU centers from transforms
-    // Sync metaball centers after physics writeback; PostUpdate is sufficient.
+        // .add_plugins(RapierDebugRenderPlugin::default()) // optional physics debug
+        .add_systems(Startup, (spawn_walls, spawn_balls))
     .add_systems(PostUpdate, sync_metaballs)
         .run();
 }
