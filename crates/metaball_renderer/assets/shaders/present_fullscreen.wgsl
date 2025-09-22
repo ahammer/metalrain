@@ -128,7 +128,9 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let out_rgb = add_lighting(out_pre_lighting, normal, inside_mask);
     // return vec4<f32>(out_rgb, 1.0);
 
-    if (field < 0.5) {
+    if (field > 1.0) {
+        return vec4(field - 1.0, field - 1.0, 1.0, 1.0);
+    } else if (field < 0.5) {
         return vec4(field, field, field, 1.0);
     } else {
         return vec4(1.0 - field, 1.0 - field, 0.0, 1.0);
