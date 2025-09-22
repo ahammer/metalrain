@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/metaball_renderer",
-    "demos/bouncing_balls",
+    "demos/metaballs_test",
+    "demos/gameboard_test",
 ]
 exclude = [
     "external/bevy"

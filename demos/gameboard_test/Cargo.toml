@@ -1,0 +1,9 @@
+[package]
+name = "gameboard_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.16.1", features=["bevy_winit", "file_watcher"] }
+bevy_rapier2d = { version = "0.31", features = ["simd-stable", "parallel"] }
+rand = "0.8"
