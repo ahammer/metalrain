@@ -54,9 +54,9 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
         let vel = Vec2::from_angle(angle) * speed;
         let color_palette = [
             LinearRgba::new(1.0,0.3,0.3,1.0),
-            // LinearRgba::new(0.3,1.0,0.3,1.0),
-            // LinearRgba::new(0.3,0.3,1.0,1.0),
-            // LinearRgba::new(1.0,1.0,0.3,1.0),
+            LinearRgba::new(0.3,1.0,0.3,1.0),
+            LinearRgba::new(0.3,0.3,1.0,1.0),
+            LinearRgba::new(1.0,1.0,0.3,1.0),
         ];
         let cluster = (i % color_palette.len()) as i32;
         commands.spawn((

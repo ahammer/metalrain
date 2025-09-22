@@ -9,8 +9,8 @@ struct Params {
 @group(0) @binding(2) var normals_tex: texture_storage_2d<rgba16float, write>;
 
 // Values above it are "inside" the surface.
-const ISO: f32 = 1.0;
-const FIELD_MAX: f32 = 1.2;
+const ISO: f32 = 0.90;
+const FIELD_MAX: f32 = 1.6;
 
 @compute @workgroup_size(8, 8, 1)
 fn compute_normals(@builtin(global_invocation_id) gid: vec3<u32>) {
