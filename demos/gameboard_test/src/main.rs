@@ -74,10 +74,7 @@ fn main() {
         .run();
 }
 
-fn setup_camera(mut commands: Commands) {
-    // Bevy 0.16 uses component-style camera spawning.
-    commands.spawn((Camera2d,));
-}
+// (Removed unused setup_camera function that previously spawned a Camera2d)
 
 fn spawn_walls(mut commands: Commands) {
     // Four axis-aligned fixed walls forming a box.

@@ -4,7 +4,7 @@ use game::GamePlugin;
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, GameCorePlugin, GamePlugin))
+        .add_plugins((DefaultPlugins, GamePlugin))
         .add_systems(Startup, (spawn_ball, spawn_target))
         .add_systems(Update, (emit_events_once, observe_events, exit_after_demo))
         .insert_resource(DemoFrameCounter(0))

@@ -28,14 +28,14 @@ fn advance_time(time: Res<Time>, uni: Option<ResMut<TimeUniform>>) { if let Some
 fn mark_repack(
     mut flag: ResMut<NeedsRepack>,
     added_ball: Query<Entity, Added<MetaBall>>,
-    changed_ball: Query<Entity, (Changed<MetaBall>, With<MetaBallCluster>, With<MetaBallColor>)>,
+    changed_ball_any: Query<Entity, Changed<MetaBall>>,
     changed_color: Query<Entity, Changed<MetaBallColor>>,
     changed_cluster: Query<Entity, Changed<MetaBallCluster>>,
     removed_ball: RemovedComponents<MetaBall>,
 ) {
     if **flag { return; } // already marked
     let changed = !added_ball.is_empty()
-        || !changed_ball.is_empty()
+        || !changed_ball_any.is_empty()
         || !changed_color.is_empty()
         || !changed_cluster.is_empty()
         || !removed_ball.is_empty();
