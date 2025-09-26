@@ -1,0 +1,11 @@
+[package]
+name = "architecture_test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+game_core = { path = "../../crates/game_core" }
+metaball_renderer = { path = "../../crates/metaball_renderer" }
+game = { path = "../../crates/game" }

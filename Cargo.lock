@@ -156,6 +156,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "architecture_test"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "game",
+ "game_core",
+ "metaball_renderer",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2158,6 +2168,23 @@ dependencies = [
  "futures-io",
  "parking",
  "pin-project-lite",
+]
+
+[[package]]
+name = "game"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "game_core",
+ "metaball_renderer",
+]
+
+[[package]]
+name = "game_core"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "serde",
 ]
 
 [[package]]

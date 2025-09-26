@@ -6,28 +6,28 @@ Establish the foundational crate architecture and migrate existing code into a m
 ## Deliverables
 
 ### 1. Workspace Restructure
-- [ ] Update `Cargo.toml` workspace members to include new crate structure
-- [ ] Create `game_core` crate with shared components/resources/events
-- [ ] Migrate existing metaball renderer to proper crate location
-- [ ] Set up dependency relationships between crates
+- [x] Update `Cargo.toml` workspace members to include new crate structure
+- [x] Create `game_core` crate with shared components/resources/events
+- [x] Migrate existing metaball renderer to proper crate location (already present, validated)
+- [x] Set up dependency relationships between crates (`game` depends on `game_core` + `metaball_renderer`; demo depends on all)
 
 ### 2. Core Crate (`game_core`)
-- [ ] Define base components: `Ball`, `Wall`, `Target`, `Hazard`
-- [ ] Create shared resources: `GameState`, `ArenaConfig`
-- [ ] Define event system: `BallSpawned`, `TargetDestroyed`, `GameWon`, `GameLost`
-- [ ] Establish component bundles for common entity patterns
+- [x] Define base components: `Ball`, `Wall`, `Target`, `Hazard`
+- [x] Create shared resources: `GameState`, `ArenaConfig`
+- [x] Define event system: `BallSpawned`, `TargetDestroyed`, `GameWon`, `GameLost`
+- [x] Establish component bundles for common entity patterns (e.g., `BallBundle`)
 
 ### 3. Build Infrastructure
-- [ ] Configure workspace-level dependencies
-- [ ] Set up shared feature flags
-- [ ] Create build scripts for native and WASM targets
-- [ ] Verify all crates compile independently
+- [x] Configure workspace-level dependencies
+- [ ] Set up shared feature flags (deferred – minimal features sufficient in Sprint 1)
+- [x] Create build scripts for native and WASM targets (`scripts/build-wasm.ps1` added)
+- [x] Verify all crates compile independently (`cargo check --workspace` passes)
 
 ### 4. Demo: Architecture Validation
-- [ ] Create `demos/architecture_test` that uses multiple crates
-- [ ] Verify metaball rendering still works after migration
-- [ ] Demonstrate component/resource sharing between crates
-- [ ] Show event propagation across system boundaries
+- [x] Create `demos/architecture_test` that uses multiple crates
+- [x] Verify metaball rendering still works after migration (compiles with new architecture)
+- [x] Demonstrate component/resource sharing between crates (shared `Ball` & events)
+- [x] Show event propagation across system boundaries (events emitted & observed)
 
 ## Technical Specifications
 
@@ -131,13 +131,13 @@ crates/
 
 ## Definition of Done
 
-- [ ] All crates in workspace compile
-- [ ] `cargo test --workspace` passes
-- [ ] `cargo clippy --workspace` shows no warnings
-- [ ] Architecture demo showcases modular structure
-- [ ] README.md created for each crate
-- [ ] Workspace dependency graph documented
-- [ ] Build instructions updated for new structure
+- [x] All crates in workspace compile
+- [ ] `cargo test --workspace` passes (no tests beyond smoke test; add more later)
+- [ ] `cargo clippy --workspace` shows no warnings (warnings present in existing renderer; accepted for now)
+- [x] Architecture demo showcases modular structure
+- [x] README.md created for each crate (new crates have READMEs)
+- [ ] Workspace dependency graph documented (add diagram / doc next)
+- [x] Build instructions updated for new structure (scripts + README placeholders)
 
 ## Notes for Next Sprint
 
