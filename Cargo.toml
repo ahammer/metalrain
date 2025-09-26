@@ -4,10 +4,14 @@ members = [
     # New core/game crates
     "crates/game_core",
     "crates/game",
+    # Physics crate (Sprint 2)
+    "crates/game_physics",
     # Demos
     "demos/metaballs_test",
     "demos/gameboard_test",
     "demos/architecture_test",
+    # Physics playground demo (Sprint 2)
+    "demos/physics_playground",
 ]
 exclude = [
     "external/bevy"
@@ -18,6 +22,8 @@ resolver = "2"
 [workspace.dependencies]
 bevy = { version = "0.16.1", features = ["bevy_winit"] }
 serde = { version = "1.0", features = ["derive"] }
+bevy_rapier2d = { version = "0.30", features = ["simd-stable"] }
+bevy_egui = "0.30"
 
 [workspace.package]
 edition = "2021"
