@@ -7,7 +7,7 @@ edition = "2021"
 bevy = { workspace = true }
 bevy_rapier2d = { workspace = true }
 # egui not required inside core physics crate (UI lives in demo)
-bevy_egui = { workspace = true, optional = true }
+# UI dependency removed (using basic Bevy UI in demo instead)
 rand = "0.8"
 
 # Core game components
@@ -15,4 +15,3 @@ game_core = { path = "../game_core" }
 
 [features]
 default = []
-ui = ["bevy_egui"]

@@ -12,6 +12,7 @@ use bevy_rapier2d::prelude::*;
 
 mod config;
 mod systems;
+// (UI panel moved into demo to avoid cross-version plugin duplication issues.)
 
 pub use config::PhysicsConfig;
 use systems::*;
@@ -33,8 +34,10 @@ impl Plugin for GamePhysicsPlugin {
                 apply_config_gravity,
                 sync_physics_to_balls,
                 clamp_velocities,
+                handle_collision_events,
             ),
         );
+
     }
 }
 

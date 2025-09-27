@@ -1,7 +1,11 @@
 use bevy::prelude::*;
+use bevy::ui::{Node, PositionType, Val};
+use bevy::text::TextFont;
+// Diagnostics plugin temporarily removed until version alignment confirmed.
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
 use metaball_renderer::{MetaBall, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin, MetaballShaderSourcePlugin, MetaBallCluster};
+use game_core::Ball;
 
 use game_core::{GameCorePlugin, BallBundle, GameColor};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
@@ -14,13 +18,23 @@ fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(MetaballShaderSourcePlugin) // must precede DefaultPlugins for custom source
-        .add_plugins(DefaultPlugins)
+    .add_plugins(DefaultPlugins)
+    // .add_plugins(FrameTimeDiagnosticsPlugin) // (disabled pending version sync)
+    // (No external UI plugin; using built-in Text UI)
     .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: TEX_SIZE, enable_clustering: true }))
         .add_plugins(GameCorePlugin)
         .add_plugins(GamePhysicsPlugin)
         // .add_plugins(RapierDebugRenderPlugin::default()) // optional
-        .add_systems(Startup, (setup_walls, spawn_initial_balls))
-        .add_systems(Update, (handle_spawn_input, sync_balls_to_metaballs))
+    .add_systems(Startup, (setup_walls, spawn_initial_balls, spawn_config_text))
+        .add_systems(Update, (
+            handle_spawn_input,
+            handle_control_input,
+            stress_test_trigger,
+            sync_balls_to_metaballs,
+            update_metaball_colors,
+            draw_debug_gizmos,
+            update_config_text,
+        ))
         .run();
 }
 
@@ -57,13 +71,71 @@ fn handle_spawn_input(
     cameras: Query<(&Camera, &GlobalTransform)>,
     config: Res<PhysicsConfig>,
 ) {
-    if !buttons.just_pressed(MouseButton::Left) { return; }
+    if !(buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Right)) { return; }
     let window = windows.single().ok();
     let Some(window) = window else { return; };
     let Some(cursor_pos) = window.cursor_position() else { return; };
     let (camera, cam_transform) = if let Ok(c) = cameras.single() { c } else { return };
     if let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) {
-        spawn_ball(world_pos, &mut commands, &config, 0);
+        if buttons.just_pressed(MouseButton::Left) {
+            spawn_ball(world_pos, &mut commands, &config, 0);
+        }
+        if buttons.just_pressed(MouseButton::Right) {
+            // Spawn slightly offset below cursor and give velocity toward cursor.
+            let spawn_pos = world_pos + Vec2::new(0.0, -50.0);
+            let e = spawn_ball(spawn_pos, &mut commands, &config, 1);
+            // Overwrite initial velocity to point toward cursor.
+            let dir = (world_pos - spawn_pos).normalize_or_zero();
+            commands.entity(e).insert(Velocity { linvel: dir * 400.0, angvel: 0.0 });
+        }
+    }
+}
+
+fn handle_control_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut config: ResMut<PhysicsConfig>,
+    mut commands: Commands,
+    balls: Query<Entity, With<Ball>>,
+) {
+    // Arrow keys adjust gravity components continuously while held.
+    let mut changed = false;
+    if keys.pressed(KeyCode::ArrowUp) { config.gravity.y += 10.0; changed = true; }
+    if keys.pressed(KeyCode::ArrowDown) { config.gravity.y -= 10.0; changed = true; }
+    if keys.pressed(KeyCode::ArrowLeft) { config.gravity.x -= 10.0; changed = true; }
+    if keys.pressed(KeyCode::ArrowRight) { config.gravity.x += 10.0; changed = true; }
+    if changed { config.gravity = config.gravity.clamp(Vec2::splat(-1000.0), Vec2::splat(1000.0)); }
+
+    // +/- adjust clustering strength
+    if keys.just_pressed(KeyCode::Equal) { config.clustering_strength = (config.clustering_strength + 10.0).min(500.0); }
+    if keys.just_pressed(KeyCode::Minus) { config.clustering_strength = (config.clustering_strength - 10.0).max(0.0); }
+    // [ ] adjust clustering radius
+    if keys.just_pressed(KeyCode::BracketRight) { config.clustering_radius = (config.clustering_radius + 10.0).min(400.0); }
+    if keys.just_pressed(KeyCode::BracketLeft) { config.clustering_radius = (config.clustering_radius - 10.0).max(10.0); }
+
+    if keys.just_pressed(KeyCode::KeyG) {
+        if config.gravity.length_squared() > 0.0 { config.gravity = Vec2::ZERO; } else { config.gravity = Vec2::new(0.0, -500.0); }
+    }
+    if keys.just_pressed(KeyCode::KeyR) {
+        for e in &balls { commands.entity(e).despawn(); }
+    }
+}
+
+fn stress_test_trigger(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    balls: Query<&Transform, With<Ball>>,
+    config: Res<PhysicsConfig>,
+) {
+    if !keys.just_pressed(KeyCode::KeyT) { return; }
+    let mut rng = rand::thread_rng();
+    let target = 60usize;
+    let current = balls.iter().len();
+    if current < target {
+        for i in current..target {
+            let x = rng.gen_range(-ARENA_WIDTH*0.45..ARENA_WIDTH*0.45);
+            let y = rng.gen_range(-ARENA_HEIGHT*0.45..ARENA_HEIGHT*0.45);
+            spawn_ball(Vec2::new(x,y), &mut commands, &config, (i % 4) as i32);
+        }
     }
 }
 
@@ -101,6 +173,67 @@ fn sync_balls_to_metaballs(mut query: Query<(&Transform, &mut MetaBall)>) {
     for (tr, mut mb) in &mut query { mb.center = world_to_tex(tr.translation.truncate()); }
 }
 
+fn update_metaball_colors(mut q: Query<(&Velocity, &mut MetaBallColor)>, config: Res<PhysicsConfig>) {
+    for (vel, mut color) in &mut q {
+        let speed = vel.linvel.length();
+        let t = (speed / config.max_ball_speed).clamp(0.0, 1.0);
+        // Gradient: blue (slow) -> green -> red (fast)
+        let (r,g,b) = if t < 0.5 {
+            // interpolate blue (0,0.3,0.9) to green (0.1,0.9,0.2)
+            let k = t / 0.5;
+            (
+                0.0 + (0.1-0.0)*k,
+                0.3 + (0.9-0.3)*k,
+                0.9 + (0.2-0.9)*k,
+            )
+        } else {
+            let k = (t-0.5)/0.5;
+            // green to red (0.9,0.15,0.15)
+            (
+                0.1 + (0.9-0.1)*k,
+                0.9 + (0.15-0.9)*k,
+                0.2 + (0.15-0.2)*k,
+            )
+        };
+        color.0 = LinearRgba::new(r as f32, g as f32, b as f32, 1.0);
+    }
+}
+
+#[derive(Component)] struct ConfigText;
+
+fn update_config_text(
+    mut query: Query<&mut Text, With<ConfigText>>,
+    config: Res<PhysicsConfig>,
+) {
+    if let Ok(mut text) = query.get_single_mut() {
+        text.0 = format!(
+            "Gravity: ({:.0},{:.0})  Cluster: str {:.0} rad {:.0}  Speed: min {:.0} max {:.0}\nKeys: Arrows grav  +/- strength  [ ] radius  G toggle grav  R reset  T stress spawn",
+            config.gravity.x, config.gravity.y,
+            config.clustering_strength, config.clustering_radius,
+            config.min_ball_speed, config.max_ball_speed
+        );
+    }
+}
+
+/// Draw velocity vectors & optional clustering radius visualization.
+fn draw_debug_gizmos(
+    mut gizmos: Gizmos,
+    balls: Query<(&Transform, &Velocity)>,
+    config: Res<PhysicsConfig>,
+) {
+    let scale = 0.25; // shorten arrows for readability
+    for (tr, vel) in &balls {
+        let p = tr.translation.truncate();
+        let v = vel.linvel * scale;
+        let color = Color::WHITE;
+        gizmos.line_2d(p, p + v, color);
+        // Draw faint circle for clustering radius (could be heavy; sample subset)
+        if balls.iter().len() <= 40 { // avoid overdraw spam at high counts
+            gizmos.circle_2d(p, config.clustering_radius, Color::linear_rgba(0.5,0.5,0.5,0.2));
+        }
+    }
+}
+
 fn world_to_tex(p: Vec2) -> Vec2 {
     Vec2::new(
         ((p.x + ARENA_WIDTH * 0.5) / ARENA_WIDTH) * TEX_SIZE.x as f32,
@@ -115,4 +248,13 @@ fn spawn_initial_balls(mut commands: Commands, config: Res<PhysicsConfig>) {
         let y = rng.gen_range(-ARENA_HEIGHT*0.45..ARENA_HEIGHT*0.45);
         spawn_ball(Vec2::new(x,y), &mut commands, &config, (i % 4) as i32);
     }
+}
+
+fn spawn_config_text(mut commands: Commands) {
+    commands.spawn((
+        Text::new(""),
+        TextFont { font_size: 14.0, ..default() },
+        Node { position_type: PositionType::Absolute, top: Val::Px(4.0), left: Val::Px(4.0), ..default() },
+        ConfigText,
+    ));
 }
