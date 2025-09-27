@@ -4817,7 +4817,6 @@ name = "physics_playground"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bevy_egui",
  "bevy_rapier2d 0.30.0",
  "game_core",
  "game_physics",
