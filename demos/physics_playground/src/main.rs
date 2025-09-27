@@ -10,8 +10,8 @@ use game_core::Ball;
 use game_core::{GameCorePlugin, BallBundle, GameColor};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
 
-const ARENA_WIDTH: f32 = 800.0;
-const ARENA_HEIGHT: f32 = 600.0;
+const ARENA_WIDTH: f32 = 512.0;
+const ARENA_HEIGHT: f32 = 512.0;
 const TEX_SIZE: UVec2 = UVec2::new(512,512);
 
 fn main() {
@@ -24,6 +24,7 @@ fn main() {
     .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: TEX_SIZE, enable_clustering: true }))
         .add_plugins(GameCorePlugin)
         .add_plugins(GamePhysicsPlugin)
+        .add_plugins(RapierDebugRenderPlugin::default())
         // .add_plugins(RapierDebugRenderPlugin::default()) // optional
     .add_systems(Startup, (setup_walls, spawn_initial_balls, spawn_config_text))
         .add_systems(Update, (

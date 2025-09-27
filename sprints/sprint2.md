@@ -1,11 +1,13 @@
 # Sprint 2: Physics Foundation & Ball Behavior
 
 ## Sprint Goal
+
 Implement core physics systems using Rapier2D, establish ball movement mechanics with proper bouncing and clustering behavior. Create a physics playground demo to validate and tune physics parameters.
 
 ## Deliverables
 
 ### 1. Physics Crate (`game_physics`)
+
 - [x] Create `game_physics` crate structure
 - [x] Integrate Rapier2D physics engine (gravity applied via custom system pending direct config alignment)
 - [x] Implement physics-to-Ball component sync (velocity -> `Ball.velocity`)
@@ -13,6 +15,7 @@ Implement core physics systems using Rapier2D, establish ball movement mechanics
 - [x] Create collision event handling (ball-ball logging groundwork)
 
 ### 2. Ball Movement Systems
+
 - [x] Velocity-based movement with Rapier `RigidBody::Dynamic`
 - [x] Configurable restitution (per-ball `Restitution` component)
 - [x] Friction and damping parameters
@@ -20,12 +23,14 @@ Implement core physics systems using Rapier2D, establish ball movement mechanics
 - [x] Speed clamping to maintain readability
 
 ### 3. Clustering Behavior
+
 - [x] Distance-based attraction between balls
 - [x] Configurable clustering strength and radius (`PhysicsConfig`)
 - [x] Visual feedback through metaball renderer (speed-based color gradient)
 - [x] Performance optimization for many balls (spatial hash grid)
 
 ### 4. Demo: Physics Playground
+
 - [x] Interactive ball spawning (cursor-based LMB + directional RMB, reset & pause controls)
 - [x] Real-time parameter adjustment (keyboard + on-screen text overlay; egui deferred until compatible version)
 - [x] Visual debugging for forces and velocities (gizmos active)
@@ -35,6 +40,7 @@ Implement core physics systems using Rapier2D, establish ball movement mechanics
 ## Technical Specifications
 
 ### Physics Configuration
+
 ```rust
 pub struct PhysicsConfig {
     pub pixels_per_meter: f32,        // Default: 50.0
@@ -49,6 +55,7 @@ pub struct PhysicsConfig {
 ```
 
 ### System Pipeline
+
 ```rust
 // Update order
 app.add_systems(Update, (
@@ -72,6 +79,7 @@ app.add_systems(Update, (
 ```
 
 ### Clustering Algorithm
+
 ```rust
 fn apply_clustering_forces(
     mut balls: Query<(&Transform, &mut ExternalForce), With<Ball>>,
@@ -101,6 +109,7 @@ fn apply_clustering_forces(
 ```
 
 ### Ball Bundle
+
 ```rust
 #[derive(Bundle)]
 pub struct BallBundle {
@@ -128,6 +137,7 @@ pub struct BallBundle {
 ## Physics Playground Features
 
 ### Interactive Controls
+
 - **Left Click**: Spawn ball at cursor with random velocity
 - **Right Click**: Spawn ball with velocity toward cursor
 - **Space**: Pause/resume physics
@@ -136,6 +146,7 @@ pub struct BallBundle {
 - **Arrow Keys**: Adjust gravity direction
 
 ### Debug Visualizations
+
 - Velocity vectors (arrows)
 - Clustering force fields (gradient circles)
 - Collision normals (on impact)
@@ -143,6 +154,7 @@ pub struct BallBundle {
 - FPS and physics step counter
 
 ### Parameter Sliders (egui)
+
 - Gravity strength (-1000 to 1000)
 - Restitution (0.0 to 1.0)
 - Friction (0.0 to 1.0)
@@ -178,15 +190,18 @@ pub struct BallBundle {
 ## Dependencies
 
 ### From Sprint 1
+
 - `game_core` crate with Ball component
 - Workspace structure established
 
 ### External Crates
+
 - `bevy = "0.16.1"` (workspace)
 - `bevy_rapier2d = "0.30"` (current; gravity resource API divergence noted)
 - `bevy_egui = "0.30"` (integrated earlier; temporarily disabled in demo while resolving dual Bevy version issue)
 
 ### Assets
+
 - Test arena layouts (walls)
 - Debug font for UI
 
