@@ -32,8 +32,6 @@ fn main() {
             handle_control_input,
             stress_test_trigger,
             sync_balls_to_metaballs,
-            update_metaball_colors,
-            draw_debug_gizmos,
             update_config_text,
         ))
         .run();
@@ -174,31 +172,6 @@ fn sync_balls_to_metaballs(mut query: Query<(&Transform, &mut MetaBall)>) {
     for (tr, mut mb) in &mut query { mb.center = world_to_tex(tr.translation.truncate()); }
 }
 
-fn update_metaball_colors(mut q: Query<(&Velocity, &mut MetaBallColor)>, config: Res<PhysicsConfig>) {
-    for (vel, mut color) in &mut q {
-        let speed = vel.linvel.length();
-        let t = (speed / config.max_ball_speed).clamp(0.0, 1.0);
-        // Gradient: blue (slow) -> green -> red (fast)
-        let (r,g,b) = if t < 0.5 {
-            // interpolate blue (0,0.3,0.9) to green (0.1,0.9,0.2)
-            let k = t / 0.5;
-            (
-                0.0 + (0.1-0.0)*k,
-                0.3 + (0.9-0.3)*k,
-                0.9 + (0.2-0.9)*k,
-            )
-        } else {
-            let k = (t-0.5)/0.5;
-            // green to red (0.9,0.15,0.15)
-            (
-                0.1 + (0.9-0.1)*k,
-                0.9 + (0.15-0.9)*k,
-                0.2 + (0.15-0.2)*k,
-            )
-        };
-        color.0 = LinearRgba::new(r as f32, g as f32, b as f32, 1.0);
-    }
-}
 
 #[derive(Component)] struct ConfigText;
 
