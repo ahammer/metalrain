@@ -12,6 +12,8 @@ pub struct MetaballDiagnosticsConfig {
     pub log_coordinates: bool,
     pub log_gpu_buffers: bool,
     pub log_textures: bool,
+    /// Stop all periodic logging after this frame (inclusive). 0 = unlimited.
+    pub max_frames_logging: u64,
 }
 impl Default for MetaballDiagnosticsConfig {
     fn default() -> Self {
@@ -21,6 +23,7 @@ impl Default for MetaballDiagnosticsConfig {
             log_coordinates: true,
             log_gpu_buffers: true,
             log_textures: true,
+            max_frames_logging: 2,
         }
     }
 }
@@ -76,6 +79,7 @@ fn periodic_diagnostics(
 ) {
     let cfg = &*config;
     if !cfg.enabled { return; }
+    if cfg.max_frames_logging > 0 && fc.0 > cfg.max_frames_logging { return; }
     if fc.0 == 1 || (cfg.log_every_n_frames > 0 && fc.0 % cfg.log_every_n_frames as u64 == 0) {
         if cfg.log_gpu_buffers {
             if let (Some(params), Some(buffer)) = (params.as_deref(), buffer.as_deref()) {
