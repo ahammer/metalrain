@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::render::view::RenderLayers;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
@@ -66,12 +67,33 @@ struct BackgroundGlow;
 #[derive(Component)]
 struct EffectsPulse;
 
+#[derive(Component)]
+struct PerformanceOverlayText;
+
+#[derive(Resource, Debug)]
+struct PerformanceOverlayState {
+    visible: bool,
+    last_ui_update: f32,
+}
+
+impl Default for PerformanceOverlayState {
+    fn default() -> Self {
+        Self { visible: true, last_ui_update: 0.0 }
+    }
+}
+
+#[derive(Resource, Debug, Default)]
+struct FrameCounter {
+    frame: u64,
+}
+
 fn main() {
     App::new()
         .insert_resource(RenderSurfaceSettings {
             base_resolution: UVec2::new(1280, 720),
             ..Default::default()
         })
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(MetaballShaderSourcePlugin)
         .add_plugins(DefaultPlugins)
         .add_plugins(GameRenderingPlugin)
@@ -89,6 +111,9 @@ fn main() {
         .init_resource::<BurstForceState>()
         .init_resource::<WallPulseState>()
         .add_systems(Startup, (setup_scene, spawn_walls, spawn_balls))
+        .init_resource::<PerformanceOverlayState>()
+        .init_resource::<FrameCounter>()
+        .add_systems(Startup, spawn_performance_overlay)
         .add_systems(
             PreUpdate,
             (update_burst_force_state, apply_burst_forces).chain(),
@@ -101,6 +126,8 @@ fn main() {
                 handle_compositor_inputs,
                 animate_background_glow,
                 animate_effect_overlay,
+                update_performance_overlay,
+                log_periodic_performance_snapshot,
             ),
         )
         .add_systems(PostStartup, configure_metaball_presentation)
@@ -167,6 +194,19 @@ fn setup_scene(mut commands: Commands) {
     ));
 }
 
+fn spawn_performance_overlay(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+    commands.spawn((
+        Text2d::new("FPS: --\nFrame: 0\nFrame ms: --\nAvg1s: --  Avg5s: --\n(F1 to toggle)"),
+        TextFont { font, font_size: 18.0, ..default() },
+        TextColor(Color::WHITE),
+        Transform::from_xyz(-600.0, 360.0, 500.0),
+        RenderLayers::layer(RenderLayer::Ui.order()),
+        Name::new("Ui::PerformanceOverlay"),
+        PerformanceOverlayText,
+    ));
+}
+
 fn configure_metaball_presentation(
     mut commands: Commands,
     mut done: Local<bool>,
@@ -215,6 +255,7 @@ fn handle_compositor_inputs(
     mut shake_ev: EventWriter<CameraShakeCommand>,
     mut zoom_ev: EventWriter<CameraZoomCommand>,
     mut game_cam_q: Query<&mut GameCamera>,
+    mut overlay_state: ResMut<PerformanceOverlayState>,
 ) {
     if keys.just_pressed(KeyCode::Digit1) {
         toggle_layer(&mut layer_state, RenderLayer::Background);
@@ -280,6 +321,11 @@ fn handle_compositor_inputs(
         );
     }
 
+    if keys.just_pressed(KeyCode::F1) {
+        overlay_state.visible = !overlay_state.visible;
+        info!(target: "compositor_demo", "Performance overlay {}", if overlay_state.visible { "shown" } else { "hidden" });
+    }
+
     // Reset (R) restores camera defaults & exposure
     if keys.just_pressed(KeyCode::KeyR) {
         if let Some(mut cam) = game_cam_q.iter_mut().next() {
@@ -291,6 +337,56 @@ fn handle_compositor_inputs(
         settings.exposure = 1.0;
         info!(target: "compositor_demo", "Camera & exposure reset");
     }
+}
+
+fn update_performance_overlay(
+    time: Res<Time>,
+    diagnostics: Res<DiagnosticsStore>,
+    mut overlay_state: ResMut<PerformanceOverlayState>,
+    mut text_query: Query<&mut Text2d, With<PerformanceOverlayText>>,
+    mut frame_counter: ResMut<FrameCounter>,
+) {
+    frame_counter.frame += 1;
+    if !overlay_state.visible { return; }
+    let now = time.elapsed().as_secs_f32();
+    if now - overlay_state.last_ui_update < 0.2 { return; }
+    overlay_state.last_ui_update = now;
+
+    let fps = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0);
+    let frame_time_secs = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FRAME_TIME)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0);
+
+    let avg_1s = fps; // placeholder
+    let avg_5s = fps; // placeholder
+
+    if let Some(mut text) = text_query.iter_mut().next() {
+        text.0 = format!(
+            "FPS: {fps:.1}\nFrame: {}\nFrame ms: {:.2}\nAvg1s: {avg_1s:.1}  Avg5s: {avg_5s:.1}\n(F1 to toggle)",
+            frame_counter.frame,
+            frame_time_secs * 1000.0
+        );
+    }
+}
+
+fn log_periodic_performance_snapshot(
+    diagnostics: Res<DiagnosticsStore>,
+    frame_counter: Res<FrameCounter>,
+) {
+    if frame_counter.frame == 0 || frame_counter.frame % 600 != 0 { return; }
+    let fps = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0);
+    let frame_time_ms = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FRAME_TIME)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0) * 1000.0;
+    info!(target: "perf_snapshot", "Frame {} | FPS {:.2} | Frame {:.2} ms", frame_counter.frame, fps, frame_time_ms);
 }
 
 fn toggle_layer(state: &mut LayerToggleState, layer: RenderLayer) {
