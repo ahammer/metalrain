@@ -1,17 +1,26 @@
 use bevy::prelude::*;
 use crate::compute::{ComputeMetaballsPlugin, NormalComputePlugin};
 use crate::pack::PackingPlugin;
-#[cfg(feature = "present")] use crate::present::MetaballDisplayPlugin;
+use crate::coordinates::MetaballCoordinateMapper;
+use crate::diagnostics::MetaballDiagnosticsPlugin;
 
-/// Public settings controlling renderer subsystems.
-#[derive(Clone, Resource)]
+/// Public settings controlling renderer subsystems & coordinate mapping.
+#[derive(Clone, Resource, Debug)]
 pub struct MetaballRenderSettings {
-    pub present: bool,
+    /// Size (in pixels) of the offscreen metaball simulation / shading textures.
     pub texture_size: UVec2,
+    /// Authoritative world bounds mapped onto the texture (Z assumed 0 for mapping).
+    pub world_bounds: Rect,
     /// Initial clustering enabled state (controls hard cluster coloring vs blended gradient)
     pub enable_clustering: bool,
 }
-impl Default for MetaballRenderSettings { fn default() -> Self { Self { present: true, texture_size: UVec2::new(1024,1024), enable_clustering: true } } }
+impl Default for MetaballRenderSettings { fn default() -> Self { Self { texture_size: UVec2::new(1024,1024), world_bounds: Rect::from_corners(Vec2::new(-256.0,-256.0), Vec2::new(256.0,256.0)), enable_clustering: true } } }
+
+impl MetaballRenderSettings {
+    pub fn with_texture_size(mut self, size: UVec2) -> Self { self.texture_size = size; self }
+    pub fn with_world_bounds(mut self, rect: Rect) -> Self { self.world_bounds = rect; self }
+    pub fn clustering_enabled(mut self, enabled: bool) -> Self { self.enable_clustering = enabled; self }
+}
 
 /// Main plugin entry point.
 pub struct MetaballRendererPlugin { pub settings: MetaballRenderSettings }
@@ -19,17 +28,28 @@ impl Default for MetaballRendererPlugin { fn default() -> Self { Self { settings
 impl MetaballRendererPlugin { pub fn with(settings: MetaballRenderSettings) -> Self { Self { settings } } }
 impl Plugin for MetaballRendererPlugin {
     fn build(&self, app: &mut App) {
+        // Insert static settings resource.
         app.insert_resource(self.settings.clone());
-        // Runtime settings resource (mutable by user code); mirrors subset of ParamsUniform flags.
+        // Coordinate mapper derived from settings.
+        let mapper = MetaballCoordinateMapper::new(
+            self.settings.texture_size,
+            self.settings.world_bounds.min,
+            self.settings.world_bounds.max,
+        );
+        app.insert_resource(mapper);
+    // Runtime settings resource (mutable by user code); mirrors subset of ParamsUniform flags.
         app.init_resource::<crate::RuntimeSettings>();
         {
             let mut rt = app.world_mut().resource_mut::<crate::RuntimeSettings>();
             rt.clustering_enabled = self.settings.enable_clustering;
         }
-    app.add_plugins(ComputeMetaballsPlugin);
-    // Second pass: derive normals from packed field
-    app.add_plugins(NormalComputePlugin);
-    app.add_plugins(PackingPlugin); // Phase 3 packing
-        #[cfg(feature = "present")] if self.settings.present { app.add_plugins(MetaballDisplayPlugin); }
+    // Diagnostics (enabled by default; user can disable by mutating MetaballDiagnosticsConfig resource early).
+    app.add_plugins(MetaballDiagnosticsPlugin);
+
+    // Core compute & packing pipeline.
+        app.add_plugins(ComputeMetaballsPlugin);
+        app.add_plugins(NormalComputePlugin); // normals from packed field
+        app.add_plugins(PackingPlugin); // packs entities each frame (or on change)
+        // Intentionally no internal presentation / camera spawn in Sprint 2.1.
     }
 }

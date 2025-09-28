@@ -21,7 +21,7 @@ fn main() {
     .add_plugins(DefaultPlugins)
     // .add_plugins(FrameTimeDiagnosticsPlugin) // (disabled pending version sync)
     // (No external UI plugin; using built-in Text UI)
-    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: TEX_SIZE, enable_clustering: true }))
+    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { texture_size: TEX_SIZE, world_bounds: Rect::from_corners(Vec2::new(-ARENA_WIDTH*0.5,-ARENA_HEIGHT*0.5), Vec2::new(ARENA_WIDTH*0.5,ARENA_HEIGHT*0.5)), enable_clustering: true }))
         .add_plugins(GameCorePlugin)
         .add_plugins(GamePhysicsPlugin)
         .add_plugins(RapierDebugRenderPlugin::default())
@@ -31,7 +31,6 @@ fn main() {
             handle_spawn_input,
             handle_control_input,
             stress_test_trigger,
-            sync_balls_to_metaballs,
             update_config_text,
         ))
         .run();
@@ -158,7 +157,7 @@ fn spawn_ball(position: Vec2, commands: &mut Commands, config: &PhysicsConfig, c
         ExternalForce::default(),
         Damping { linear_damping: 0.0, angular_damping: 1.0 },
         ActiveEvents::COLLISION_EVENTS,
-        MetaBall { center: world_to_tex(position), radius },
+    MetaBall { radius_world: radius },
         MetaBallColor(LinearRgba::new(0.8, 0.2, 0.2, 1.0)),
         MetaBallCluster(cluster),
     )).id();
@@ -168,10 +167,6 @@ fn spawn_ball(position: Vec2, commands: &mut Commands, config: &PhysicsConfig, c
 // (Velocity gizmos temporarily removed pending color API alignment for Bevy 0.16)
 
 /// Keep metaball centers in sync with physics-driven transforms.
-fn sync_balls_to_metaballs(mut query: Query<(&Transform, &mut MetaBall)>) {
-    for (tr, mut mb) in &mut query { mb.center = world_to_tex(tr.translation.truncate()); }
-}
-
 
 #[derive(Component)] struct ConfigText;
 
@@ -208,12 +203,7 @@ fn draw_debug_gizmos(
     }
 }
 
-fn world_to_tex(p: Vec2) -> Vec2 {
-    Vec2::new(
-        ((p.x + ARENA_WIDTH * 0.5) / ARENA_WIDTH) * TEX_SIZE.x as f32,
-        ((p.y + ARENA_HEIGHT * 0.5) / ARENA_HEIGHT) * TEX_SIZE.y as f32,
-    )
-}
+// world_to_tex & sync system removed – mapping now handled internally during packing.
 
 fn spawn_initial_balls(mut commands: Commands, config: Res<PhysicsConfig>) {
     let mut rng = rand::thread_rng();

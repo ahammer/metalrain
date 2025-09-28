@@ -15,9 +15,16 @@
 //!   .run();
 //! ```
 //!
-//! Coordinate space: `MetaBall.center` and `MetaBall.radius` are interpreted in pixel
-//! space of the offscreen render texture (0..texture_size). Phase 3 docs will expand
-//! this with helper mapping utilities.
+//! Coordinate space (Sprint 2.1 refactor):
+//! * World space (authoritative) lives inside a configurable `world_bounds` `Rect`.
+//! * A `MetaballCoordinateMapper` resource maps each entity's `Transform` (XY) into
+//!   metaball texture pixel space every time packing runs.
+//! * `MetaBall` stores only a world‑space radius (`radius_world`); no duplicate center.
+//! * Helper functions (`project_world_to_screen`, `screen_to_world`, `screen_to_metaball_uv`)
+//!   are re‑exported for integration & picking.
+//! * The renderer no longer spawns or owns a camera; presentation/compositing is deferred
+//!   to a higher‑level pipeline (Sprint 3). Use `metaball_textures(&world)` to fetch the
+//!   offscreen textures for custom composition.
 
 use bevy::prelude::*;
 
@@ -27,12 +34,14 @@ mod internal;
 mod compute;
 mod embedded_shaders;
 mod pack;
-#[cfg(feature = "present")]
-mod present;
+mod coordinates; // world <-> texture mapping & projection helpers
+mod diagnostics; // logging & runtime diagnostics
 
 pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};
 pub use embedded_shaders::MetaballShaderSourcePlugin;
 pub use components::{MetaBall, MetaBallColor, MetaBallCluster};
+pub use coordinates::{MetaballCoordinateMapper, project_world_to_screen, screen_to_world, screen_to_metaball_uv};
+pub use diagnostics::{MetaballDiagnosticsPlugin, MetaballDiagnosticsConfig};
 
 /// Runtime‑mutable settings (public) allowing user code to toggle certain renderer behaviors
 /// without accessing internal uniform types. Changes are propagated into GPU uniforms by

@@ -61,7 +61,7 @@ fn main() {
         // Metaball shader source (hot reload friendly) BEFORE DefaultPlugins just like other demo
         .add_plugins(MetaballShaderSourcePlugin)
         .add_plugins(DefaultPlugins)
-        .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { present: true, texture_size: TEX_SIZE, enable_clustering: true }))
+    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { texture_size: TEX_SIZE, world_bounds: Rect::from_corners(Vec2::new(-HALF_EXTENT,-HALF_EXTENT), Vec2::new(HALF_EXTENT,HALF_EXTENT)), enable_clustering: true }))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
         // .add_plugins(RapierDebugRenderPlugin::default()) // optional physics debug
         .init_resource::<BurstForceState>()
@@ -70,7 +70,7 @@ fn main() {
         .add_systems(PreUpdate, (update_burst_force_state, apply_burst_forces).chain())
         // Move wall pulse to Update so Time has advanced; ensures timer fires correctly
         .add_systems(Update, (update_wall_pulse_state, apply_wall_pulse_forces).chain())
-        .add_systems(PostUpdate, sync_metaballs)
+    // Mapping sync system removed – packing now derives texture coords from Transform each repack
         .run();
 }
 
@@ -149,8 +149,8 @@ fn spawn_balls(mut commands: Commands) {
                 Transform::from_translation(Vec3::new(x, y, 0.0)),
                 GlobalTransform::default(),
                 Name::new(format!("Ball#{i}")),
-                // Metaball components
-                MetaBall { center: world_to_tex(Vec2::new(x,y)), radius },
+                // Metaball component (radius only; position from Transform)
+                MetaBall { radius_world: radius },
                 MetaBallColor(palette[cluster as usize]),
                 MetaBallCluster(cluster),
             ))
@@ -159,19 +159,7 @@ fn spawn_balls(mut commands: Commands) {
     info!("Spawned {NUM_BALLS} balls in GameBoard_Test demo");
 }
 
-// Convert world coordinates (-HALF_EXTENT..HALF_EXTENT) into metaball texture space (0..tex_w)
-fn world_to_tex(p: Vec2) -> Vec2 {
-    let tex_w = TEX_SIZE.x as f32; let tex_h = TEX_SIZE.y as f32;
-    Vec2::new(((p.x + HALF_EXTENT)/(HALF_EXTENT*2.0))*tex_w, ((p.y + HALF_EXTENT)/(HALF_EXTENT*2.0))*tex_h)
-}
-
-// Sync system: update MetaBall centers from Transform each frame (after physics)
-fn sync_metaballs(mut q: Query<(&Transform, &mut MetaBall)>) {
-    for (tr, mut mb) in &mut q {
-        let pos = tr.translation.truncate();
-        mb.center = world_to_tex(pos);
-    }
-}
+// Legacy world_to_tex & sync_metaballs removed.
 
 // ---- Random Burst Force Systems ----
 

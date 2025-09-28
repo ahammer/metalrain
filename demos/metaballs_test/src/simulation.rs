@@ -36,12 +36,10 @@ impl Plugin for BouncySimulationPlugin {
     }
 }
 
-fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
-    let tex_w = settings.texture_size.x as f32; // square assumed but keep flexible
-    let tex_h = settings.texture_size.y as f32;
+fn spawn_balls(mut commands: Commands, _settings: Res<MetaballRenderSettings>) {
     let mut rng = StdRng::from_entropy();
-    // Dynamic count – choose based on texture area heuristic (1 ball per ~ (32x32) tile), clamp.
-    let area = (tex_w * tex_h).max(1.0);
+    // Dynamic count – heuristic based on world area (mirrors previous texture based sizing)
+    let area = (HALF_EXTENT * 2.0).powi(2).max(1.0);
     let mut desired = (area / (24.0*24.0)) as usize;
     desired = desired.clamp(64, 10_000); // arbitrary safety cap
     for i in 0..desired {
@@ -60,7 +58,9 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
         ];
         let cluster = (i % color_palette.len()) as i32;
         commands.spawn((
-            MetaBall { center: world_to_tex(Vec2::new(x,y), tex_w, tex_h), radius },
+            Transform::from_translation(Vec3::new(x,y,0.0)),
+            GlobalTransform::default(),
+            MetaBall { radius_world: radius },
             MetaBallColor(color_palette[cluster as usize]),
             MetaBallCluster(cluster),
             Velocity(vel),
@@ -72,25 +72,22 @@ fn spawn_balls(mut commands: Commands, settings: Res<MetaballRenderSettings>) {
 fn update_balls(
     time: Res<Time>,
     params: Res<BouncyParams>,
-    settings: Res<MetaballRenderSettings>,
-    mut q: Query<(&mut MetaBall, &mut Velocity)>
+    mut q: Query<(&mut Transform, &MetaBall, &mut Velocity)>
 ) {
     let dt = time.delta_secs(); if dt <= 0.0 { return; }
-    let tex_w = settings.texture_size.x as f32; let tex_h = settings.texture_size.y as f32;
     let grav = if params.enable_gravity { params.gravity * params.speed_dampen } else { Vec2::ZERO };
-    for (mut mb, mut vel) in q.iter_mut() {
-        // Convert tex space back to world for physics
-        let mut pos = tex_to_world(Vec2::new(mb.center.x, mb.center.y), tex_w, tex_h);
+    for (mut tr, mb, mut vel) in q.iter_mut() {
+        let mut pos = tr.translation.truncate();
         vel.0 += grav * dt;
         pos += vel.0 * dt;
-    // Collision bounds (inset by COLLISION_PADDING)
-    let min = -HALF_EXTENT + COLLISION_PADDING + mb.radius;
-    let max = HALF_EXTENT - COLLISION_PADDING - mb.radius;
+        // Collision bounds (inset by COLLISION_PADDING)
+        let min = -HALF_EXTENT + COLLISION_PADDING + mb.radius_world;
+        let max = HALF_EXTENT - COLLISION_PADDING - mb.radius_world;
         if pos.x < min { pos.x = min; vel.0.x = -vel.0.x * params.restitution; }
         else if pos.x > max { pos.x = max; vel.0.x = -vel.0.x * params.restitution; }
         if pos.y < min { pos.y = min; vel.0.y = -vel.0.y * params.restitution; }
         else if pos.y > max { pos.y = max; vel.0.y = -vel.0.y * params.restitution; }
-        mb.center = world_to_tex(pos, tex_w, tex_h);
+        tr.translation.x = pos.x; tr.translation.y = pos.y;
     }
 }
 
@@ -108,10 +105,4 @@ fn input_toggles(
     }
 }
 
-// Mapping helpers parameterized by texture dimensions.
-fn world_to_tex(p: Vec2, tex_w: f32, tex_h: f32) -> Vec2 {
-    Vec2::new(((p.x + HALF_EXTENT)/WORLD_SIZE)*tex_w, ((p.y + HALF_EXTENT)/WORLD_SIZE)*tex_h)
-}
-fn tex_to_world(p: Vec2, tex_w: f32, tex_h: f32) -> Vec2 {
-    Vec2::new((p.x / tex_w)*WORLD_SIZE - HALF_EXTENT, (p.y / tex_h)*WORLD_SIZE - HALF_EXTENT)
-}
+// Legacy world<->texture mapping removed – handled internally during packing.

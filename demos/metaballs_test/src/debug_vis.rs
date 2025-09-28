@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::sprite::MeshMaterial2d;
 use crate::simulation::{HALF_EXTENT};
-use metaball_renderer::{MetaBall, MetaBallColor, MetaballRenderSettings};
+use metaball_renderer::{MetaBall, MetaBallColor};
 
 #[derive(Resource, Default)]
 pub struct DebugVisToggle(pub bool);
@@ -54,18 +54,12 @@ fn apply_visibility(toggle: Res<DebugVisToggle>, mut q: Query<&mut Visibility, W
 // Draw per-ball simulation circles (world space) via gizmos (transient, no entities).
 fn draw_ball_circles(
     toggle: Res<DebugVisToggle>,
-    settings: Res<MetaballRenderSettings>,
-    q: Query<(&MetaBall, Option<&MetaBallColor>)>,
+    q: Query<(&Transform, &MetaBall, Option<&MetaBallColor>)>,
     mut gizmos: Gizmos,
 ) {
     if !toggle.0 { return; }
-    let tex_w = settings.texture_size.x as f32; let tex_h = settings.texture_size.y as f32;
-    let world_size = HALF_EXTENT * 2.0;
-    for (mb, color) in q.iter() {
-        let p = Vec2::new(
-            (mb.center.x / tex_w) * world_size - HALF_EXTENT,
-            (mb.center.y / tex_h) * world_size - HALF_EXTENT,
-        );
+    for (tr, mb, color) in q.iter() {
+        let p = tr.translation.truncate();
         let base = color.map(|c| Color::from(c.0)).unwrap_or(Color::WHITE);
         // Lighten (50% toward white) and add a subtle green tint so circles remain visible
         // even when overlapping similarly colored balls.
@@ -82,6 +76,6 @@ fn draw_ball_circles(
         g = g + (avg - g) * desat_factor;
         b = b + (avg - b) * desat_factor;
         let col = Color::linear_rgba(r, g, b, 0.55);
-        gizmos.circle_2d(Isometry2d::from_translation(p), mb.radius, col);
+        gizmos.circle_2d(Isometry2d::from_translation(p), mb.radius_world, col);
     }
 }
