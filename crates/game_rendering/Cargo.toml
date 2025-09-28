@@ -1,0 +1,16 @@
+[package]
+name = "game_rendering"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+bevy = { workspace = true }
+metaball_renderer = { path = "../metaball_renderer" }
+game_core = { path = "../game_core" }
+serde = { workspace = true, optional = true }
+
+[features]
+default = []

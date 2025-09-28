@@ -1654,6 +1654,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_rapier2d",
+ "game_rendering",
  "metaball_renderer",
  "rand",
 ]
@@ -2321,6 +2322,16 @@ dependencies = [
  "bevy_rapier2d",
  "game_core",
  "rand",
+]
+
+[[package]]
+name = "game_rendering"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "game_core",
+ "metaball_renderer",
+ "serde",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, Criterion};
 use bevy::prelude::*;
+use criterion::{criterion_group, criterion_main, Criterion};
 use metaball_renderer::MetaballCoordinateMapper;
 
 fn bench_world_to_metaball(c: &mut Criterion) {

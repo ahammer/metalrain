@@ -37,7 +37,6 @@ impl Plugin for GamePhysicsPlugin {
                 handle_collision_events,
             ),
         );
-
     }
 }
 

@@ -6,6 +6,8 @@ members = [
     "crates/game",
     # Physics crate (Sprint 2)
     "crates/game_physics",
+    # Rendering crate (Sprint 3)
+    "crates/game_rendering",
     # Demos
     "demos/metaballs_test",
     "demos/compositor_test",

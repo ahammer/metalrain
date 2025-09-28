@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::GameColor;
+use bevy::prelude::*;
 
 #[derive(Resource, Debug)]
 pub struct GameState {
@@ -10,7 +10,14 @@ pub struct GameState {
 }
 
 impl Default for GameState {
-    fn default() -> Self { Self { score: 0, lives: 3, won: false, lost: false } }
+    fn default() -> Self {
+        Self {
+            score: 0,
+            lives: 3,
+            won: false,
+            lost: false,
+        }
+    }
 }
 
 #[derive(Resource, Debug, Clone, Copy)]
@@ -21,5 +28,11 @@ pub struct ArenaConfig {
 }
 
 impl Default for ArenaConfig {
-    fn default() -> Self { Self { width: 800.0, height: 600.0, background: GameColor::White } }
+    fn default() -> Self {
+        Self {
+            width: 800.0,
+            height: 600.0,
+            background: GameColor::White,
+        }
+    }
 }

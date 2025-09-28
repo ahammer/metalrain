@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use crate::components::{MetaBall, MetaBallColor, MetaBallCluster};
+use crate::components::{MetaBall, MetaBallCluster, MetaBallColor};
 use crate::coordinates::MetaballCoordinateMapper;
-use crate::internal::{BallBuffer, ParamsUniform, FieldTexture, AlbedoTexture, NormalTexture};
+use crate::internal::{AlbedoTexture, BallBuffer, FieldTexture, NormalTexture, ParamsUniform};
+use bevy::prelude::*;
 
 /// User‑tunable diagnostics configuration.
 #[derive(Resource, Debug, Clone)]
@@ -41,14 +41,18 @@ impl Plugin for MetaballDiagnosticsPlugin {
     }
 }
 
-fn increment_frame_counter(mut fc: ResMut<FrameCounter>) { fc.0 += 1; }
+fn increment_frame_counter(mut fc: ResMut<FrameCounter>) {
+    fc.0 += 1;
+}
 
 fn startup_summary(
     config: Res<MetaballDiagnosticsConfig>,
     settings: Option<Res<crate::settings::MetaballRenderSettings>>,
     mapper: Option<Res<MetaballCoordinateMapper>>,
 ) {
-    if !config.enabled { return; }
+    if !config.enabled {
+        return;
+    }
     if let Some(settings) = settings {
         info!(target: "metaballs::diag", "Startup: texture_size={:?} world_bounds=({}, {}) -> ({}, {}) clustering={} ",
             settings.texture_size,
@@ -75,11 +79,21 @@ fn periodic_diagnostics(
     albedo: Option<Res<AlbedoTexture>>,
     normals: Option<Res<NormalTexture>>,
     images: Option<Res<Assets<Image>>>,
-    q_balls: Query<(Entity, &Transform, &MetaBall, Option<&MetaBallColor>, Option<&MetaBallCluster>)>,
+    q_balls: Query<(
+        Entity,
+        &Transform,
+        &MetaBall,
+        Option<&MetaBallColor>,
+        Option<&MetaBallCluster>,
+    )>,
 ) {
     let cfg = &*config;
-    if !cfg.enabled { return; }
-    if cfg.max_frames_logging > 0 && fc.0 > cfg.max_frames_logging { return; }
+    if !cfg.enabled {
+        return;
+    }
+    if cfg.max_frames_logging > 0 && fc.0 > cfg.max_frames_logging {
+        return;
+    }
     if fc.0 == 1 || (cfg.log_every_n_frames > 0 && fc.0 % cfg.log_every_n_frames as u64 == 0) {
         if cfg.log_gpu_buffers {
             if let (Some(params), Some(buffer)) = (params.as_deref(), buffer.as_deref()) {
@@ -89,7 +103,7 @@ fn periodic_diagnostics(
                 }
             }
         }
-    if cfg.log_coordinates {
+        if cfg.log_coordinates {
             if let Some(mapper) = mapper.as_deref() {
                 for (e, tr, mb, color, cluster) in q_balls.iter().take(3) {
                     let world = tr.translation.truncate();
@@ -103,11 +117,22 @@ fn periodic_diagnostics(
                 }
             }
         }
-    if cfg.log_textures {
-            if let (Some(images), Some(field), Some(albedo)) = (images.as_ref(), field.as_ref(), albedo.as_ref()) {
-                let field_info = images.get(&field.0).map(|i| format!("{}x{}", i.width(), i.height())).unwrap_or_else(|| "unloaded".into());
-                let albedo_info = images.get(&albedo.0).map(|i| format!("{}x{}", i.width(), i.height())).unwrap_or_else(|| "unloaded".into());
-                let normal_info = normals.and_then(|n| images.get(&n.0)).map(|i| format!("{}x{}", i.width(), i.height())).unwrap_or_else(|| "unloaded".into());
+        if cfg.log_textures {
+            if let (Some(images), Some(field), Some(albedo)) =
+                (images.as_ref(), field.as_ref(), albedo.as_ref())
+            {
+                let field_info = images
+                    .get(&field.0)
+                    .map(|i| format!("{}x{}", i.width(), i.height()))
+                    .unwrap_or_else(|| "unloaded".into());
+                let albedo_info = images
+                    .get(&albedo.0)
+                    .map(|i| format!("{}x{}", i.width(), i.height()))
+                    .unwrap_or_else(|| "unloaded".into());
+                let normal_info = normals
+                    .and_then(|n| images.get(&n.0))
+                    .map(|i| format!("{}x{}", i.width(), i.height()))
+                    .unwrap_or_else(|| "unloaded".into());
                 info!(target: "metaballs::diag", "  Textures: field={field_info} albedo={albedo_info} normals={normal_info}");
             }
         }

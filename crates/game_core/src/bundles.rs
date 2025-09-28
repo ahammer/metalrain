@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::{Ball, GameColor};
+use bevy::prelude::*;
 
 #[derive(Bundle)]
 pub struct BallBundle {
@@ -11,7 +11,11 @@ pub struct BallBundle {
 impl BallBundle {
     pub fn new(position: Vec2, radius: f32, color: GameColor) -> Self {
         Self {
-            ball: Ball { velocity: Vec2::ZERO, radius, color },
+            ball: Ball {
+                velocity: Vec2::ZERO,
+                radius,
+                color,
+            },
             transform: Transform::from_translation(position.extend(0.0)),
             global_transform: GlobalTransform::IDENTITY,
         }

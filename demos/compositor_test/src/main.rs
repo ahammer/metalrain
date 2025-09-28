@@ -1,27 +1,32 @@
 use bevy::prelude::*;
+use bevy::render::view::RenderLayers;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
-use metaball_renderer::{MetaballRendererPlugin, MetaballRenderSettings, MetaballShaderSourcePlugin, MetaBall, MetaBallColor, MetaBallCluster};
 
-// Logical half-extent of the square world: coordinates range roughly in [-HALF_EXTENT, HALF_EXTENT]
-const HALF_EXTENT: f32 = 256.0; // mirrors metaballs demo scale
-const TEX_SIZE: UVec2 = UVec2::new(512,512); // texture used by metaball renderer
+use game_rendering::{
+    BlendMode, CompositorSettings, GameRenderingPlugin, LayerBlendState, LayerToggleState,
+    RenderLayer, RenderSurfaceSettings,
+};
+use metaball_renderer::{
+    MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
+    MetaballShaderSourcePlugin,
+};
+
+const HALF_EXTENT: f32 = 256.0;
+const TEX_SIZE: UVec2 = UVec2::new(512, 512);
 const WALL_THICKNESS: f32 = 10.0;
-const NUM_BALLS: usize = 400; // reasonable default; adjust as desired
-// We rely on Rapier's default gravity (approx -9.81 on Y). To exaggerate the effect, we apply a GravityScale > 1 on each ball.
-const GRAVITY_SCALE: f32 = 0.0; // amplifies default gravity strength per ball
+const NUM_BALLS: usize = 400;
+const GRAVITY_SCALE: f32 = 0.0;
 
-// --- Burst force (random area) tuning ---
-const BURST_INTERVAL_SECONDS: f32 = 3.0;      // time between burst starts
-const BURST_ACTIVE_SECONDS: f32 = 0.6;        // how long the burst applies force
-const BURST_RADIUS: f32 = 110.0;              // influence radius in world units
-const BURST_STRENGTH: f32 = 1400.0;           // peak outward force at center (Newtons-equivalent units for rapier)
+const BURST_INTERVAL_SECONDS: f32 = 3.0;
+const BURST_ACTIVE_SECONDS: f32 = 0.6;
+const BURST_RADIUS: f32 = 110.0;
+const BURST_STRENGTH: f32 = 1400.0;
 
-// --- Wall repulsion pulse tuning ---
-const WALL_PULSE_INTERVAL_SECONDS: f32 = 10.0; // time between wall repulsion pulses
-const WALL_PULSE_ACTIVE_SECONDS: f32 = 0.8;    // duration of inward push from walls
-const WALL_PULSE_DISTANCE: f32 = 120.0;        // distance from a wall within which bodies are affected
-const WALL_PULSE_STRENGTH: f32 = 2200.0;       // strength scale for combined inward force
+const WALL_PULSE_INTERVAL_SECONDS: f32 = 10.0;
+const WALL_PULSE_ACTIVE_SECONDS: f32 = 0.8;
+const WALL_PULSE_DISTANCE: f32 = 120.0;
+const WALL_PULSE_STRENGTH: f32 = 2200.0;
 
 #[derive(Resource, Debug)]
 struct BurstForceState {
@@ -55,80 +60,308 @@ impl Default for WallPulseState {
     }
 }
 
+#[derive(Component)]
+struct BackgroundGlow;
+
+#[derive(Component)]
+struct EffectsPulse;
+
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::BLACK))
-        // Metaball shader source (hot reload friendly) BEFORE DefaultPlugins just like other demo
+        .insert_resource(RenderSurfaceSettings {
+            base_resolution: UVec2::new(1280, 720),
+            ..Default::default()
+        })
         .add_plugins(MetaballShaderSourcePlugin)
         .add_plugins(DefaultPlugins)
-    .add_plugins(MetaballRendererPlugin::with(
-        MetaballRenderSettings::default()
-            .with_texture_size(TEX_SIZE)
-            .with_world_bounds(Rect::from_corners(Vec2::new(-HALF_EXTENT,-HALF_EXTENT), Vec2::new(HALF_EXTENT,HALF_EXTENT)))
-            .clustering_enabled(true)
-            .with_presentation(true)
-    ))
-        .add_systems(Startup, spawn_camera)
+        .add_plugins(GameRenderingPlugin)
+        .add_plugins(MetaballRendererPlugin::with(
+            MetaballRenderSettings::default()
+                .with_texture_size(TEX_SIZE)
+                .with_world_bounds(Rect::from_corners(
+                    Vec2::new(-HALF_EXTENT, -HALF_EXTENT),
+                    Vec2::new(HALF_EXTENT, HALF_EXTENT),
+                ))
+                .clustering_enabled(true)
+                .with_presentation(true),
+        ))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
-        // .add_plugins(RapierDebugRenderPlugin::default()) // optional physics debug
         .init_resource::<BurstForceState>()
         .init_resource::<WallPulseState>()
-        .add_systems(Startup, (spawn_walls, spawn_balls))
-        .add_systems(PreUpdate, (update_burst_force_state, apply_burst_forces).chain())
-        // Move wall pulse to Update so Time has advanced; ensures timer fires correctly
-        .add_systems(Update, (update_wall_pulse_state, apply_wall_pulse_forces).chain())
-    // Mapping sync system removed – packing now derives texture coords from Transform each repack
+        .add_systems(Startup, (setup_scene, spawn_walls, spawn_balls))
+        .add_systems(
+            PreUpdate,
+            (update_burst_force_state, apply_burst_forces).chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                update_wall_pulse_state,
+                apply_wall_pulse_forces,
+                handle_compositor_inputs,
+                animate_background_glow,
+                animate_effect_overlay,
+            ),
+        )
+        .add_systems(PostStartup, configure_metaball_presentation)
         .run();
 }
 
-// (Removed unused setup_camera function that previously spawned a Camera2d)
-fn spawn_camera(mut commands: Commands) {
-    commands.spawn((Camera2d, Name::new("GameboardCamera")));
+fn setup_scene(mut commands: Commands) {
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.05, 0.07, 0.13, 1.0),
+            custom_size: Some(Vec2::new(1800.0, 1200.0)),
+            ..Default::default()
+        },
+        Transform::from_xyz(0.0, 0.0, -50.0),
+        RenderLayers::layer(RenderLayer::Background.order()),
+        Name::new("Background::Base"),
+    ));
+
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.45, 0.1, 0.75, 0.22),
+            custom_size: Some(Vec2::new(1400.0, 1400.0)),
+            ..Default::default()
+        },
+        Transform::from_xyz(0.0, 0.0, -40.0),
+        RenderLayers::layer(RenderLayer::Background.order()),
+        BackgroundGlow,
+        Name::new("Background::Glow"),
+    ));
+
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.06, 0.12, 0.20, 0.65),
+            custom_size: Some(Vec2::splat(HALF_EXTENT * 2.0 + 32.0)),
+            ..Default::default()
+        },
+        Transform::from_xyz(0.0, 0.0, -10.0),
+        RenderLayers::layer(RenderLayer::GameWorld.order()),
+        Name::new("GameWorld::PlayfieldBackdrop"),
+    ));
+
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.2, 0.6, 1.0, 0.18),
+            custom_size: Some(Vec2::new(620.0, 620.0)),
+            ..Default::default()
+        },
+        Transform::from_xyz(0.0, 0.0, 30.0),
+        RenderLayers::layer(RenderLayer::Effects.order()),
+        EffectsPulse,
+        Name::new("Effects::PulseOverlay"),
+    ));
+}
+
+fn configure_metaball_presentation(
+    mut commands: Commands,
+    mut done: Local<bool>,
+    query: Query<(Entity, &Name), Without<RenderLayers>>,
+) {
+    if *done {
+        return;
+    }
+
+    for (entity, name) in &query {
+        if name.as_str() == "MetaballPresentationQuad" {
+            commands
+                .entity(entity)
+                .insert(RenderLayers::layer(RenderLayer::Metaballs.order()));
+            *done = true;
+            info!(target: "compositor_demo", "Metaball presentation routed to Metaballs layer");
+            break;
+        }
+    }
+}
+
+fn animate_background_glow(
+    time: Res<Time>,
+    mut query: Query<&mut Transform, With<BackgroundGlow>>,
+) {
+    let elapsed = time.elapsed_secs();
+    for mut transform in &mut query {
+        let scale = 1.0 + elapsed.sin() * 0.05;
+        transform.scale = Vec3::splat(scale);
+    }
+}
+
+fn animate_effect_overlay(time: Res<Time>, mut query: Query<&mut Sprite, With<EffectsPulse>>) {
+    let elapsed = time.elapsed_secs();
+    for mut sprite in &mut query {
+        let wave = (elapsed * 1.2).sin() * 0.5 + 0.5;
+        sprite.color = sprite.color.with_alpha(0.12 + wave * 0.18);
+    }
+}
+
+fn handle_compositor_inputs(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut layer_state: ResMut<LayerToggleState>,
+    mut blend_state: ResMut<LayerBlendState>,
+    mut settings: ResMut<CompositorSettings>,
+) {
+    if keys.just_pressed(KeyCode::Digit1) {
+        toggle_layer(&mut layer_state, RenderLayer::Background);
+    }
+    if keys.just_pressed(KeyCode::Digit2) {
+        toggle_layer(&mut layer_state, RenderLayer::GameWorld);
+    }
+    if keys.just_pressed(KeyCode::Digit3) {
+        toggle_layer(&mut layer_state, RenderLayer::Metaballs);
+    }
+    if keys.just_pressed(KeyCode::Digit4) {
+        toggle_layer(&mut layer_state, RenderLayer::Effects);
+    }
+    if keys.just_pressed(KeyCode::Digit5) {
+        toggle_layer(&mut layer_state, RenderLayer::Ui);
+    }
+
+    if keys.just_pressed(KeyCode::KeyQ) {
+        blend_state.set_blend_for(RenderLayer::Metaballs, BlendMode::Normal);
+        info!(target: "compositor_demo", "Metaballs blend mode: Normal");
+    }
+    if keys.just_pressed(KeyCode::KeyW) {
+        blend_state.set_blend_for(RenderLayer::Metaballs, BlendMode::Additive);
+        info!(target: "compositor_demo", "Metaballs blend mode: Additive");
+    }
+    if keys.just_pressed(KeyCode::KeyE) {
+        blend_state.set_blend_for(RenderLayer::Metaballs, BlendMode::Multiply);
+        info!(target: "compositor_demo", "Metaballs blend mode: Multiply");
+    }
+
+    if keys.just_pressed(KeyCode::Minus) {
+        settings.exposure = (settings.exposure - 0.1).clamp(0.1, 3.0);
+        info!(target: "compositor_demo", "Exposure set to {:.2}", settings.exposure);
+    }
+    if keys.just_pressed(KeyCode::Equal) {
+        settings.exposure = (settings.exposure + 0.1).clamp(0.1, 3.0);
+        info!(target: "compositor_demo", "Exposure set to {:.2}", settings.exposure);
+    }
+    if keys.just_pressed(KeyCode::F2) {
+        settings.debug_layer_boundaries = !settings.debug_layer_boundaries;
+        info!(
+            target: "compositor_demo",
+            "Layer boundary debug {}",
+            if settings.debug_layer_boundaries {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
+    }
+}
+
+fn toggle_layer(state: &mut LayerToggleState, layer: RenderLayer) {
+    if let Some(config) = state.config_mut(layer) {
+        config.enabled = !config.enabled;
+        info!(
+            target: "compositor_demo",
+            "{} layer {}",
+            layer,
+            if config.enabled { "enabled" } else { "disabled" }
+        );
+    }
 }
 
 fn spawn_walls(mut commands: Commands) {
-    // Four axis-aligned fixed walls forming a box.
-    // Use large cuboids slightly beyond the half-extent to ensure containment.
     let hx = HALF_EXTENT;
     let hy = HALF_EXTENT;
     let t = WALL_THICKNESS;
 
-    // Bottom
-    commands.spawn((
-        RigidBody::Fixed,
-        Collider::cuboid(hx + t, t),
-        Transform::from_translation(Vec3::new(0.0, -hy - t, 0.0)),
-        GlobalTransform::default(),
-        Name::new("WallBottom"),
-    ));
-    // Top
-    commands.spawn((
-        RigidBody::Fixed,
-        Collider::cuboid(hx + t, t),
-        Transform::from_translation(Vec3::new(0.0, hy + t, 0.0)),
-        GlobalTransform::default(),
-        Name::new("WallTop"),
-    ));
-    // Left
-    commands.spawn((
-        RigidBody::Fixed,
-        Collider::cuboid(t, hy + t),
-        Transform::from_translation(Vec3::new(-hx - t, 0.0, 0.0)),
-        GlobalTransform::default(),
-        Name::new("WallLeft"),
-    ));
-    // Right
-    commands.spawn((
-        RigidBody::Fixed,
-        Collider::cuboid(t, hy + t),
-        Transform::from_translation(Vec3::new(hx + t, 0.0, 0.0)),
-        GlobalTransform::default(),
-        Name::new("WallRight"),
-    ));
+    let horizontal_size = Vec2::new((hx + t) * 2.0, t * 2.0);
+    let vertical_size = Vec2::new(t * 2.0, (hy + t) * 2.0);
+
+    commands
+        .spawn((
+            Name::new("WallBottom"),
+            RigidBody::Fixed,
+            Collider::cuboid(hx + t, t),
+            Transform::from_translation(Vec3::new(0.0, -hy - t, 0.0)),
+            GlobalTransform::default(),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
+                    custom_size: Some(horizontal_size),
+                    ..Default::default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                RenderLayers::layer(RenderLayer::GameWorld.order()),
+            ));
+        });
+
+    commands
+        .spawn((
+            Name::new("WallTop"),
+            RigidBody::Fixed,
+            Collider::cuboid(hx + t, t),
+            Transform::from_translation(Vec3::new(0.0, hy + t, 0.0)),
+            GlobalTransform::default(),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
+                    custom_size: Some(horizontal_size),
+                    ..Default::default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                RenderLayers::layer(RenderLayer::GameWorld.order()),
+            ));
+        });
+
+    commands
+        .spawn((
+            Name::new("WallLeft"),
+            RigidBody::Fixed,
+            Collider::cuboid(t, hy + t),
+            Transform::from_translation(Vec3::new(-hx - t, 0.0, 0.0)),
+            GlobalTransform::default(),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
+                    custom_size: Some(vertical_size),
+                    ..Default::default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                RenderLayers::layer(RenderLayer::GameWorld.order()),
+            ));
+        });
+
+    commands
+        .spawn((
+            Name::new("WallRight"),
+            RigidBody::Fixed,
+            Collider::cuboid(t, hy + t),
+            Transform::from_translation(Vec3::new(hx + t, 0.0, 0.0)),
+            GlobalTransform::default(),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
+                    custom_size: Some(vertical_size),
+                    ..Default::default()
+                },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                RenderLayers::layer(RenderLayer::GameWorld.order()),
+            ));
+        });
 }
 
 fn spawn_balls(mut commands: Commands) {
     let mut rng = StdRng::from_entropy();
+    let palette = [
+        LinearRgba::new(1.0, 0.3, 0.3, 1.0),
+        LinearRgba::new(0.3, 1.0, 0.4, 1.0),
+        LinearRgba::new(0.3, 0.4, 1.0, 1.0),
+        LinearRgba::new(1.0, 0.9, 0.3, 1.0),
+    ];
+
     for i in 0..NUM_BALLS {
         let radius = rng.gen_range(3.0..12.0);
         let x = rng.gen_range(-HALF_EXTENT + radius..HALF_EXTENT - radius);
@@ -136,94 +369,111 @@ fn spawn_balls(mut commands: Commands) {
         let angle = rng.gen_range(0.0..std::f32::consts::TAU);
         let speed = rng.gen_range(10.0..120.0);
         let vel = Vec2::from_angle(angle) * speed;
-        // Simple small palette cycling for clusters/colors
-        let palette = [
-            LinearRgba::new(1.0,0.3,0.3,1.0),
-            LinearRgba::new(0.3,1.0,0.4,1.0),
-            LinearRgba::new(0.3,0.4,1.0,1.0),
-            LinearRgba::new(1.0,0.9,0.3,1.0),
-        ];
         let cluster = (i % palette.len()) as i32;
+        let base_color = palette[cluster as usize];
+        let sprite_color =
+            Color::linear_rgba(base_color.red, base_color.green, base_color.blue, 0.2);
 
-        commands
-            .spawn((
-                RigidBody::Dynamic,
-                Collider::ball(radius),
-                Restitution::coefficient(0.8),
-                Damping { linear_damping: 0.2, angular_damping: 0.8 },
-                Velocity { linvel: vel, angvel: rng.gen_range(-5.0..5.0) },
-                GravityScale(GRAVITY_SCALE),
-                Ccd::disabled(),
-                ActiveEvents::COLLISION_EVENTS,
-                Sleeping::disabled(),
-                Transform::from_translation(Vec3::new(x, y, 0.0)),
-                GlobalTransform::default(),
-                Name::new(format!("Ball#{i}")),
-                // Metaball component (radius only; position from Transform)
-                MetaBall { radius_world: radius },
-                MetaBallColor(palette[cluster as usize]),
-                MetaBallCluster(cluster),
-            ))
-            .insert(ExternalForce::default());
+        let mut entity = commands.spawn((
+            Sprite {
+                color: sprite_color,
+                custom_size: Some(Vec2::splat(radius * 2.0)),
+                ..Default::default()
+            },
+            Transform::from_translation(Vec3::new(x, y, 0.0)),
+            RenderLayers::layer(RenderLayer::GameWorld.order()),
+            Name::new(format!("Ball#{i}")),
+        ));
+
+        entity.insert((
+            RigidBody::Dynamic,
+            Collider::ball(radius),
+            Restitution::coefficient(0.8),
+            Damping {
+                linear_damping: 0.2,
+                angular_damping: 0.8,
+            },
+            Velocity {
+                linvel: vel,
+                angvel: rng.gen_range(-5.0..5.0),
+            },
+            GravityScale(GRAVITY_SCALE),
+            Ccd::disabled(),
+            ActiveEvents::COLLISION_EVENTS,
+            Sleeping::disabled(),
+        ));
+
+        entity.insert((
+            MetaBall {
+                radius_world: radius,
+            },
+            MetaBallColor(base_color),
+            MetaBallCluster(cluster),
+            ExternalForce::default(),
+        ));
     }
-    info!("Spawned {NUM_BALLS} balls in GameBoard_Test demo");
+
+    info!("Spawned {NUM_BALLS} balls in compositor demo");
 }
 
-// Legacy world_to_tex & sync_metaballs removed.
-
-// ---- Random Burst Force Systems ----
-
-// Tick timers, choose new burst center when interval elapses.
 fn update_burst_force_state(time: Res<Time>, mut state: ResMut<BurstForceState>) {
     state.interval_timer.tick(time.delta());
     if let Some(active) = state.active_timer.as_mut() {
         active.tick(time.delta());
-        if active.finished() { state.active_timer = None; }
+        if active.finished() {
+            state.active_timer = None;
+        }
     }
     if state.interval_timer.just_finished() {
-        // Pick a new random center within world bounds (slightly inset so radius stays inside)
         let mut rng = thread_rng();
         let margin = BURST_RADIUS * 0.5;
-        let x = rng.gen_range(-HALF_EXTENT + margin .. HALF_EXTENT - margin);
-        let y = rng.gen_range(-HALF_EXTENT + margin .. HALF_EXTENT - margin);
+        let x = rng.gen_range(-HALF_EXTENT + margin..HALF_EXTENT - margin);
+        let y = rng.gen_range(-HALF_EXTENT + margin..HALF_EXTENT - margin);
         state.center = Vec2::new(x, y);
         state.active_timer = Some(Timer::from_seconds(BURST_ACTIVE_SECONDS, TimerMode::Once));
         info!("Burst force activated at ({x:.1},{y:.1})");
     }
 }
 
-// Apply outward radial force while burst is active
 fn apply_burst_forces(
     mut q: Query<(&Transform, &mut ExternalForce), With<RigidBody>>,
     state: Res<BurstForceState>,
 ) {
-    let Some(active) = state.active_timer.as_ref() else { return; };
-    if active.finished() { return; }
+    let Some(active) = state.active_timer.as_ref() else {
+        return;
+    };
+    if active.finished() {
+        return;
+    }
     let center = state.center;
     let r2 = BURST_RADIUS * BURST_RADIUS;
     for (tr, mut force) in &mut q {
         let pos = tr.translation.truncate();
-        let to_ball = pos - center; // outward
+        let to_ball = pos - center;
         let dist2 = to_ball.length_squared();
-        if dist2 > r2 || dist2 < 1.0 { continue; }
+        if dist2 > r2 || dist2 < 1.0 {
+            continue;
+        }
         let dist = dist2.sqrt();
-        let falloff = 1.0 - (dist / BURST_RADIUS); // linear falloff
+        let falloff = 1.0 - (dist / BURST_RADIUS);
         let dir = to_ball / dist;
-        // Accumulate force (Rapier resets each step after integration)
         force.force += dir * BURST_STRENGTH * falloff;
     }
 }
-
-// ---- Wall Repulsion Pulse Systems ----
 
 fn update_wall_pulse_state(time: Res<Time>, mut state: ResMut<WallPulseState>) {
     state.interval_timer.tick(time.delta());
     if let Some(active) = state.active_timer.as_mut() {
         active.tick(time.delta());
-        if active.finished() { state.active_timer = None; }
+        if active.finished() {
+            state.active_timer = None;
+        }
     }
     if state.interval_timer.just_finished() {
-        state.active_timer = Some(Timer::from_seconds(WALL_PULSE_ACTIVE_SECONDS, TimerMode::Once));
+        state.active_timer = Some(Timer::from_seconds(
+            WALL_PULSE_ACTIVE_SECONDS,
+            TimerMode::Once,
+        ));
         info!("Wall repulsion pulse active");
     }
 }
@@ -232,23 +482,38 @@ fn apply_wall_pulse_forces(
     mut q: Query<(&Transform, &mut ExternalForce), With<RigidBody>>,
     state: Res<WallPulseState>,
 ) {
-    let Some(active) = state.active_timer.as_ref() else { return; };
-    if active.finished() { return; }
+    let Some(active) = state.active_timer.as_ref() else {
+        return;
+    };
+    if active.finished() {
+        return;
+    }
     let max_dist = WALL_PULSE_DISTANCE;
     for (tr, mut force) in &mut q {
         let p = tr.translation.truncate();
         let mut accum = Vec2::ZERO;
-        // Distance to each wall; if within threshold push inward.
+
         let left_d = (p.x - (-HALF_EXTENT)).max(0.0);
-        if left_d < max_dist { let f = 1.0 - left_d / max_dist; accum.x += f; }
+        if left_d < max_dist {
+            let f = 1.0 - left_d / max_dist;
+            accum.x += f;
+        }
         let right_d = (HALF_EXTENT - p.x).max(0.0);
-        if right_d < max_dist { let f = 1.0 - right_d / max_dist; accum.x -= f; }
+        if right_d < max_dist {
+            let f = 1.0 - right_d / max_dist;
+            accum.x -= f;
+        }
         let bottom_d = (p.y - (-HALF_EXTENT)).max(0.0);
-        if bottom_d < max_dist { let f = 1.0 - bottom_d / max_dist; accum.y += f; }
+        if bottom_d < max_dist {
+            let f = 1.0 - bottom_d / max_dist;
+            accum.y += f;
+        }
         let top_d = (HALF_EXTENT - p.y).max(0.0);
-        if top_d < max_dist { let f = 1.0 - top_d / max_dist; accum.y -= f; }
+        if top_d < max_dist {
+            let f = 1.0 - top_d / max_dist;
+            accum.y -= f;
+        }
         if accum.length_squared() > 0.0001 {
-            // Scale by strength and length (so corner overlaps stronger naturally)
             let magnitude = accum.length();
             let dir = accum / magnitude;
             force.force += dir * WALL_PULSE_STRENGTH * magnitude;

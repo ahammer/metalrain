@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::{Ball, Target};
+use bevy::prelude::*;
 
 #[derive(Event)]
 pub struct BallSpawned(pub Entity, pub Ball);

@@ -1,10 +1,10 @@
 use bevy::prelude::*;
-use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 
-use crate::internal::{FieldTexture, AlbedoTexture, NormalTexture};
-use crate::settings::MetaballRenderSettings;
 use crate::embedded_shaders;
+use crate::internal::{AlbedoTexture, FieldTexture, NormalTexture};
+use crate::settings::MetaballRenderSettings;
 
 // This module implements an optional presentation quad that simply maps the offscreen
 // metaball textures (field, albedo, normals) onto a rectangle covering the configured

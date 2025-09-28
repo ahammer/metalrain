@@ -3,15 +3,15 @@
 
 use bevy::prelude::*;
 
-pub mod components;
-pub mod resources;
-pub mod events;
 pub mod bundles;
+pub mod components;
+pub mod events;
+pub mod resources;
 
-pub use components::*;
-pub use resources::*;
-pub use events::*;
 pub use bundles::*;
+pub use components::*;
+pub use events::*;
+pub use resources::*;
 
 pub struct GameCorePlugin;
 impl Plugin for GameCorePlugin {
@@ -31,7 +31,11 @@ mod tests {
 
     #[test]
     fn components_compile() {
-        let ball = Ball { velocity: Vec2::new(1.0, 0.0), radius: 5.0, color: GameColor::Red };
+        let ball = Ball {
+            velocity: Vec2::new(1.0, 0.0),
+            radius: 5.0,
+            color: GameColor::Red,
+        };
         assert!(ball.radius > 0.0);
     }
 }

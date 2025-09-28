@@ -8,3 +8,4 @@ bevy = { workspace = true }
 bevy_rapier2d = { workspace = true }
 rand = "0.8"
 metaball_renderer = { path = "../../crates/metaball_renderer" }
+game_rendering = { path = "../../crates/game_rendering" }

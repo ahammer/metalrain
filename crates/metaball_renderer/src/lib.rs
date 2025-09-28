@@ -28,41 +28,52 @@
 
 use bevy::prelude::*;
 
-mod settings;
+mod components;
+mod compute;
+mod coordinates; // world <-> texture mapping & projection helpers
+mod diagnostics;
+mod embedded_shaders;
+mod internal;
+mod pack;
 #[cfg(feature = "present")]
 mod present; // optional fullscreen quad presentation (offscreen texture to screen)
-mod components;
-mod internal;
-mod compute;
-mod embedded_shaders;
-mod pack;
-mod coordinates; // world <-> texture mapping & projection helpers
-mod diagnostics; // logging & runtime diagnostics
+mod settings; // logging & runtime diagnostics
 
-pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};
+pub use components::{MetaBall, MetaBallCluster, MetaBallColor};
+pub use coordinates::{
+    project_world_to_screen, screen_to_metaball_uv, screen_to_world, MetaballCoordinateMapper,
+};
+pub use diagnostics::{MetaballDiagnosticsConfig, MetaballDiagnosticsPlugin};
+pub use embedded_shaders::MetaballShaderSourcePlugin;
 #[cfg(feature = "present")]
 pub use present::MetaballDisplayPlugin;
-pub use embedded_shaders::MetaballShaderSourcePlugin;
-pub use components::{MetaBall, MetaBallColor, MetaBallCluster};
-pub use coordinates::{MetaballCoordinateMapper, project_world_to_screen, screen_to_world, screen_to_metaball_uv};
-pub use diagnostics::{MetaballDiagnosticsPlugin, MetaballDiagnosticsConfig};
+pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};
 
 /// Runtime‑mutable settings (public) allowing user code to toggle certain renderer behaviors
 /// without accessing internal uniform types. Changes are propagated into GPU uniforms by
 /// an internal sync system each frame (cheap compared to full buffer upload already occurring).
 #[derive(Resource, Clone)]
 pub struct RuntimeSettings {
-	pub clustering_enabled: bool,
+    pub clustering_enabled: bool,
 }
-impl Default for RuntimeSettings { fn default() -> Self { Self { clustering_enabled: true } } }
+impl Default for RuntimeSettings {
+    fn default() -> Self {
+        Self {
+            clustering_enabled: true,
+        }
+    }
+}
 
 // Re-export select constants (namespaced) for advanced users; may become deprecated later.
-pub mod consts { use crate::internal; pub const WORKGROUP_SIZE: u32 = internal::WORKGROUP_SIZE; }
+pub mod consts {
+    use crate::internal;
+    pub const WORKGROUP_SIZE: u32 = internal::WORKGROUP_SIZE;
+}
 
-use internal::{FieldTexture, AlbedoTexture};
+use internal::{AlbedoTexture, FieldTexture};
 /// Retrieve the (field, albedo) render texture handles if the renderer is active.
 pub fn metaball_textures(world: &World) -> Option<(Handle<Image>, Handle<Image>)> {
-	let field = world.get_resource::<FieldTexture>()?;
-	let albedo = world.get_resource::<AlbedoTexture>()?;
-	Some((field.0.clone(), albedo.0.clone()))
+    let field = world.get_resource::<FieldTexture>()?;
+    let albedo = world.get_resource::<AlbedoTexture>()?;
+    Some((field.0.clone(), albedo.0.clone()))
 }
