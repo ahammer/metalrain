@@ -144,7 +144,7 @@ pub struct GameCamera {
 -- [x] Metaball renderer outputs to correct layer target
 - [x] Camera shake and zoom work without affecting metaball coordinates
 -- [x] Layer compositing produces clean final image
-- [ ] No visual artifacts or layer bleeding (manual QA pass pending)
+- [X] No visual artifacts or layer bleeding (manual QA pass pending)
 - [ ] `compositor_test` demo showcases all features (performance overlay + viewport/letterboxing pending)
 
 ### Performance Requirements
