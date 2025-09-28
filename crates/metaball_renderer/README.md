@@ -90,6 +90,29 @@ Unit tests assert:
 - Dynamic resolution scaling
 - Post-effects (glow/bloom) applied after composition
 
+## Coordinate Pipeline & Visual Regression Plan
+
+Pipeline overview:
+
+World Space (game logic, arbitrary units & bounds) → Metaball Texture Pixels (0..W,0..H) → UV (0..1) → Final Compositor (screen / target surface).
+
+Supporting utilities:
+
+- `MetaballCoordinateMapper` handles world ↔ texture & radius scaling.
+- Simple helpers wrap Bevy camera projection for world ↔ screen translation.
+
+Visual Regression (planned):
+
+1. Spawn deterministic world (fixed RNG seed, fixed ordering) with a handful of metaballs of varying radii & colors.
+2. Advance a fixed number of frames to allow packing & compute pass execution.
+3. Read back field + albedo textures via staging buffer, hash bytes.
+4. Compare against baseline hash checked into `crates/metaball_renderer/tests/baselines/` (small text file containing algorithm + hash).
+5. On mismatch, write out PNGs under `target/vis_diffs/` for manual inspection.
+
+Non-goals initially: perceptual diff (SSIM) or tolerance-based float compare—byte-exact hash is enough while shaders are stable.
+
+Benchmarking: Criterion bench `coordinates` measures `world_to_metaball` throughput for scaling discussions (dynamic resolution / LOD decisions).
+
 ## License
 
 Dual-licensed under MIT or Apache-2.0 at your option.

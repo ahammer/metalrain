@@ -20,9 +20,10 @@ resolver = "2"
 
 # Centralized dependency versions (Sprint 1 workspace-level dependencies)
 [workspace.dependencies]
-bevy = { version = "0.16.1", features = ["bevy_winit", "bevy_sprite", "bevy_ui", "bevy_text"] }
+bevy = { version = "0.16.1", features = ["bevy_winit", "bevy_sprite", "bevy_ui", "bevy_text", "file_watcher"] }
 serde = { version = "1.0", features = ["derive"] }
-bevy_rapier2d = { version = "0.30", features = ["simd-stable"] }
+# Added parallel feature to match demo usage and ensure future multi-threaded physics.
+bevy_rapier2d = { version = "0.30", features = ["simd-stable", "parallel"] }
 
 [workspace.package]
 edition = "2021"

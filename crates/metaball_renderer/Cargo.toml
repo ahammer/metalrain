@@ -13,9 +13,14 @@ present = []
 shader_hot_reload = []
 
 [dependencies]
-bevy = { version = "0.16.1", features = ["bevy_winit"] }
+bevy = { workspace = true }
 bytemuck = { version = "1", features = ["derive"] }
 static_assertions = "1.1"
 
 [dev-dependencies]
-bevy = { version = "0.16.1", features = ["bevy_winit"] }
+bevy = { workspace = true }
+criterion = "0.7"
+
+[[bench]]
+name = "coordinates"
+harness = false
