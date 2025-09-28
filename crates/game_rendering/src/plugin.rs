@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use crate::camera::{CameraShakeCommand, CameraZoomCommand, GameCamera, GameCameraSettings};
+use crate::camera::{
+    apply_camera_commands, apply_camera_to_layer_cameras, update_game_camera, CameraShakeCommand,
+    CameraZoomCommand, GameCamera, GameCameraSettings,
+};
 use crate::compositor::{
     setup_compositor_pass, sync_compositor_geometry, sync_compositor_material,
     CompositorMaterialPlugin, CompositorPresentation, CompositorSettings, LayerBlendState,
@@ -32,6 +35,15 @@ impl Plugin for GameRenderingPlugin {
             .add_systems(Startup, setup_render_targets)
             .add_systems(Startup, setup_compositor_pass.after(setup_render_targets))
             .add_systems(Update, handle_window_resize)
-            .add_systems(Update, (sync_compositor_material, sync_compositor_geometry));
+            .add_systems(
+                Update,
+                (
+                    apply_camera_commands,
+                    update_game_camera,
+                    apply_camera_to_layer_cameras,
+                    sync_compositor_material,
+                    sync_compositor_geometry,
+                ),
+            );
     }
 }

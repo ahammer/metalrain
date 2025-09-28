@@ -4,8 +4,8 @@ use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
 use game_rendering::{
-    BlendMode, CompositorSettings, GameRenderingPlugin, LayerBlendState, LayerToggleState,
-    RenderLayer, RenderSurfaceSettings,
+    BlendMode, CameraShakeCommand, CameraZoomCommand, CompositorSettings, GameCamera,
+    GameRenderingPlugin, LayerBlendState, LayerToggleState, RenderLayer, RenderSurfaceSettings,
 };
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
@@ -153,6 +153,18 @@ fn setup_scene(mut commands: Commands) {
         EffectsPulse,
         Name::new("Effects::PulseOverlay"),
     ));
+
+    // Minimal UI layer placeholder (Sprint 3 cleanup)
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(1.0, 1.0, 1.0, 0.06),
+            custom_size: Some(Vec2::new(300.0, 80.0)),
+            ..Default::default()
+        },
+        Transform::from_xyz(-480.0, 320.0, 200.0),
+        RenderLayers::layer(RenderLayer::Ui.order()),
+        Name::new("Ui::Placeholder"),
+    ));
 }
 
 fn configure_metaball_presentation(
@@ -200,6 +212,9 @@ fn handle_compositor_inputs(
     mut layer_state: ResMut<LayerToggleState>,
     mut blend_state: ResMut<LayerBlendState>,
     mut settings: ResMut<CompositorSettings>,
+    mut shake_ev: EventWriter<CameraShakeCommand>,
+    mut zoom_ev: EventWriter<CameraZoomCommand>,
+    mut game_cam_q: Query<&mut GameCamera>,
 ) {
     if keys.just_pressed(KeyCode::Digit1) {
         toggle_layer(&mut layer_state, RenderLayer::Background);
@@ -230,11 +245,25 @@ fn handle_compositor_inputs(
         info!(target: "compositor_demo", "Metaballs blend mode: Multiply");
     }
 
+    // Zoom controls (- / +)
     if keys.just_pressed(KeyCode::Minus) {
+        zoom_ev.write(CameraZoomCommand { delta_scale: -0.1 });
+    }
+    if keys.just_pressed(KeyCode::Equal) {
+        zoom_ev.write(CameraZoomCommand { delta_scale: 0.1 });
+    }
+
+    // Camera shake trigger (Space)
+    if keys.just_pressed(KeyCode::Space) {
+        shake_ev.write(CameraShakeCommand { intensity: 12.0 });
+    }
+
+    // Exposure moved to bracket keys to free +/- for zoom
+    if keys.just_pressed(KeyCode::BracketLeft) {
         settings.exposure = (settings.exposure - 0.1).clamp(0.1, 3.0);
         info!(target: "compositor_demo", "Exposure set to {:.2}", settings.exposure);
     }
-    if keys.just_pressed(KeyCode::Equal) {
+    if keys.just_pressed(KeyCode::BracketRight) {
         settings.exposure = (settings.exposure + 0.1).clamp(0.1, 3.0);
         info!(target: "compositor_demo", "Exposure set to {:.2}", settings.exposure);
     }
@@ -249,6 +278,18 @@ fn handle_compositor_inputs(
                 "disabled"
             }
         );
+    }
+
+    // Reset (R) restores camera defaults & exposure
+    if keys.just_pressed(KeyCode::KeyR) {
+        if let Some(mut cam) = game_cam_q.iter_mut().next() {
+            cam.viewport_scale = 1.0;
+            cam.target_viewport_scale = 1.0;
+            cam.shake_intensity = 0.0;
+            cam.shake_offset = Vec2::ZERO;
+        }
+        settings.exposure = 1.0;
+        info!(target: "compositor_demo", "Camera & exposure reset");
     }
 }
 

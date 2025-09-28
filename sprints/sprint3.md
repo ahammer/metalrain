@@ -37,13 +37,13 @@ Establish the multi-layer rendering architecture that coordinates all visual sub
 - [x] **Game World Layer (1)**: Basic sprite/mesh rendering setup
 - [x] **Metaball Layer (2)**: Integrate existing metaball_renderer with offscreen target
 - [x] **Effects Layer (3)**: Particle system foundation (even if empty initially)
-- [ ] **UI Layer (4)**: Text and shape rendering setup
+- [x] **UI Layer (4)**: Text and shape rendering setup (placeholder sprite; full text system deferred)
 
 ### 4. Camera System Enhancement
 
-- [ ] Build upon existing coordinate mapping from Sprint 2.1
-- [ ] Implement camera shake system with decay
-- [ ] Add zoom controls with proper bounds
+- [x] Build upon existing coordinate mapping from Sprint 2.1 (utilities unchanged & valid)
+- [x] Implement camera shake system with decay
+- [x] Add zoom controls with proper bounds
 - [ ] Create viewport management for fixed aspect ratio
 - [ ] Implement letterboxing/pillarboxing for different screens
 
@@ -62,7 +62,7 @@ Establish the multi-layer rendering architecture that coordinates all visual sub
 - [x] Add visual elements to each layer for testing
 - [x] Implement layer toggle system (keys 1-5)
 - [ ] Add performance overlay showing render times
-- [ ] Create interactive camera controls for testing
+- [x] Create interactive camera controls for testing (Space=shake, +/-=zoom, R=reset, [ ]=exposure)
 - [x] Add blend mode switching (keys Q/W/E for different modes)
 - [x] Include metaball rendering on appropriate layer
 
@@ -140,12 +140,12 @@ pub struct GameCamera {
 
 ### Functional Requirements
 
-- [ ] All 5 render layers functioning independently
+- [x] All 5 render layers functioning independently
 -- [x] Metaball renderer outputs to correct layer target
-- [ ] Camera shake and zoom work without affecting metaball coordinates
+- [x] Camera shake and zoom work without affecting metaball coordinates
 -- [x] Layer compositing produces clean final image
-- [ ] No visual artifacts or layer bleeding
-- [ ] `compositor_test` demo showcases all features
+- [ ] No visual artifacts or layer bleeding (manual QA pass pending)
+- [ ] `compositor_test` demo showcases all features (performance overlay + viewport/letterboxing pending)
 
 ### Performance Requirements
 
@@ -212,9 +212,9 @@ pub struct GameCamera {
 ## Definition of Done
 
 - [x] `game_rendering` crate created and compiles
-- [ ] All 5 layers render to separate targets
+- [x] All 5 layers render to separate targets
 - [x] Compositor combines layers correctly
-- [ ] `compositor_test` demo showcases all rendering features
+- [ ] `compositor_test` demo showcases all rendering features (overlay + letterboxing outstanding)
 - [ ] Performance targets met (60 FPS)
 - [ ] Existing demos still functional
 - [ ] Documentation updated with architecture diagrams
@@ -305,4 +305,3 @@ This section captures the prioritized follow‑up work identified during the Spr
 ### Definition of Done Addendum
 
 - New rendering features require: unit test (where applicable), doc comment, and inclusion in architecture diagram update (if structural).
-
