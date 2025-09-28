@@ -8,7 +8,7 @@ members = [
     "crates/game_physics",
     # Demos
     "demos/metaballs_test",
-    "demos/gameboard_test",
+    "demos/compositor_test",
     "demos/architecture_test",
     # Physics playground demo (Sprint 2)
     "demos/physics_playground",

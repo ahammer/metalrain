@@ -1649,6 +1649,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "compositor_test"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_rapier2d",
+ "metaball_renderer",
+ "rand",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2310,16 +2320,6 @@ dependencies = [
  "bevy",
  "bevy_rapier2d",
  "game_core",
- "rand",
-]
-
-[[package]]
-name = "gameboard_test"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_rapier2d",
- "metaball_renderer",
  "rand",
 ]
 

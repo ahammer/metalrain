@@ -1,5 +1,5 @@
 [package]
-name = "gameboard_test"
+name = "compositor_test"
 version = "0.1.0"
 edition = "2021"
 
