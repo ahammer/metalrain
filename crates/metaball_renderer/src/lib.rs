@@ -29,6 +29,8 @@
 use bevy::prelude::*;
 
 mod settings;
+#[cfg(feature = "present")]
+mod present; // optional fullscreen quad presentation (offscreen texture to screen)
 mod components;
 mod internal;
 mod compute;
@@ -38,6 +40,8 @@ mod coordinates; // world <-> texture mapping & projection helpers
 mod diagnostics; // logging & runtime diagnostics
 
 pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};
+#[cfg(feature = "present")]
+pub use present::MetaballDisplayPlugin;
 pub use embedded_shaders::MetaballShaderSourcePlugin;
 pub use components::{MetaBall, MetaBallColor, MetaBallCluster};
 pub use coordinates::{MetaballCoordinateMapper, project_world_to_screen, screen_to_world, screen_to_metaball_uv};

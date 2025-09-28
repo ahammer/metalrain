@@ -89,8 +89,20 @@ Decoupling yields clearer responsibilities, stable low‑res performance, and fu
 
 ### E. Offscreen Target Handling
 
-- [ ] Ensure plugin creates (or accepts) an `Image` render target of `texture_size`.
-- [ ] Remove `present: bool` path—replace with `present_via_quad: bool` (optional) or drop entirely for Sprint 2.1.
+- [x] Ensure plugin creates (or accepts) an `Image` render target of `texture_size`.
+  - Implemented `MetaballRenderTarget` resource containing offscreen texture handle
+  - Texture created with dimensions from `MetaballRenderSettings.texture_size`
+  - Format: `R8G8B8A8_UNORM` with `TextureUsages::RENDER_ATTACHMENT | COPY_SRC | TEXTURE_BINDING`
+  - Texture accessible for external compositing via resource handle
+  
+- [x] Reintroduce optional presentation via world‑aligned quad (`present_via_quad: bool`).
+    - Added `present_via_quad` field + builder `.with_presentation(true|false)` to `MetaballRenderSettings` (default `false`).
+    - When enabled (and crate feature `present` active), adds `MetaballDisplayPlugin`.
+    - Plugin spawns a `Rectangle` mesh sized to `world_bounds.size()` (not texture px dimensions) so UV (0..1) maps 1:1 to world mapping rectangle.
+    - Quad entity tagged `MetaballPresentationQuad` (public) for user control (visibility, layering, transforms).
+    - Material (`MetaballDisplayMaterial`) binds field, albedo, normal textures; uses existing `present_fullscreen.wgsl` shader (hot‑reload aware where enabled).
+    - No camera is spawned internally (architectural decoupling preserved). Demos now spawn their own `Camera2d`.
+    - This path intended for quick visualization / standalone demos; orchestration pipeline can still ignore it and sample textures directly.
 
 ### F. Integration Utilities
 

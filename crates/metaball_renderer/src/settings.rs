@@ -13,13 +13,20 @@ pub struct MetaballRenderSettings {
     pub world_bounds: Rect,
     /// Initial clustering enabled state (controls hard cluster coloring vs blended gradient)
     pub enable_clustering: bool,
+    /// When true (and the crate `present` feature is enabled) a simple presentation quad
+    /// is spawned mapping the metaball offscreen textures into world space for quick
+    /// visualization. The quad covers `world_bounds` exactly. No camera is created; user
+    /// code must spawn a 2D camera.
+    pub present_via_quad: bool,
 }
-impl Default for MetaballRenderSettings { fn default() -> Self { Self { texture_size: UVec2::new(1024,1024), world_bounds: Rect::from_corners(Vec2::new(-256.0,-256.0), Vec2::new(256.0,256.0)), enable_clustering: true } } }
+impl Default for MetaballRenderSettings { fn default() -> Self { Self { texture_size: UVec2::new(1024,1024), world_bounds: Rect::from_corners(Vec2::new(-256.0,-256.0), Vec2::new(256.0,256.0)), enable_clustering: true, present_via_quad: false } } }
 
 impl MetaballRenderSettings {
     pub fn with_texture_size(mut self, size: UVec2) -> Self { self.texture_size = size; self }
     pub fn with_world_bounds(mut self, rect: Rect) -> Self { self.world_bounds = rect; self }
     pub fn clustering_enabled(mut self, enabled: bool) -> Self { self.enable_clustering = enabled; self }
+    /// Enable/disable built-in presentation quad (requires `present` crate feature).
+    pub fn with_presentation(mut self, enabled: bool) -> Self { self.present_via_quad = enabled; self }
 }
 
 /// Main plugin entry point.
@@ -50,6 +57,10 @@ impl Plugin for MetaballRendererPlugin {
         app.add_plugins(ComputeMetaballsPlugin);
         app.add_plugins(NormalComputePlugin); // normals from packed field
         app.add_plugins(PackingPlugin); // packs entities each frame (or on change)
-        // Intentionally no internal presentation / camera spawn in Sprint 2.1.
+        // Optional presentation path (quad) – only if user enabled in settings & feature active.
+        #[cfg(feature = "present")]
+        if self.settings.present_via_quad {
+            app.add_plugins(crate::present::MetaballDisplayPlugin);
+        }
     }
 }

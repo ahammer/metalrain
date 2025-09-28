@@ -61,7 +61,14 @@ fn main() {
         // Metaball shader source (hot reload friendly) BEFORE DefaultPlugins just like other demo
         .add_plugins(MetaballShaderSourcePlugin)
         .add_plugins(DefaultPlugins)
-    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { texture_size: TEX_SIZE, world_bounds: Rect::from_corners(Vec2::new(-HALF_EXTENT,-HALF_EXTENT), Vec2::new(HALF_EXTENT,HALF_EXTENT)), enable_clustering: true }))
+    .add_plugins(MetaballRendererPlugin::with(
+        MetaballRenderSettings::default()
+            .with_texture_size(TEX_SIZE)
+            .with_world_bounds(Rect::from_corners(Vec2::new(-HALF_EXTENT,-HALF_EXTENT), Vec2::new(HALF_EXTENT,HALF_EXTENT)))
+            .clustering_enabled(true)
+            .with_presentation(true)
+    ))
+        .add_systems(Startup, spawn_camera)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
         // .add_plugins(RapierDebugRenderPlugin::default()) // optional physics debug
         .init_resource::<BurstForceState>()
@@ -75,6 +82,9 @@ fn main() {
 }
 
 // (Removed unused setup_camera function that previously spawned a Camera2d)
+fn spawn_camera(mut commands: Commands) {
+    commands.spawn((Camera2d, Name::new("GameboardCamera")));
+}
 
 fn spawn_walls(mut commands: Commands) {
     // Four axis-aligned fixed walls forming a box.

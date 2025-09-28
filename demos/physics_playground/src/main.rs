@@ -21,7 +21,14 @@ fn main() {
     .add_plugins(DefaultPlugins)
     // .add_plugins(FrameTimeDiagnosticsPlugin) // (disabled pending version sync)
     // (No external UI plugin; using built-in Text UI)
-    .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings { texture_size: TEX_SIZE, world_bounds: Rect::from_corners(Vec2::new(-ARENA_WIDTH*0.5,-ARENA_HEIGHT*0.5), Vec2::new(ARENA_WIDTH*0.5,ARENA_HEIGHT*0.5)), enable_clustering: true }))
+    .add_plugins(MetaballRendererPlugin::with(
+        MetaballRenderSettings::default()
+            .with_texture_size(TEX_SIZE)
+            .with_world_bounds(Rect::from_corners(Vec2::new(-ARENA_WIDTH*0.5,-ARENA_HEIGHT*0.5), Vec2::new(ARENA_WIDTH*0.5,ARENA_HEIGHT*0.5)))
+            .clustering_enabled(true)
+            .with_presentation(true)
+    ))
+        .add_systems(Startup, spawn_camera)
         .add_plugins(GameCorePlugin)
         .add_plugins(GamePhysicsPlugin)
         .add_plugins(RapierDebugRenderPlugin::default())
@@ -60,6 +67,10 @@ fn setup_walls(mut commands: Commands) {
             Collider::cuboid(half_extents.x, half_extents.y),
         ));
     }
+}
+
+fn spawn_camera(mut commands: Commands) {
+    commands.spawn((Camera2d, Name::new("PhysicsPlaygroundCamera")));
 }
 
 fn handle_spawn_input(
