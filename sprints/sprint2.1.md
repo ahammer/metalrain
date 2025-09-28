@@ -96,13 +96,13 @@ Decoupling yields clearer responsibilities, stable low‑res performance, and fu
   - Texture accessible for external compositing via resource handle
   
 - [x] Reintroduce optional presentation via world‑aligned quad (`present_via_quad: bool`).
-    - Added `present_via_quad` field + builder `.with_presentation(true|false)` to `MetaballRenderSettings` (default `false`).
-    - When enabled (and crate feature `present` active), adds `MetaballDisplayPlugin`.
-    - Plugin spawns a `Rectangle` mesh sized to `world_bounds.size()` (not texture px dimensions) so UV (0..1) maps 1:1 to world mapping rectangle.
-    - Quad entity tagged `MetaballPresentationQuad` (public) for user control (visibility, layering, transforms).
-    - Material (`MetaballDisplayMaterial`) binds field, albedo, normal textures; uses existing `present_fullscreen.wgsl` shader (hot‑reload aware where enabled).
-    - No camera is spawned internally (architectural decoupling preserved). Demos now spawn their own `Camera2d`.
-    - This path intended for quick visualization / standalone demos; orchestration pipeline can still ignore it and sample textures directly.
+  - Added `present_via_quad` field + builder `.with_presentation(true|false)` to `MetaballRenderSettings` (default `false`).
+  - When enabled (and crate feature `present` active), adds `MetaballDisplayPlugin`.
+  - Plugin spawns a `Rectangle` mesh sized to `world_bounds.size()` (not texture px dimensions) so UV (0..1) maps 1:1 to world mapping rectangle.
+  - Quad entity tagged `MetaballPresentationQuad` (public) for user control (visibility, layering, transforms).
+  - Material (`MetaballDisplayMaterial`) binds field, albedo, normal textures; uses existing `present_fullscreen.wgsl` shader (hot‑reload aware where enabled).
+  - No camera is spawned internally (architectural decoupling preserved). Demos now spawn their own `Camera2d`.
+  - This path intended for quick visualization / standalone demos; orchestration pipeline can still ignore it and sample textures directly.
 
 ### F. Integration Utilities
 
