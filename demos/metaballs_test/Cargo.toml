@@ -7,3 +7,4 @@ edition = "2021"
 bevy = { workspace = true }
 rand = "0.8"
 metaball_renderer = { path = "../../crates/metaball_renderer" }
+game_assets = { path = "../../crates/game_assets" }

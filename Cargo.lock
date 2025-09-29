@@ -2979,6 +2979,7 @@ name = "metaballs_test"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "game_assets",
  "metaball_renderer",
  "rand",
 ]
