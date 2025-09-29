@@ -8,6 +8,8 @@ members = [
     "crates/game_physics",
     # Rendering crate (Sprint 3)
     "crates/game_rendering",
+    # Centralized assets crate
+    "crates/game_assets",
     # Demos
     "demos/metaballs_test",
     "demos/compositor_test",

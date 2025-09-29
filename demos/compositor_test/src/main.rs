@@ -8,6 +8,7 @@ use game_rendering::{
     BlendMode, CameraShakeCommand, CameraZoomCommand, CompositorSettings, GameCamera,
     GameRenderingPlugin, LayerBlendState, LayerToggleState, RenderLayer, RenderSurfaceSettings,
 };
+use game_assets::{GameAssetsPlugin, GameAssets};
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
     MetaballShaderSourcePlugin,
@@ -96,7 +97,8 @@ fn main() {
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(MetaballShaderSourcePlugin)
         .add_plugins(DefaultPlugins)
-        .add_plugins(GameRenderingPlugin)
+    .add_plugins(GameAssetsPlugin::default())
+    .add_plugins(GameRenderingPlugin)
         .add_plugins(MetaballRendererPlugin::with(
             MetaballRenderSettings::default()
                 .with_texture_size(TEX_SIZE)
@@ -194,8 +196,8 @@ fn setup_scene(mut commands: Commands) {
     ));
 }
 
-fn spawn_performance_overlay(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+fn spawn_performance_overlay(mut commands: Commands, assets: Res<GameAssets>) {
+    let font = assets.fonts.ui_bold.clone();
     commands.spawn((
         Text2d::new("FPS: --\nFrame: 0\nFrame ms: --\nAvg1s: --  Avg5s: --\n(F1 to toggle)"),
         TextFont { font, font_size: 18.0, ..default() },

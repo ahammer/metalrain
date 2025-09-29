@@ -1,0 +1,18 @@
+[package]
+name = "game_assets"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+# Enables embedding assets into the binary/wasm.
+embedded = []
+
+[dependencies]
+bevy = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[package.metadata.release]
+# placeholder for future release automation
