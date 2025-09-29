@@ -1,0 +1,15 @@
+[package]
+name = "demo_launcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+# Path dependencies on demo crates
+architecture_test = { path = "../architecture_test" }
+compositor_test = { path = "../compositor_test" }
+metaballs_test = { path = "../metaballs_test" }
+physics_playground = { path = "../physics_playground" }
+
+[package.metadata]
+description = "Unified CLI to launch any demo in the workspace"

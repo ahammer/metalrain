@@ -18,6 +18,8 @@ members = [
     "demos/architecture_test",
     # Physics playground demo (Sprint 2)
     "demos/physics_playground",
+    # Unified launcher for demos
+    "demos/demo_launcher",
 ]
 exclude = [
     "external/bevy"
