@@ -2,7 +2,7 @@
 
 ## Goal
 
-Provide a single unified launcher (binary + optional cargo alias) to list and run any demo (`compositor_test`, `physics_playground`, `metaballs_test`, `architecture_test`, etc.) with an interactive picker or CLI flags. Simplify iteration & QA.
+Provide a single unified launcher (binary + default root `cargo run` behavior via cargo alias) to list and run any demo (`compositor_test`, `physics_playground`, `metaballs_test`, `architecture_test`, etc.) with an interactive picker or CLI flags. Simplify iteration & QA. After implementation, simply running `cargo run` at the workspace root should invoke the launcher.
 
 ## Current State
 
@@ -12,7 +12,7 @@ Provide a single unified launcher (binary + optional cargo alias) to list and ru
 
 ## Objectives
 
-1. New crate `demos/demo_launcher` producing `demo_launcher` binary.
+1. New crate `demos/demo_launcher` producing `demo_launcher` binary (invoked by plain `cargo run` at workspace root).
 2. Refactor each existing demo so its startup logic lives in a `run_<demo>()` function (or common trait) callable from launcher.
 3. CLI flags:
    * `--list` – list demos.
@@ -61,21 +61,31 @@ Interactive mode:
 ## Tasks
 
 1. Create `demos/demo_launcher/Cargo.toml` (depends on all demo crates by name).
-2. For each demo crate, extract logic into `lib.rs` with `pub fn run_<demo>()` and keep minimal `main.rs` calling it.
-3. Implement DEMOS registry in launcher.
-4. Implement CLI arg parsing (basic): iterate args; match flags.
-5. Implement `print_list()` showing name + description.
-6. Implement interactive picker (only if `atty::is(Stream::Stdin)` true).
-7. Error handling: unknown demo -> print list + exit code 2.
-8. Add optional cargo alias: in root `Cargo.toml` `[alias] demos = "run -p demo_launcher --"` (if using aliases).
-9. Update root / docs (`north-star-structure.md` or new README section) describing usage examples.
-10. Smoke test script (optional): run `--list` in CI to ensure binary builds.
+1. For each demo crate, extract logic into `lib.rs` with `pub fn run_<demo>()` and keep minimal `main.rs` calling it.
+1. Implement DEMOS registry in launcher.
+1. Implement CLI arg parsing (basic): iterate args; match flags.
+1. Implement `print_list()` showing name + description.
+1. Implement interactive picker (only if `atty::is(Stream::Stdin)` true).
+1. Error handling: unknown demo -> print list + exit code 2.
+1. Make launcher the default root run:
+   * Add to root `Cargo.toml`:
+
+```toml
+[alias]
+run = "run -p demo_launcher"
+```
+
+   This causes plain `cargo run` (and `cargo run -- --list`) at workspace root to execute the launcher.
+
+1. (Optional) Also add a convenience alias if desired: `[alias] demos = "run -p demo_launcher --"` for explicit intent.
+1. Update root / docs (`north-star-structure.md`, README) with usage examples: `cargo run -- --list`, `cargo run -- --demo physics_playground`, plain `cargo run` (interactive menu).
+1. Smoke test script (optional): run `cargo run -- --list` in CI to ensure binary builds.
 
 ## Acceptance Criteria
 
-* `cargo run -p demo_launcher -- --list` prints all demos with names and descriptions.
-* `cargo run -p demo_launcher -- --demo compositor_test` launches same content as original binary.
-* Running with no args in interactive terminal prompts selection; selecting valid number launches that demo.
+* `cargo run -- --list` prints all demos with names and descriptions (root alias resolves to launcher).
+* `cargo run -- --demo compositor_test` launches same content as original binary.
+* Running plain `cargo run` with no args in interactive terminal prompts selection; selecting valid number launches that demo.
 * Unknown demo returns non‑zero exit code and prints usage.
 * Refactors do not break direct `cargo run -p <demo>` usage.
 
@@ -83,7 +93,7 @@ Interactive mode:
 
 * No demos registered (should not happen) – list prints "No demos available" and exits 1.
 * Duplicate demo names (compile‑time duplication detection by manual review; optionally debug assert uniqueness at startup).
-* Non‑TTY environment with no args – prints usage & exits 1.
+* Non‑TTY environment with no args – prints usage & exits 1 (when invoked via root `cargo run`).
 
 ## Risks & Mitigations
 
