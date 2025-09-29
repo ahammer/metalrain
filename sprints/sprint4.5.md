@@ -31,73 +31,71 @@ A persistent entity designating where new balls (or later other objects) appear.
 
 ## Deliverables
 
-### 1. Component & Data Model
+### 1. Component & Data Model (AUDITED 2025-09-28)
 
-- [ ] `Paddle` component (size, control mode, cooldowns placeholder)
-- [ ] `SpawnPoint` component (radius/visual, active flag, spawn cooldown)
-- [ ] Optional `ActiveSpawn` resource (tracks current rotation index)
-- [ ] Basic events: `SpawnBallEvent { origin: Entity }`
+- [x] `Paddle` component (size, control mode, cooldowns placeholder) – implemented in `game_core::components` with default sizes & speed
+- [x] `SpawnPoint` component (radius/visual, active flag, spawn cooldown) – implemented (cooldown field present, not yet used for throttling)
+- [x] Optional `ActiveSpawn` resource (tracks current rotation index) – implemented as `ActiveSpawnRotation` with advance/retreat
+- [x] Basic events: `SpawnBallEvent { origin: Entity }` – implemented (`SpawnBallEvent` includes optional override position)
 
-### 2. Rendering & Visuals
+### 2. Rendering & Visuals (AUDITED)
 
-- [ ] Paddle visual (solid color rectangle or rounded capsule)
-- [ ] Spawn point visual (ring + inner fill + subtle pulse)
-- [ ] Active spawn highlight (glow / scale pulse)
-- [ ] Layering consistent with existing `RenderLayers::layer(1)`
+- [x] Paddle visual (solid color rectangle or rounded capsule) – rectangle added in `widget_renderer::spawn_paddle_visuals`
+- [x] Spawn point visual (ring + inner fill + subtle pulse) – inner disc + ring implemented
+- [x] Active spawn highlight (glow / scale pulse) – pulsing system present (`update_active_spawnpoint_pulse`)
+- [x] Layering consistent with existing `RenderLayers::layer(1)` – all visuals assigned layer 1
 
-### 3. Physics Integration
+### 3. Physics Integration (AUDITED)
 
-- [ ] Paddle = kinematic body (or dynamic with constraints) using Rapier:
-  - Shape: `Collider::cuboid(half_w, half_h)` (capsule future)
-  - Motion driven via velocity update system
-- [ ] Spawn point: sensor only (optional) OR no collider (MVP)
-- [ ] Ball spawn system consumes events, emits new ball entities at spawn transform
-- [ ] Paddle collision verified (balls deflect with correct restitution)
+- [x] Paddle = kinematic body using Rapier (`attach_paddle_kinematic_physics` adds kinematic body + cuboid collider; motion via `drive_paddle_velocity` and transform clamp)
+- [x] Spawn point: sensor only OR no collider – currently no collider (acceptable MVP)
+- [ ] Ball spawn system consumes events, emits new ball entities at spawn transform – MISSING (events produced but no consumer system found)
+- [ ] Paddle collision verified (balls deflect with correct restitution) – Colliders set; no explicit verification test / doc yet
 
-### 4. Input & Interaction (Physics Playground Enhancements)
+### 4. Input & Interaction (AUDITED)
 
 - [ ] Key/Mouse mappings:
-  - Left Click: (unchanged) Spawn ball at cursor (bypasses spawn points)
-  - Shift + Left Click: Spawn ball at nearest active spawn point
-  - S Key / Middle Click (proposed reassignment): Place Spawn Point
-  - P Key: Place Paddle (click = center; drag = size optional future)
-  - Number Keys (1..9): Activate spawn point index
-  - Tab: (unchanged) Toggle debug
-  - LCtrl + Scroll / Q/E: Cycle active spawn point
-  - Arrow Keys / WASD: Move selected paddle (if exactly one paddle selected)
-  - Backspace/Delete: Remove hovered/selected widget (consistent future)
-- [ ] Selection feedback (simple tint or outline)
-- [ ] Optional: hold Space to freeze physics (existing), still allow paddle reposition previews
+  - [x] Left Click: Spawn ball at cursor (implemented `handle_spawn_input`)
+  - [x] Shift + Left Click: Spawn via nearest active spawn point (implemented)
+  - [x] S Key / Middle Click: Place Spawn Point – S implemented; Middle Click currently spawns Target (spec partially fulfilled)
+  - [x] P Key: Place Paddle (implemented)
+  - [x] Number Keys (1..9): Activate spawn point index (implemented)
+  - [ ] Tab: Toggle debug – NOT implemented (consider adding a state or toggling Rapier debug)
+  - [x] LCtrl + Scroll / Q/E: Cycle active spawn point – Q/E implemented; scroll not implemented
+  - [x] Arrow Keys / WASD: Move paddle (implemented for any Player paddle)
+  - [ ] Backspace/Delete: Remove hovered/selected widget – NOT implemented
+- [x] Selection feedback (simple tint or outline) – `Selected` component + highlight system
+- [ ] Optional: hold Space to freeze physics – NOT implemented (optional)
 
-### 5. Systems & Plugins
+### 5. Systems & Plugins (AUDITED)
 
-Add to `widget_renderer` or `game_core`:
+Code implements and registers:
 
 ```rust
-pub struct PaddlePlugin;
-pub struct SpawningPlugin;
+pub struct PaddlePlugin; // in game_core::spawning
+pub struct SpawningPlugin; // in game_core::spawning
 ```
 
-Registered in root demo app after existing rendering/physics plugins.
+Both added in `physics_playground` demo startup chain. ✅
 
-### 6. Basic Gameplay Hooks (Prep for Sprint 5)
+### 6. Basic Gameplay Hooks (AUDITED)
 
-- [ ] Resource: `BallSpawnPolicy { mode: Manual | Auto(interval_s) }`
-- [ ] If Auto + at least one active spawn point → schedule spawns
-- [ ] Metric counters: total spawned, active balls, despawned
-- [ ] Logging for spawn origin + ball id (to validate pipeline)
+- [x] Resource: `BallSpawnPolicy { mode: Manual | Auto(interval_s) }`
+- [x] If Auto + at least one active spawn point → schedule spawns (events emitted)
+- [ ] Metric counters: total spawned, active balls, despawned – struct exists (`SpawnMetrics`) but unused
+- [ ] Logging for spawn origin + ball id – not present
 
-### 7. Performance & Stability
+### 7. Performance & Stability (AUDITED)
 
-- [ ] Target: Up to 8 paddles, 10 spawn points, 150 balls sustained <16 ms frame (baseline measurement)
-- [ ] Spawn throttling to prevent accidental bursts
-- [ ] Basic overlap avoidance when placing spawn points (snap / nudge)
+- [ ] Target perf measurement (<16 ms) – not benchmarked / recorded
+- [ ] Spawn throttling – cooldown field unused; no throttling logic
+- [ ] Overlap avoidance for spawn points – not implemented
 
-### 8. Documentation
+### 8. Documentation (AUDITED)
 
-- [ ] Update `widget_renderer` README with paddle & spawn point section
-- [ ] Add usage notes to `physics_playground` README (if exists) or create docs snippet
-- [ ] Update architecture diagram (if maintained) to include dynamic interaction layer
+- [x] Update `widget_renderer` README with paddle & spawn point section (present)
+- [ ] Add usage notes to `physics_playground` README (no README yet)
+- [ ] Update architecture diagram (dynamic interaction layer) – pending
 
 ## Technical Specifications
 
@@ -272,28 +270,45 @@ fn consume_spawn_events(
 - Spawn event throughput (1k events no panic)
 - Paddle motion system cost with N paddles
 
-## Acceptance Criteria
+## Acceptance Criteria (AUDITED)
 
-- [ ] Paddle component & basic movement implemented
-- [ ] SpawnPoint component with activation + cycling
-- [ ] Automatic + manual ball spawning works
-- [ ] Visuals for paddles and spawn points match layer conventions
-- [ ] Physics collisions stable (no tunneling in normal use)
-- [ ] Input mappings documented & conflict-free
-- [ ] Debug toggle reveals helpful overlays
-- [ ] Performance within targets at test scale
-- [ ] Documentation updated
+- [x] Paddle component & basic movement implemented
+- [x] SpawnPoint component with activation + cycling
+- [ ] Automatic + manual ball spawning works – auto events not consumed yet
+- [x] Visuals for paddles and spawn points match layer conventions
+- [ ] Physics collisions stable (no tunneling) – needs validation / CCD check
+- [ ] Input mappings documented & conflict-free – partial, debug + delete not implemented
+- [ ] Debug toggle reveals helpful overlays – missing
+- [ ] Performance within targets at test scale – unmeasured
+- [ ] Documentation updated – partial
 
-## Definition of Done
+## Definition of Done (AUDITED)
 
-- [ ] All acceptance criteria satisfied
-- [ ] All new public APIs documented (rustdoc)
-- [ ] No clippy warnings introduced (baseline)
-- [ ] Tests pass (unit + integration added)
-- [ ] Benchmarks (optional) compile
-- [ ] README sections updated (widget rendering + playground usage)
-- [ ] Sprints backlog updated referencing this sprint completion
-- [ ] Ready handoff to Sprint 5 (game loop / scoring)
+- [ ] All acceptance criteria satisfied (several outstanding)
+- [ ] All new public APIs documented (add rustdoc for Paddle/SpawnPoint systems)
+- [ ] No clippy warnings introduced (not verified)
+- [ ] Tests pass (existing tests cover rotation & paddle physics; need spawn consumption + movement integration tests)
+- [ ] Benchmarks (optional) compile (not created)
+- [ ] README sections updated (widget rendering ✅, playground ❌)
+- [ ] Sprints backlog updated referencing this sprint completion (pending)
+- [ ] Ready handoff to Sprint 5 (blocked by missing spawn consumption & perf check)
+
+---
+
+### Audit Summary (2025-09-28)
+
+Core component, rendering, input (majority), and physics foundations are in place. Remaining gaps blocking full completion:
+
+1. Implement consumer system for `SpawnBallEvent` to actually spawn balls at spawn point transforms (and integrate metrics + logging).
+2. Add spawn metrics increments & logging (origin + entity id).
+3. Implement throttling using `SpawnPoint.cooldown` or per-policy limit.
+4. Add debug toggle (Tab) & optional physics freeze (Space) if still desired.
+5. Implement deletion (Backspace/Delete) of selected widgets.
+6. Documentation: create `physics_playground` README & update architecture diagram.
+7. Performance measurement & record results; optional simple benchmark harness.
+8. Acceptance criteria / DoD items above then re-audit.
+
+After these, sprint can be marked complete and handed off to Sprint 5.
 
 ## Stretch Goals (If Time Allows)
 
