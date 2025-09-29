@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::asset::AssetPlugin;
 use bevy::text::TextFont;
 use bevy::ui::{Node, PositionType, Val};
 // Diagnostics plugin temporarily removed until version alignment confirmed.
@@ -6,7 +7,6 @@ use bevy_rapier2d::prelude::*;
 use game_core::Ball;
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
-    MetaballShaderSourcePlugin,
 };
 use rand::Rng;
 
@@ -20,8 +20,8 @@ const TEX_SIZE: UVec2 = UVec2::new(512, 512);
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(MetaballShaderSourcePlugin) // must precede DefaultPlugins for custom source
-        .add_plugins(DefaultPlugins)
+    // (MetaballShaderSourcePlugin removed – unified asset path loading)
+        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: "../../assets".into(), ..default() }))
         // .add_plugins(FrameTimeDiagnosticsPlugin) // (disabled pending version sync)
         // (No external UI plugin; using built-in Text UI)
         .add_plugins(MetaballRendererPlugin::with(
@@ -264,7 +264,7 @@ fn spawn_ball(
 struct ConfigText;
 
 fn update_config_text(mut query: Query<&mut Text, With<ConfigText>>, config: Res<PhysicsConfig>) {
-    if let Ok(mut text) = query.get_single_mut() {
+    if let Some(mut text) = query.iter_mut().next() {
         text.0 = format!(
             "Gravity: ({:.0},{:.0})  Cluster: str {:.0} rad {:.0}  Speed: min {:.0} max {:.0}\nKeys: Arrows grav  +/- strength  [ ] radius  G toggle grav  R reset  T stress spawn",
             config.gravity.x, config.gravity.y,
@@ -275,6 +275,7 @@ fn update_config_text(mut query: Query<&mut Text, With<ConfigText>>, config: Res
 }
 
 /// Draw velocity vectors & optional clustering radius visualization.
+#[allow(dead_code)]
 fn draw_debug_gizmos(
     mut gizmos: Gizmos,
     balls: Query<(&Transform, &Velocity)>,

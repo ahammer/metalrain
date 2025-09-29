@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::asset::AssetPlugin;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::render::view::RenderLayers;
 use bevy_rapier2d::prelude::*;
@@ -9,10 +8,9 @@ use game_rendering::{
     BlendMode, CameraShakeCommand, CameraZoomCommand, CompositorSettings, GameCamera,
     GameRenderingPlugin, LayerBlendState, LayerToggleState, RenderLayer, RenderSurfaceSettings,
 };
-use game_assets::{GameAssetsPlugin, GameAssets};
+use game_assets::{GameAssets, GameAssetsPlugin};
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
-    MetaballShaderSourcePlugin,
 };
 
 const HALF_EXTENT: f32 = 256.0;
@@ -95,15 +93,16 @@ fn main() {
             base_resolution: UVec2::new(1280, 720),
             ..Default::default()
         })
+        // (MetaballShaderSourcePlugin removed – shaders now loaded from centralized assets path)
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_plugins(MetaballShaderSourcePlugin)
-        .add_plugins(DefaultPlugins.set(AssetPlugin {
+        // Standard asset path + centralized game assets (fonts, shaders, etc.)
+        .add_plugins(bevy::DefaultPlugins.set(bevy::asset::AssetPlugin {
             file_path: "../../assets".into(),
-            ..default()
+            ..Default::default()
         }))
-    .add_plugins(GameAssetsPlugin::default())
-    .add_plugins(GameRenderingPlugin)
-        .add_plugins(MetaballRendererPlugin::with(
+        .add_plugins(GameAssetsPlugin::default())
+        .add_plugins(GameRenderingPlugin)
+    .add_plugins(MetaballRendererPlugin::with(
             MetaballRenderSettings::default()
                 .with_texture_size(TEX_SIZE)
                 .with_world_bounds(Rect::from_corners(

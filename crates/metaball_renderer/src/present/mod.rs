@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 
-use crate::embedded_shaders;
 use crate::internal::{AlbedoTexture, FieldTexture, NormalTexture};
 use crate::settings::MetaballRenderSettings;
 
@@ -25,7 +24,8 @@ pub struct MetaballDisplayMaterial {
 
 impl Material2d for MetaballDisplayMaterial {
     fn fragment_shader() -> ShaderRef {
-        embedded_shaders::present_shader_ref()
+        // Present shader now always loaded via AssetServer path (embedded variant removed)
+        ShaderRef::Path("shaders/present_fullscreen.wgsl".into())
     }
 }
 

@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use bevy::asset::AssetPlugin;
-use game_assets::GameAssetsPlugin;
 use metaball_renderer::{
-    MetaballRenderSettings, MetaballRendererPlugin, MetaballShaderSourcePlugin,
+    MetaballRenderSettings, MetaballRendererPlugin,
 };
 mod debug_vis;
 mod simulation;
@@ -12,14 +11,8 @@ use simulation::BouncySimulationPlugin;
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
-        // Centralized asset plugin path points to workspace root assets
-        .add_plugins(DefaultPlugins.set(AssetPlugin {
-            file_path: "../../assets".into(),
-            ..default()
-        }))
-        .add_plugins(GameAssetsPlugin::default())
-        // Register metaball shader source after asset path set
-        .add_plugins(MetaballShaderSourcePlugin)
+    // (MetaballShaderSourcePlugin removed – shaders load from centralized assets directory)
+        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: "../../assets".into(), ..default() }))
         .add_plugins(MetaballRendererPlugin::with(
             MetaballRenderSettings::default()
                 .with_texture_size(UVec2::new(512, 512))

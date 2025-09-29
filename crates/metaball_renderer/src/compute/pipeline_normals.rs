@@ -1,7 +1,5 @@
 use super::types::GpuMetaballBindGroup; // ensure compute pass ran
 use crate::compute::MetaballPassLabel;
-#[allow(unused_imports)]
-use crate::embedded_shaders;
 use crate::internal::{FieldTexture, NormalTexture, ParamsUniform};
 use bevy::prelude::*;
 use bevy::render::{
@@ -29,10 +27,8 @@ pub struct GpuNormalsBindGroup(pub BindGroup);
 
 impl Plugin for NormalComputePlugin {
     fn build(&self, app: &mut App) {
-        // Shaders embedded; required resources already extracted by the primary compute plugin.
-        crate::embedded_shaders::ensure_loaded(app.world_mut());
+        // (Embedded shaders removed) – all shaders now loaded via AssetServer.
         let render_app = app.sub_app_mut(RenderApp);
-        crate::embedded_shaders::ensure_loaded(render_app.world_mut());
         render_app.add_systems(
             Render,
             prepare_normals_bind_group.in_set(bevy::render::RenderSet::PrepareBindGroups),
@@ -93,13 +89,11 @@ impl FromWorld for GpuNormalsPipeline {
             ],
         );
 
-        #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+        // Always load from centralized assets directory.
         let shader: Handle<Shader> = {
             let asset_server = world.resource::<AssetServer>();
             asset_server.load("shaders/compute_3d_normals.wgsl")
         };
-        #[cfg(any(not(feature = "shader_hot_reload"), target_arch = "wasm32"))]
-        let shader: Handle<Shader> = embedded_shaders::normals_handle();
 
         let cache = world.resource::<PipelineCache>();
         let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {

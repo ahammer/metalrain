@@ -32,7 +32,6 @@ mod components;
 mod compute;
 mod coordinates; // world <-> texture mapping & projection helpers
 mod diagnostics;
-mod embedded_shaders;
 mod internal;
 mod pack;
 #[cfg(feature = "present")]
@@ -44,7 +43,6 @@ pub use coordinates::{
     project_world_to_screen, screen_to_metaball_uv, screen_to_world, MetaballCoordinateMapper,
 };
 pub use diagnostics::{MetaballDiagnosticsConfig, MetaballDiagnosticsPlugin};
-pub use embedded_shaders::MetaballShaderSourcePlugin;
 #[cfg(feature = "present")]
 pub use present::MetaballDisplayPlugin;
 pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};

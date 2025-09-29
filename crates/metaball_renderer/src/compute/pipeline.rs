@@ -1,6 +1,4 @@
 use super::types::*;
-#[allow(unused_imports)]
-use crate::embedded_shaders;
 use crate::internal::{
     AlbedoTexture, BallBuffer, BallGpu, FieldTexture, NormalTexture, ParamsUniform, TimeUniform,
     WORKGROUP_SIZE,
@@ -31,8 +29,7 @@ pub struct MetaballPassLabel;
 
 impl Plugin for ComputeMetaballsPlugin {
     fn build(&self, app: &mut App) {
-        // Ensure shaders are embedded and registered in main world.
-        crate::embedded_shaders::ensure_loaded(app.world_mut());
+    // (Embedded shaders removed) – all shaders now loaded via AssetServer from centralized workspace assets.
         app.add_plugins((
             ExtractResourcePlugin::<FieldTexture>::default(),
             ExtractResourcePlugin::<BallBuffer>::default(),
@@ -45,8 +42,7 @@ impl Plugin for ComputeMetaballsPlugin {
         app.add_systems(Startup, (setup_textures_and_uniforms,));
 
         let render_app = app.sub_app_mut(RenderApp);
-        // Also ensure shaders exist in the render world prior to pipeline creation.
-        crate::embedded_shaders::ensure_loaded(render_app.world_mut());
+    // (No embedded shader preload required.)
         render_app.add_systems(
             Render,
             (prepare_buffers, prepare_bind_group.after(prepare_buffers))
@@ -196,14 +192,11 @@ impl FromWorld for GpuMetaballPipeline {
                     },
                 ],
             );
-        #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
+        // Always load from centralized assets directory (hot reload on native, standard load on wasm).
         let shader: Handle<Shader> = {
-            // Load from centralized assets directory.
             let asset_server = world.resource::<AssetServer>();
             asset_server.load("shaders/compute_metaballs.wgsl")
         };
-        #[cfg(any(not(feature = "shader_hot_reload"), target_arch = "wasm32"))]
-        let shader: Handle<Shader> = embedded_shaders::compute_handle();
         let cache = world.resource::<PipelineCache>();
         let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: Some(Cow::Borrowed("metaballs.compute")),

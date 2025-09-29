@@ -9,3 +9,4 @@ bevy = { workspace = true }
 game_core = { path = "../../crates/game_core" }
 metaball_renderer = { path = "../../crates/metaball_renderer" }
 game = { path = "../../crates/game" }
+game_assets = { path = "../../crates/game_assets" }

@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy::asset::AssetPlugin;
+use game_assets::GameAssetsPlugin;
 use game::GamePlugin;
 use game_core::{
     BallBundle, BallSpawned, GameColor, GameCorePlugin, GameLost, GameWon, TargetDestroyed,
@@ -6,7 +8,9 @@ use game_core::{
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, GamePlugin))
+        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: "../../assets".into(), ..default() }))
+        .add_plugins(GameAssetsPlugin::default())
+        .add_plugins(GamePlugin)
         .add_systems(Startup, (spawn_ball, spawn_target))
         .add_systems(Update, (emit_events_once, observe_events, exit_after_demo))
         .insert_resource(DemoFrameCounter(0))
