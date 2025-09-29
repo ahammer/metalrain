@@ -57,6 +57,7 @@ fn main() {
                 stress_test_trigger,
                 update_config_text,
                 handle_target_hits, // NEW: target collision handling
+                handle_hazard_collisions, // NEW: hazard ball removal
             ),
         )
         .init_resource::<WallPlacement>()
@@ -407,6 +408,35 @@ fn handle_target_hits(
                     if tgt.health > 0 {
                         tgt.health = tgt.health.saturating_sub(1);
                         tgt.state = if tgt.health == 0 { TargetState::Destroying(0.0) } else { TargetState::Hit(0.0) };
+                    }
+                }
+            }
+        }
+    }
+}
+
+// NEW: collision-driven hazard effect (Pit clears balls)
+fn handle_hazard_collisions(
+    mut collisions: EventReader<CollisionEvent>,
+    hazards: Query<&Hazard>,
+    balls: Query<(), With<Ball>>,
+    mut commands: Commands,
+) {
+    for ev in collisions.read() {
+        if let CollisionEvent::Started(a, b, _) = ev {
+            // Determine which (if any) is a hazard and which is a ball
+            let a_hazard = hazards.get(*a).ok();
+            let b_hazard = hazards.get(*b).ok();
+            if let Some(h) = a_hazard {
+                if balls.get(*b).is_ok() {
+                    if matches!(h.hazard_type, HazardType::Pit) {
+                        commands.entity(*b).despawn();
+                    }
+                }
+            } else if let Some(h) = b_hazard {
+                if balls.get(*a).is_ok() {
+                    if matches!(h.hazard_type, HazardType::Pit) {
+                        commands.entity(*a).despawn();
                     }
                 }
             }
