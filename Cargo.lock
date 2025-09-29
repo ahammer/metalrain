@@ -2972,6 +2972,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "criterion",
+ "game_assets",
  "static_assertions",
 ]
 

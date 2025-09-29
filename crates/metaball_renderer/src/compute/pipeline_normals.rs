@@ -90,6 +90,7 @@ impl FromWorld for GpuNormalsPipeline {
         );
 
         // Always load from centralized assets directory.
+        // Load shader directly (created before centralized GameAssets startup load completes)
         let shader: Handle<Shader> = {
             let asset_server = world.resource::<AssetServer>();
             asset_server.load("shaders/compute_3d_normals.wgsl")

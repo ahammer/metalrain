@@ -13,12 +13,21 @@ pub struct FontAssets {
 #[derive(Resource, Debug, Clone, Default)]
 pub struct ShaderAssets {
     pub compositor: Handle<Shader>,
+    pub compute_metaballs: Handle<Shader>,
+    pub compute_3d_normals: Handle<Shader>,
+    pub present_fullscreen: Handle<Shader>,
 }
 
 #[derive(Resource, Debug, Clone, Default)]
 pub struct GameAssets {
     pub fonts: FontAssets,
     pub shaders: ShaderAssets,
+}
+
+// Allow automatic extraction into the render world so render graph pipeline creation can access shader handles.
+impl bevy::render::extract_resource::ExtractResource for GameAssets {
+    type Source = GameAssets; // same type between main & render worlds
+    fn extract_resource(source: &Self::Source) -> Self { source.clone() }
 }
 
 pub struct GameAssetsPlugin {
@@ -84,8 +93,14 @@ fn load_assets(
     let ui_regular: Handle<Font> = asset_server.load("fonts/FiraSans-Regular.ttf");
     let ui_bold: Handle<Font> = asset_server.load("fonts/FiraSans-Bold.ttf");
     let compositor: Handle<Shader> = asset_server.load("shaders/compositor.wgsl");
+    let compute_metaballs: Handle<Shader> = asset_server.load("shaders/compute_metaballs.wgsl");
+    let compute_3d_normals: Handle<Shader> = asset_server.load("shaders/compute_3d_normals.wgsl");
+    let present_fullscreen: Handle<Shader> = asset_server.load("shaders/present_fullscreen.wgsl");
 
     game_assets.fonts.ui_regular = ui_regular;
     game_assets.fonts.ui_bold = ui_bold;
     game_assets.shaders.compositor = compositor;
+    game_assets.shaders.compute_metaballs = compute_metaballs;
+    game_assets.shaders.compute_3d_normals = compute_3d_normals;
+    game_assets.shaders.present_fullscreen = present_fullscreen;
 }

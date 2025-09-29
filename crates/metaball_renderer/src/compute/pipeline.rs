@@ -193,6 +193,7 @@ impl FromWorld for GpuMetaballPipeline {
                 ],
             );
         // Always load from centralized assets directory (hot reload on native, standard load on wasm).
+        // Load shader directly (pipeline created before Startup systems run, so centralized GameAssets handles not yet available).
         let shader: Handle<Shader> = {
             let asset_server = world.resource::<AssetServer>();
             asset_server.load("shaders/compute_metaballs.wgsl")

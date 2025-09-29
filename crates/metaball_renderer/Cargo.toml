@@ -16,6 +16,7 @@ shader_hot_reload = []
 bevy = { workspace = true }
 bytemuck = { version = "1", features = ["derive"] }
 static_assertions = "1.1"
+game_assets = { path = "../game_assets" }
 
 [dev-dependencies]
 bevy = { workspace = true }
