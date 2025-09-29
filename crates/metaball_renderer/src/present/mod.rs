@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::render::view::RenderLayers;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 
@@ -34,7 +35,8 @@ pub struct MetaballDisplayPlugin;
 impl Plugin for MetaballDisplayPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<MetaballDisplayMaterial>::default())
-            .add_systems(PostStartup, setup_present);
+            .add_systems(PostStartup, setup_present)
+            .add_systems(PostStartup, log_presentation_quad.after(setup_present));
     }
 }
 #[derive(Component, Debug)]
@@ -58,12 +60,26 @@ fn setup_present(
         albedo: albedo.0.clone(),
         normals: normals.0.clone(),
     });
-    commands.spawn((
+    let mut entity = commands.spawn((
         Mesh2d(quad_handle),
         MeshMaterial2d(material_handle),
         Transform::IDENTITY,
         MetaballPresentationQuad,
         Name::new("MetaballPresentationQuad"),
     ));
+    if let Some(layer) = settings.presentation_layer {
+        entity.insert(RenderLayers::layer(layer as usize));
+        info!(target: "metaballs", "Presentation quad assigned to explicit layer {layer}");
+    } else {
+        info!(target: "metaballs", "Presentation quad using default layer (0)");
+    }
     info!(target: "metaballs", "Spawned presentation quad covering world bounds {:?}", settings.world_bounds);
+}
+
+/// Debug instrumentation: logs the name + layers of the presentation quad after spawn.
+fn log_presentation_quad(query: Query<(Entity, &Name, Option<&RenderLayers>), With<MetaballPresentationQuad>>) {
+    for (entity, name, layers) in &query {
+        let layers_bits = layers.map(|l| format!("{:?}", l.bits())).unwrap_or_else(|| "<none>".to_string());
+        info!(target: "metaballs", ?entity, quad=?name, layers=%layers_bits, "Metaball presentation quad state");
+    }
 }

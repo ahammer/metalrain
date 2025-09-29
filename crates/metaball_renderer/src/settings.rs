@@ -18,6 +18,11 @@ pub struct MetaballRenderSettings {
     /// visualization. The quad covers `world_bounds` exactly. No camera is created; user
     /// code must spawn a 2D camera.
     pub present_via_quad: bool,
+    /// Optional render layer index the presentation quad should spawn onto. When `None`
+    /// the quad inherits Bevy's implicit default (layer 0). Providing a value (e.g. 2 for
+    /// a dedicated Metaballs layer) ensures the offscreen metaball visualization routes
+    /// exclusively through the intended compositor layer.
+    pub presentation_layer: Option<u8>,
 }
 impl Default for MetaballRenderSettings {
     fn default() -> Self {
@@ -26,6 +31,7 @@ impl Default for MetaballRenderSettings {
             world_bounds: Rect::from_corners(Vec2::new(-256.0, -256.0), Vec2::new(256.0, 256.0)),
             enable_clustering: true,
             present_via_quad: false,
+            presentation_layer: None,
         }
     }
 }
@@ -46,6 +52,12 @@ impl MetaballRenderSettings {
     /// Enable/disable built-in presentation quad (requires `present` crate feature).
     pub fn with_presentation(mut self, enabled: bool) -> Self {
         self.present_via_quad = enabled;
+        self
+    }
+    /// Specify a render layer for the spawned presentation quad (only honored when
+    /// `present_via_quad` is true and the `present` feature is enabled).
+    pub fn with_presentation_layer(mut self, layer: u8) -> Self {
+        self.presentation_layer = Some(layer);
         self
     }
 }

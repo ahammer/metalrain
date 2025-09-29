@@ -22,7 +22,11 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(MetaballRendererPlugin::with(
             MetaballRenderSettings::default()
-                .with_world_bounds(Rect::from_corners(vec2(-256.0,-256.0), vec2(256.0,256.0)))
+        .with_world_bounds(Rect::from_corners(vec2(-256.0,-256.0), vec2(256.0,256.0)))
+        // (optional) spawn built-in presentation quad when "present" feature is enabled
+        .with_presentation(true)
+        // (optional) force quad onto compositor layer 2 (e.g. Metaballs) instead of default 0
+        .with_presentation_layer(2)
         ))
         .add_systems(Startup, spawn_some)
         .run();
@@ -112,6 +116,18 @@ Visual Regression (planned):
 Non-goals initially: perceptual diff (SSIM) or tolerance-based float compare—byte-exact hash is enough while shaders are stable.
 
 Benchmarking: Criterion bench `coordinates` measures `world_to_metaball` throughput for scaling discussions (dynamic resolution / LOD decisions).
+
+## Presentation Quad & Layers (Sprint: Compositor Confusion Fix)
+
+When the crate `present` feature is enabled and `MetaballRenderSettings.present_via_quad` is true, a simple fullscreen-in-world-bounds quad named `MetaballPresentationQuad` is spawned. You can now direct this quad to a specific compositor layer via:
+
+```rust
+MetaballRenderSettings::default()
+    .with_presentation(true)
+    .with_presentation_layer(2); // e.g. dedicated metaballs layer
+```
+
+If `presentation_layer` is `None` (default) the quad inherits Bevy's implicit default layer (0). Supplying an explicit layer prevents accidental blending into the background when a multi-layer compositor is active. The quad also has a stable `Name` and a `MetaballPresentationQuad` marker component for robust querying.
 
 ## License
 

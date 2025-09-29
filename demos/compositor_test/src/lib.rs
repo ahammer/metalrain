@@ -130,7 +130,9 @@ pub fn run_compositor_test() {
                     Vec2::new(HALF_EXTENT, HALF_EXTENT),
                 ))
                 .clustering_enabled(true)
-                .with_presentation(true),
+                .with_presentation(true)
+                // Route presentation quad directly to dedicated Metaballs layer (2)
+                .with_presentation_layer(RenderLayer::Metaballs.order() as u8),
         ))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
         .init_resource::<BurstForceState>()
