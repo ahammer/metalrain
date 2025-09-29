@@ -30,12 +30,9 @@ impl bevy::render::extract_resource::ExtractResource for GameAssets {
     fn extract_resource(source: &Self::Source) -> Self { source.clone() }
 }
 
+#[derive(Default)]
 pub struct GameAssetsPlugin {
     pub use_embedded: bool,
-}
-
-impl Default for GameAssetsPlugin {
-    fn default() -> Self { Self { use_embedded: cfg!(feature = "embedded") } }
 }
 
 impl Plugin for GameAssetsPlugin {

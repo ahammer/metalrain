@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
-use game_core::{Hazard, HazardType, Target, TargetState, Wall};
+use game_core::{Hazard, HazardType, Target, TargetState, Wall, Paddle, SpawnPoint, Selected};
 
 pub struct WidgetRendererPlugin;
 
@@ -12,8 +12,12 @@ impl Plugin for WidgetRendererPlugin {
                 spawn_wall_visuals,
                 spawn_target_visuals,
                 spawn_hazard_visuals,
+                spawn_paddle_visuals,
+                spawn_spawnpoint_visuals,
                 update_target_animations,
                 update_hazard_pulse,
+                update_active_spawnpoint_pulse,
+                update_selected_highlight,
                 cleanup_destroyed_targets,
             ),
         );
@@ -118,6 +122,67 @@ fn update_hazard_pulse(time: Res<Time>, mut hazards: Query<&mut Sprite, With<Haz
         let base = sprite.color.with_alpha(0.25);
         let pulse = (t * 2.0).sin() * 0.15 + 0.25;
         sprite.color = base.with_alpha(pulse.clamp(0.1, 0.5));
+    }
+}
+
+// --- Paddles ---
+fn spawn_paddle_visuals(mut commands: Commands, paddles: Query<(Entity, &Paddle), Added<Paddle>>) {
+    for (entity, paddle) in &paddles {
+        let size = paddle.half_extents * 2.0;
+        commands.entity(entity).insert((
+            RenderLayers::layer(1),
+            Sprite::from_color(Color::srgb(0.1, 0.85, 0.95), size),
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.2)),
+            GlobalTransform::IDENTITY,
+            Name::new("PaddleVisual"),
+        ));
+    }
+}
+
+// --- Spawn Points ---
+fn spawn_spawnpoint_visuals(mut commands: Commands, spawns: Query<(Entity, &SpawnPoint), Added<SpawnPoint>>) {
+    for (entity, sp) in &spawns {
+        let r = sp.radius;
+        commands.entity(entity).insert((
+            RenderLayers::layer(1),
+            Sprite::from_color(Color::srgb(0.9, 0.9, 0.25), Vec2::splat(r * 1.6)),
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.05)),
+            GlobalTransform::IDENTITY,
+            Name::new("SpawnPointVisual"),
+        ));
+        commands.entity(entity).with_children(|c| {
+            c.spawn((
+                RenderLayers::layer(1),
+                Sprite::from_color(Color::srgb(1.0, 1.0, 0.5), Vec2::splat(r * 2.4)),
+                Transform::from_translation(Vec3::new(0.0, 0.0, 0.06)),
+                GlobalTransform::IDENTITY,
+                Name::new("SpawnPointRing"),
+            ));
+        });
+    }
+}
+
+fn update_active_spawnpoint_pulse(
+    time: Res<Time>,
+    mut q: Query<(&SpawnPoint, &mut Transform, &mut Sprite)>,
+) {
+    let t = time.elapsed_secs_wrapped();
+    for (sp, mut tf, mut sprite) in &mut q {
+        if sp.active {
+            let pulse = (t * 3.5).sin() * 0.15 + 1.0;
+            tf.scale = Vec3::splat(pulse);
+            sprite.color = sprite.color.with_alpha(0.9);
+        } else {
+            tf.scale = Vec3::ONE;
+            sprite.color = sprite.color.with_alpha(0.4);
+        }
+    }
+}
+
+fn update_selected_highlight(mut q: Query<&mut Sprite, Added<Selected>>) {
+    for mut sprite in &mut q {
+        let lin = sprite.color.to_linear();
+        sprite.color = Color::linear_rgba((lin.red + 0.3).min(1.0), lin.green, lin.blue, lin.alpha);
     }
 }
 

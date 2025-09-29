@@ -4,7 +4,7 @@ use bevy::text::TextFont;
 use bevy::ui::{Node, PositionType, Val};
 // Diagnostics plugin temporarily removed until version alignment confirmed.
 use bevy_rapier2d::prelude::*;
-use game_core::{Ball, Wall, Target, TargetState, Hazard, HazardType};
+use game_core::{Ball, Wall, Target, TargetState, Hazard, HazardType, Paddle, SpawnPoint, Selected, SpawnBallEvent, ActiveSpawnRotation, BallSpawnPolicy, BallSpawnPolicyMode, PaddlePlugin, SpawningPlugin};
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
 };
@@ -39,25 +39,28 @@ fn main() {
                 .with_presentation(true),
         ))
         .add_systems(Startup, spawn_camera)
-        .add_plugins(GameCorePlugin)
+    .add_plugins(GameCorePlugin)
+    .add_plugins(PaddlePlugin)
+    .add_plugins(SpawningPlugin)
         .add_plugins(GamePhysicsPlugin)
         .add_plugins(WidgetRendererPlugin)
         .add_plugins(RapierDebugRenderPlugin::default())
         // .add_plugins(RapierDebugRenderPlugin::default()) // optional
-        .add_systems(
-            Startup,
-            (setup_walls, spawn_initial_balls, spawn_config_text),
-        )
+        .add_systems(Startup, (setup_walls, spawn_initial_balls, spawn_config_text, spawn_initial_spawnpoints))
+    .add_systems(Startup, spawn_initial_paddle)
         .add_systems(
             Update,
             (
-                handle_spawn_input, // left click balls
+                handle_spawn_input, // left click balls / shift for spawn points
+                handle_paddle_spawn_input,
+                handle_spawnpoint_activation_input,
                 handle_world_element_input, // walls / targets / hazards
                 handle_control_input,
                 stress_test_trigger,
                 update_config_text,
                 handle_target_hits, // NEW: target collision handling
                 handle_hazard_collisions, // NEW: hazard ball removal
+                apply_spawn_policy_toggle,
             ),
         )
         .init_resource::<WallPlacement>()
@@ -96,25 +99,101 @@ fn spawn_camera(mut commands: Commands) {
 fn handle_spawn_input(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     config: Res<PhysicsConfig>,
+    mut spawn_writer: EventWriter<SpawnBallEvent>,
+    spawn_points: Query<(Entity, &Transform, &SpawnPoint)>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) { return; }
-    let window = windows.single().ok();
-    let Some(window) = window else {
-        return;
-    };
-    let Some(cursor_pos) = window.cursor_position() else {
-        return;
-    };
-    let (camera, cam_transform) = if let Ok(c) = cameras.single() {
-        c
-    } else {
-        return;
-    };
-    if let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) {
-        spawn_ball(world_pos, &mut commands, &config, 0);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let window = match windows.single().ok() { Some(w) => w, None => return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let (camera, cam_transform) = if let Ok(c) = cameras.single() { c } else { return };
+    let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
+
+    if shift {
+        // Spawn via nearest active spawn point (or create one temporarily)
+        let mut nearest: Option<(Entity, f32)> = None;
+        for (e, tf, sp) in &spawn_points {
+            if !sp.active { continue; }
+            let d2 = tf.translation.truncate().distance_squared(world_pos);
+            if nearest.map(|(_, nd2)| d2 < nd2).unwrap_or(true) { nearest = Some((e, d2)); }
+        }
+        if let Some((e, _)) = nearest {
+            spawn_writer.write(SpawnBallEvent { spawn_entity: e, override_position: None });
+            return; // physics system will add body next frame
+        }
+        // Fallback: direct spawn if no active spawn point exists yet
+    }
+    spawn_ball(world_pos, &mut commands, &config, 0);
+}
+
+fn handle_paddle_spawn_input(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+) {
+    if !keys.just_pressed(KeyCode::KeyP) { return; }
+    let window = match windows.single().ok() { Some(w) => w, None => return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let (camera, cam_transform) = if let Ok(c) = cameras.single() { c } else { return };
+    let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
+    commands.spawn((
+        Paddle::default(),
+        Transform::from_translation(world_pos.extend(0.2)),
+        GlobalTransform::IDENTITY,
+        Selected, // mark most recent for clarity
+    ));
+}
+
+fn handle_spawnpoint_activation_input(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    mut rotation: ResMut<ActiveSpawnRotation>,
+    mut spawns: Query<(Entity, &Transform, &mut SpawnPoint)>,
+) {
+    // S to create spawn point at cursor
+    if keys.just_pressed(KeyCode::KeyS) {
+        let window = match windows.single().ok() { Some(w) => w, None => return };
+        if let Some(cursor_pos) = window.cursor_position() {
+            if let Ok((camera, cam_transform)) = cameras.single() {
+                if let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) {
+                    let e = commands.spawn((
+                        SpawnPoint::default(),
+                        Transform::from_translation(world_pos.extend(0.1)),
+                        GlobalTransform::IDENTITY,
+                    )).id();
+                    rotation.indices.push(e); // ensure selectable immediately
+                }
+            }
+        }
+    }
+    // Q/E cycle
+    if keys.just_pressed(KeyCode::KeyQ) { rotation.retreat(); }
+    if keys.just_pressed(KeyCode::KeyE) { rotation.advance(); }
+    // Number keys 1..9 select index
+    for (i, code) in [KeyCode::Digit1,KeyCode::Digit2,KeyCode::Digit3,KeyCode::Digit4,KeyCode::Digit5,KeyCode::Digit6,KeyCode::Digit7,KeyCode::Digit8,KeyCode::Digit9].iter().enumerate() {
+        if keys.just_pressed(*code) { rotation.set_index(i); }
+    }
+    // Toggle active of current with space (if exactly we want future; using KeyApostrophe currently unused) (optional)
+    if keys.just_pressed(KeyCode::KeyX) { // X toggles currently selected spawn active flag
+        if let Some(cur) = rotation.current_entity() {
+            if let Ok((_e,_tf, mut sp)) = spawns.get_mut(cur) { sp.active = !sp.active; }
+        }
+    }
+}
+
+fn apply_spawn_policy_toggle(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut policy: ResMut<BallSpawnPolicy>,
+) {
+    if keys.just_pressed(KeyCode::KeyA) { // 'A' toggles auto spawn interval 0.8s
+        policy.mode = match policy.mode { BallSpawnPolicyMode::Manual => BallSpawnPolicyMode::Auto(0.8), BallSpawnPolicyMode::Auto(_) => BallSpawnPolicyMode::Manual };
     }
 }
 
@@ -185,7 +264,7 @@ fn handle_world_element_input(
 
     // C key: clear all (walls, targets, hazards)
     if keys.just_pressed(KeyCode::KeyC) {
-        for e in &mut clear_q { commands.entity(e).despawn_recursive(); }
+    for e in &mut clear_q { commands.entity(e).despawn(); }
         wall_placement.0 = None; // cancel pending wall start
     }
 }
@@ -375,6 +454,24 @@ fn spawn_initial_balls(mut commands: Commands, config: Res<PhysicsConfig>) {
         let y = rng.gen_range(-ARENA_HEIGHT * 0.45..ARENA_HEIGHT * 0.45);
         spawn_ball(Vec2::new(x, y), &mut commands, &config, (i % 4) as i32);
     }
+}
+
+fn spawn_initial_spawnpoints(mut commands: Commands) {
+    // Provide a pair of default spawn points for experimentation
+    let offsets = [-120.0_f32, 120.0_f32];
+    for x in offsets { commands.spawn((SpawnPoint::default(), Transform::from_translation(Vec3::new(x, 0.0, 0.1)), GlobalTransform::IDENTITY)); }
+}
+
+fn spawn_initial_paddle(mut commands: Commands) {
+    // Spawn a default paddle centered near bottom of arena for immediate interaction
+    let y = -ARENA_HEIGHT * 0.35;
+    commands.spawn((
+        Paddle::default(),
+        Transform::from_translation(Vec3::new(0.0, y, 0.2)),
+        GlobalTransform::IDENTITY,
+        Selected,
+        Name::new("InitialPaddle"),
+    ));
 }
 
 fn spawn_config_text(mut commands: Commands) {

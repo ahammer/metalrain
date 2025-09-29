@@ -7,11 +7,13 @@ pub mod bundles;
 pub mod components;
 pub mod events;
 pub mod resources;
+mod spawning; // sprint 4.5 systems / plugins
 
 pub use bundles::*;
 pub use components::*;
 pub use events::*;
 pub use resources::*;
+pub use spawning::*;
 
 pub struct GameCorePlugin;
 impl Plugin for GameCorePlugin {
@@ -20,10 +22,14 @@ impl Plugin for GameCorePlugin {
             .add_event::<TargetDestroyed>()
             .add_event::<GameWon>()
             .add_event::<GameLost>()
+            .add_event::<SpawnBallEvent>()
             .init_resource::<GameState>()
             .init_resource::<ArenaConfig>();
     }
 }
+
+// --- Sprint 4.5 Plugins re-exported for demo integration ---
+
 
 #[cfg(test)]
 mod tests {

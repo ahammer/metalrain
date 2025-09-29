@@ -12,3 +12,11 @@ pub struct GameWon;
 
 #[derive(Event, Default)]
 pub struct GameLost;
+
+// === Sprint 4.5 Events ===
+
+#[derive(Event, Debug)]
+pub struct SpawnBallEvent {
+	pub spawn_entity: Entity,
+	pub override_position: Option<Vec2>, // manual position override (e.g. cursor)
+}
