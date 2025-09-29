@@ -96,7 +96,7 @@ impl FromWorld for GpuNormalsPipeline {
         #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
         let shader: Handle<Shader> = {
             let asset_server = world.resource::<AssetServer>();
-            asset_server.load("metaball://shaders/compute_3d_normals.wgsl")
+            asset_server.load("shaders/compute_3d_normals.wgsl")
         };
         #[cfg(any(not(feature = "shader_hot_reload"), target_arch = "wasm32"))]
         let shader: Handle<Shader> = embedded_shaders::normals_handle();

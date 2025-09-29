@@ -15,9 +15,9 @@ static NORMALS_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 static PRESENT_SHADER_HANDLE: OnceLock<Handle<Shader>> = OnceLock::new();
 
 #[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
-const COMPUTE_WGSL: &str = include_str!("../assets/shaders/compute_metaballs.wgsl");
+const COMPUTE_WGSL: &str = include_str!("../../assets/shaders/compute_metaballs.wgsl");
 #[cfg(any(target_arch = "wasm32", not(feature = "shader_hot_reload")))]
-const NORMALS_WGSL: &str = include_str!("../assets/shaders/compute_3d_normals.wgsl");
+const NORMALS_WGSL: &str = include_str!("../../assets/shaders/compute_3d_normals.wgsl");
 #[cfg(all(
     feature = "present",
     any(target_arch = "wasm32", not(feature = "shader_hot_reload"))
@@ -81,7 +81,7 @@ pub fn present_handle() -> Handle<Shader> {
 pub fn present_shader_ref() -> ShaderRef {
     #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
     {
-        ShaderRef::Path("metaball://shaders/present_fullscreen.wgsl".into())
+    ShaderRef::Path("shaders/present_fullscreen.wgsl".into())
     }
     #[cfg(any(not(feature = "shader_hot_reload"), target_arch = "wasm32"))]
     {
@@ -97,7 +97,11 @@ impl Plugin for MetaballShaderSourcePlugin {
         #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
         {
             use bevy::asset::io::AssetSourceBuilder;
-            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+            // Point the virtual source at the centralized workspace assets directory.
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent().unwrap() // crates/
+                .parent().unwrap() // workspace root
+                .join("assets");
             let path_str = path.to_string_lossy();
             // NOTE: This must run BEFORE AssetPlugin finalizes to take effect. If the user adds
             // this plugin after `DefaultPlugins` the source won't register; we silently rely on
@@ -122,7 +126,7 @@ pub(crate) fn log_shader_events(
             bevy::asset::AssetEvent::Modified { id } => {
                 if let Some(path) = asset_server.get_path(*id) {
                     if path.path().to_string_lossy().contains("metaballs")
-                        || path.to_string().contains("metaball://shaders")
+                        || path.to_string().contains("shaders/")
                     {
                         info!(target: "metaballs", "Shader modified -> {path}");
                     }

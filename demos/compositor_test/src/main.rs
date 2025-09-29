@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::asset::AssetPlugin;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::render::view::RenderLayers;
 use bevy_rapier2d::prelude::*;
@@ -96,7 +97,10 @@ fn main() {
         })
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(MetaballShaderSourcePlugin)
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(AssetPlugin {
+            file_path: "../../assets".into(),
+            ..default()
+        }))
     .add_plugins(GameAssetsPlugin::default())
     .add_plugins(GameRenderingPlugin)
         .add_plugins(MetaballRendererPlugin::with(

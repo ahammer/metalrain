@@ -198,9 +198,9 @@ impl FromWorld for GpuMetaballPipeline {
             );
         #[cfg(all(feature = "shader_hot_reload", not(target_arch = "wasm32")))]
         let shader: Handle<Shader> = {
-            // Load via custom asset source for hot reload.
+            // Load from centralized assets directory.
             let asset_server = world.resource::<AssetServer>();
-            asset_server.load("metaball://shaders/compute_metaballs.wgsl")
+            asset_server.load("shaders/compute_metaballs.wgsl")
         };
         #[cfg(any(not(feature = "shader_hot_reload"), target_arch = "wasm32"))]
         let shader: Handle<Shader> = embedded_shaders::compute_handle();
