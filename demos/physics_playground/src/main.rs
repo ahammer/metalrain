@@ -32,8 +32,8 @@ fn main() {
             MetaballRenderSettings::default()
                 .with_texture_size(TEX_SIZE)
                 .with_world_bounds(Rect::from_corners(
-                    Vec2::new(-ARENA_WIDTH * 0.5, -ARENA_HEIGHT * 0.5),
-                    Vec2::new(ARENA_WIDTH * 0.5, ARENA_HEIGHT * 0.5),
+                    Vec2::new(-ARENA_WIDTH * 0.8, -ARENA_HEIGHT * 0.8),
+                    Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
                 ))
                 .clustering_enabled(true)
                 .with_presentation(true),
