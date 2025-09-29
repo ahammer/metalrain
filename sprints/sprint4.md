@@ -17,7 +17,7 @@ Create the visual representation of game world elements (walls, targets, hazards
 
 ### 1. Widget Renderer Crate Setup
 
-- [x] Create `widget_renderer` crate structure with Cargo.toml
+- [ ] Create `widget_renderer` crate structure with Cargo.toml
 - [ ] Add to workspace members
 - [ ] Set up basic plugin architecture
 - [ ] Configure integration with Layer 1 (GameWorld)
