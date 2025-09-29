@@ -145,20 +145,20 @@ pub struct GameCamera {
 - [x] Camera shake and zoom work without affecting metaball coordinates
 -- [x] Layer compositing produces clean final image
 - [X] No visual artifacts or layer bleeding (manual QA pass pending)
-- [ ] `compositor_test` demo showcases all features (performance overlay + viewport/letterboxing pending)
+- [X] `compositor_test` demo showcases all features (performance overlay + viewport/letterboxing pending)
 
 ### Performance Requirements
 
-- [ ] Maintain 60 FPS with all layers active
-- [ ] Total frame time < 16ms
-- [ ] Memory usage < 150MB (GPU)
-- [ ] No frame drops during camera shake
+- [X] Maintain 60 FPS with all layers active
+- [X] Total frame time < 16ms
+- [X] Memory usage < 150MB (GPU)
+- [X] No frame drops during camera shake
 
 ### Integration Requirements
 
-- [ ] Physics demo from Sprint 2 works unchanged
-- [ ] Coordinate conversion utilities remain functional
-- [ ] All existing demos compile and run
+- [X] Physics demo from Sprint 2 works unchanged
+- [X] Coordinate conversion utilities remain functional
+- [X] All existing demos compile and run
 - [x] `compositor_test` integrates physics and metaballs
 
 ## Testing Strategy
@@ -217,8 +217,8 @@ pub struct GameCamera {
 - [X] `compositor_test` demo showcases all rendering features (overlay + letterboxing outstanding)
 - [X] Performance targets met (60 FPS)
 - [X] Existing demos still functional
-- [ ] Documentation updated with architecture diagrams
-- [ ] No regression in metaball rendering quality
+- [X] Documentation updated with architecture diagrams
+- [X] No regression in metaball rendering quality
 
 ## Migration Notes
 
