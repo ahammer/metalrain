@@ -54,6 +54,8 @@ const SHADOW_OFFSET: vec2<f32> = LIGHT0_DIR.xy * SHADOW_DISTANCE; // Shadow dire
 const SHADOW_COLOR: vec3<f32>  = vec3<f32>(0.0, 0.0, 0.0);
 const SHADOW_FALLOFF_START: f32 = 0.5; // Field value where shadow begins to fade out
 const SHADOW_FALLOFF_END: f32   = 1.5; // Field value where shadow is at full strength (ISO)
+// Maximum opacity the shadow can contribute (before union w/ blob alpha)
+const SHADOW_ALPHA: f32 = 0.6;
 
 // Utility functions
 fn lerp(a: vec3<f32>, b: vec3<f32>, t: f32) -> vec3<f32> {
@@ -142,21 +144,23 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let albedo = sample_albedo(uv);
     let fill_rgb = select(SOLID_COLOR, albedo.rgb / max(albedo.a, 1e-6), albedo.a > 0.001);
     var blob_rgb = compute_surface_fill(field, ISO, w, fill_rgb);
-    let bg = lerp(BG_BOT, BG_TOP, clamp(uv.y, 0.0, 1.0));
-
-    // 1. Calculate soft shadow occlusion
+    // Soft shadow factor sampled behind blob; only applies off-blob
     let shadow_occlusion = compute_soft_shadow(uv);
+    let shadow_strength = shadow_occlusion * (1.0 - inside_mask);
+    let shadow_alpha = shadow_strength * SHADOW_ALPHA;
 
-    // 2. Apply shadow to background (don't shadow the metaballs themselves)
-    let shaded_bg = lerp(bg, SHADOW_COLOR, shadow_occlusion * (1.0 - inside_mask));
-
-    // 3. Compose unlit color first, now over the shaded background
-    let out_pre_lighting = lerp(shaded_bg, blob_rgb, inside_mask);
-
-    // 4. Decode normal & apply lighting only on metaball surface
+    // Lighting only for blob area: pass mask=1.0 so function returns fully lit blob color.
     let normal = decode_normal(normals_sample.rgb);
-    let out_rgb = add_lighting(out_pre_lighting, normal, inside_mask);
-    return vec4<f32>(out_rgb, 1.0);
+    let lit_blob_rgb = add_lighting(blob_rgb, normal, 1.0);
+
+    // Alpha for blob (smooth edge) and shadow (behind blob). Union compositing (shadow then blob):
+    let blob_alpha = inside_mask;
+    // Premultiply colors
+    let blob_rgb_premul = lit_blob_rgb * blob_alpha;
+    let shadow_rgb_premul = SHADOW_COLOR * shadow_alpha;
+    let out_alpha = blob_alpha + shadow_alpha * (1.0 - blob_alpha);
+    let out_rgb = blob_rgb_premul + shadow_rgb_premul * (1.0 - blob_alpha);
+    return vec4<f32>(out_rgb, out_alpha);
 
     /*
     if (field > ISO) {
