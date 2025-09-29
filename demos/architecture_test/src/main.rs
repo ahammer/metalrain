@@ -3,7 +3,7 @@ use bevy::asset::AssetPlugin;
 use game_assets::GameAssetsPlugin;
 use game::GamePlugin;
 use game_core::{
-    BallBundle, BallSpawned, GameColor, GameCorePlugin, GameLost, GameWon, TargetDestroyed,
+    BallBundle, BallSpawned, GameColor, GameCorePlugin, GameLost, GameWon, TargetDestroyed, Target,
 };
 
 fn main() {
@@ -51,13 +51,7 @@ fn emit_events_once(
                 color: GameColor::Green,
             },
         ));
-        target_writer.write(TargetDestroyed(
-            entity,
-            game_core::Target {
-                health: 0,
-                color: None,
-            },
-        ));
+        target_writer.write(TargetDestroyed(entity, Target::new(0, 10.0, Color::WHITE)));
         win_writer.write(GameWon);
         *did = true;
     }

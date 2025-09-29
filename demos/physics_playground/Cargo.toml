@@ -12,3 +12,4 @@ rand = "0.8"
 game_core = { path = "../../crates/game_core" }
 game_physics = { path = "../../crates/game_physics" }
 metaball_renderer = { path = "../../crates/metaball_renderer" }
+widget_renderer = { path = "../../crates/widget_renderer" }

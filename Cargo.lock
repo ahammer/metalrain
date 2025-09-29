@@ -3729,6 +3729,7 @@ dependencies = [
  "game_physics",
  "metaball_renderer",
  "rand",
+ "widget_renderer",
 ]
 
 [[package]]
@@ -5117,6 +5118,16 @@ checksum = "0ce5da8ecb62bcd8ec8b7ea19f69a51275e91299be594ea5cc6ef7819e16cd03"
 dependencies = [
  "bytemuck",
  "safe_arch",
+]
+
+[[package]]
+name = "widget_renderer"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_rapier2d",
+ "game_core",
+ "game_physics",
 ]
 
 [[package]]

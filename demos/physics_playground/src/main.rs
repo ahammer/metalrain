@@ -4,7 +4,7 @@ use bevy::text::TextFont;
 use bevy::ui::{Node, PositionType, Val};
 // Diagnostics plugin temporarily removed until version alignment confirmed.
 use bevy_rapier2d::prelude::*;
-use game_core::Ball;
+use game_core::{Ball, Wall, Target, TargetState, Hazard, HazardType};
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
 };
@@ -12,10 +12,14 @@ use rand::Rng;
 
 use game_core::{BallBundle, GameColor, GameCorePlugin};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
+use widget_renderer::WidgetRendererPlugin;
 
 const ARENA_WIDTH: f32 = 512.0;
 const ARENA_HEIGHT: f32 = 512.0;
 const TEX_SIZE: UVec2 = UVec2::new(512, 512);
+
+#[derive(Resource, Default)]
+struct WallPlacement(Option<Vec2>);
 
 fn main() {
     App::new()
@@ -37,6 +41,7 @@ fn main() {
         .add_systems(Startup, spawn_camera)
         .add_plugins(GameCorePlugin)
         .add_plugins(GamePhysicsPlugin)
+        .add_plugins(WidgetRendererPlugin)
         .add_plugins(RapierDebugRenderPlugin::default())
         // .add_plugins(RapierDebugRenderPlugin::default()) // optional
         .add_systems(
@@ -46,12 +51,15 @@ fn main() {
         .add_systems(
             Update,
             (
-                handle_spawn_input,
+                handle_spawn_input, // left click balls
+                handle_world_element_input, // walls / targets / hazards
                 handle_control_input,
                 stress_test_trigger,
                 update_config_text,
+                handle_target_hits, // NEW: target collision handling
             ),
         )
+        .init_resource::<WallPlacement>()
         .run();
 }
 
@@ -91,9 +99,7 @@ fn handle_spawn_input(
     cameras: Query<(&Camera, &GlobalTransform)>,
     config: Res<PhysicsConfig>,
 ) {
-    if !(buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Right)) {
-        return;
-    }
+    if !buttons.just_pressed(MouseButton::Left) { return; }
     let window = windows.single().ok();
     let Some(window) = window else {
         return;
@@ -107,20 +113,79 @@ fn handle_spawn_input(
         return;
     };
     if let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) {
-        if buttons.just_pressed(MouseButton::Left) {
-            spawn_ball(world_pos, &mut commands, &config, 0);
+        spawn_ball(world_pos, &mut commands, &config, 0);
+    }
+}
+
+fn handle_world_element_input(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    mut wall_placement: ResMut<WallPlacement>,
+    mut clear_q: Query<Entity, Or<(With<Wall>, With<Target>, With<Hazard>)>>,
+) {
+    let window = match windows.single().ok() { Some(w) => w, None => return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let (camera, cam_transform) = if let Ok(c) = cameras.single() { c } else { return };
+    let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
+
+    // Right click: two-phase wall placement
+    if buttons.just_pressed(MouseButton::Right) {
+        if let Some(start) = wall_placement.0.take() {
+            // finalize
+            let end = world_pos;
+            let thickness = 10.0;
+            let wall = Wall::new(start, end, thickness, Color::srgb(0.6,0.7,0.9));
+            let length = wall.length();
+            let center = wall.center();
+            let direction = (end - start).normalize_or_zero();
+            let angle = direction.y.atan2(direction.x);
+            commands.spawn((
+                wall,
+                Transform::from_translation(center.extend(0.0))
+                    .with_rotation(Quat::from_rotation_z(angle)),
+                GlobalTransform::IDENTITY,
+                RigidBody::Fixed,
+                Collider::cuboid(length/2.0, thickness/2.0),
+            ));
+        } else {
+            wall_placement.0 = Some(world_pos);
         }
-        if buttons.just_pressed(MouseButton::Right) {
-            // Spawn slightly offset below cursor and give velocity toward cursor.
-            let spawn_pos = world_pos + Vec2::new(0.0, -50.0);
-            let e = spawn_ball(spawn_pos, &mut commands, &config, 1);
-            // Overwrite initial velocity to point toward cursor.
-            let dir = (world_pos - spawn_pos).normalize_or_zero();
-            commands.entity(e).insert(Velocity {
-                linvel: dir * 400.0,
-                angvel: 0.0,
-            });
-        }
+    }
+
+    // Middle click: target
+    if buttons.just_pressed(MouseButton::Middle) {
+        let target = Target::new(3, 20.0, Color::srgb(0.9,0.9,0.3));
+        commands.spawn((
+            target,
+            Transform::from_translation(world_pos.extend(0.1)),
+            GlobalTransform::IDENTITY,
+            Sensor,
+            Collider::ball(20.0),
+            ActiveEvents::COLLISION_EVENTS,
+        ));
+    }
+
+    // H key: hazard
+    if keys.just_pressed(KeyCode::KeyH) {
+        let size = Vec2::new(80.0, 40.0);
+        let bounds = Rect::from_center_size(world_pos, size);
+        let hazard = Hazard::new(bounds, HazardType::Pit);
+        commands.spawn((
+            hazard,
+            Transform::from_translation(world_pos.extend(-0.2)),
+            GlobalTransform::IDENTITY,
+            Sensor,
+            Collider::cuboid(size.x/2.0, size.y/2.0),
+        ));
+    }
+
+    // C key: clear all (walls, targets, hazards)
+    if keys.just_pressed(KeyCode::KeyC) {
+        for e in &mut clear_q { commands.entity(e).despawn_recursive(); }
+        wall_placement.0 = None; // cancel pending wall start
     }
 }
 
@@ -266,7 +331,7 @@ struct ConfigText;
 fn update_config_text(mut query: Query<&mut Text, With<ConfigText>>, config: Res<PhysicsConfig>) {
     if let Some(mut text) = query.iter_mut().next() {
         text.0 = format!(
-            "Gravity: ({:.0},{:.0})  Cluster: str {:.0} rad {:.0}  Speed: min {:.0} max {:.0}\nKeys: Arrows grav  +/- strength  [ ] radius  G toggle grav  R reset  T stress spawn",
+            "Gravity: ({:.0},{:.0})  Cluster: str {:.0} rad {:.0}  Speed: min {:.0} max {:.0}\nKeys: LMB ball  RMB wall(2-click)  MMB target  H hazard  C clear  R reset balls  Arrows grav  +/- strength  [ ] radius  G toggle grav  T stress",
             config.gravity.x, config.gravity.y,
             config.clustering_strength, config.clustering_radius,
             config.min_ball_speed, config.max_ball_speed
@@ -326,4 +391,25 @@ fn spawn_config_text(mut commands: Commands) {
         },
         ConfigText,
     ));
+}
+
+// NEW: collision-driven target hit handling
+fn handle_target_hits(
+    mut collisions: EventReader<CollisionEvent>,
+    mut targets: Query<&mut Target>,
+    balls: Query<(), With<Ball>>,
+) {
+    for ev in collisions.read() {
+        if let CollisionEvent::Started(a, b, _) = ev {
+            let (target_entity, other) = if targets.get(*a).is_ok() { (*a, *b) } else if targets.get(*b).is_ok() { (*b, *a) } else { continue };
+            if balls.get(other).is_ok() {
+                if let Ok(mut tgt) = targets.get_mut(target_entity) {
+                    if tgt.health > 0 {
+                        tgt.health = tgt.health.saturating_sub(1);
+                        tgt.state = if tgt.health == 0 { TargetState::Destroying(0.0) } else { TargetState::Hit(0.0) };
+                    }
+                }
+            }
+        }
+    }
 }

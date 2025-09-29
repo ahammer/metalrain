@@ -17,42 +17,42 @@ Create the visual representation of game world elements (walls, targets, hazards
 
 ### 1. Widget Renderer Crate Setup
 
-- [ ] Create `widget_renderer` crate structure with Cargo.toml
-- [ ] Add to workspace members
-- [ ] Set up basic plugin architecture
-- [ ] Configure integration with Layer 1 (GameWorld)
-- [ ] Create component definitions for Wall, Target, Hazard
+- [x] Create `widget_renderer` crate structure with Cargo.toml
+- [x] Add to workspace members
+- [x] Set up basic plugin architecture
+- [x] Configure integration with Layer 1 (GameWorld) (RenderLayers layer 1)
+- [x] Create component definitions for Wall, Target, Hazard (updated in `game_core` per spec)
 
 ### 2. Wall Rendering System
 
-- [ ] Simple line/rectangle rendering using Bevy sprites/meshes
-- [ ] Basic glow effect using overlapping sprites
-- [ ] Wall component with physics integration
-- [ ] Debug visualization for collision boundaries
-- [ ] Support for straight walls (curves deferred to future sprint)
+- [x] Simple line/rectangle rendering using Bevy sprites (mesh glow deferred)
+- [ ] Basic glow effect using overlapping sprites (deferred)
+- [x] Wall component with physics integration
+- [ ] Debug visualization for collision boundaries (Rapier debug lines always enabled; toggle TBD)
+- [x] Support for straight walls (curves deferred to future sprint)
 
 ### 3. Target Rendering
 
-- [ ] Circular/square targets using ColorMesh2dBundle
-- [ ] Simple color system for target types
-- [ ] Hit animation (scale & color flash)
-- [ ] Health visualization (opacity or size based)
-- [ ] Destruction animation (fade out + scale)
+- [x] Circular/square targets (square sprite implementation for MVP)
+- [x] Simple color system for target types (prototype colors)
+- [x] Hit animation (scale & color flash)
+- [x] Health visualization (opacity based)
+- [x] Destruction animation (fade out + scale + cleanup)
 
 ### 4. Hazard Zone Rendering
 
-- [ ] Area visualization using transparent meshes
-- [ ] Simple pulsing warning effect
-- [ ] Clear visual distinction (red tint/border)
-- [ ] Basic pit hazard type only (others deferred)
+- [x] Area visualization using transparent sprites
+- [x] Simple pulsing warning effect
+- [x] Clear visual distinction (red tint & alpha pulse)
+- [x] Basic pit hazard type only (others deferred)
 
 ### 5. Physics Playground Enhancement
 
-- [ ] Update `demo_physics` to spawn walls, targets, hazards
-- [ ] Interactive element placement (click to add)
-- [ ] Visual feedback for collisions
-- [ ] Performance metrics display
-- [ ] Test arena with all element types
+- [x] Update `physics_playground` to spawn walls, targets, hazards
+- [x] Interactive element placement (RMB wall (2-click), MMB target, H hazard)
+- [x] Visual feedback for collisions (target hit flash / animation)
+- [ ] Performance metrics display (pending)
+- [ ] Test arena with all element types (interactive spawning; scripted arena TBD)
 
 ## Technical Specifications
 
@@ -277,14 +277,14 @@ rand = "0.8"  # For simple randomization
 
 ## Definition of Done
 
-- [ ] `widget_renderer` crate created and added to workspace
-- [ ] Wall, Target, and Hazard components defined
-- [ ] Basic rendering for all three element types
-- [ ] Physics integration working (collisions detected)
-- [ ] Enhanced physics playground demo
-- [ ] Performance targets met
-- [ ] Basic documentation in README
-- [ ] No regression in existing functionality
+- [x] `widget_renderer` crate created and added to workspace
+- [x] Wall, Target, and Hazard components defined
+- [x] Basic rendering for all three element types
+- [x] Physics integration working (collisions detected)
+- [x] Enhanced physics playground demo (baseline; metrics + arena polish pending)
+- [ ] Performance targets met (instrumentation not implemented yet)
+- [x] Basic documentation in README
+- [x] No regression in existing functionality (workspace builds)
 
 ## Notes for Next Sprint
 
