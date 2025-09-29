@@ -99,7 +99,7 @@ fn metaballs(@builtin(global_invocation_id) gid: vec3<u32>) {
         let d = (coord - c);
         let dist2 = max(dot(d, d), EPS);
 
-        let r = balls[i].radius;
+        let r = balls[i].radius * 1.3;
         let r2 = r * r;
 
         let inv_dist2 = 1.0 / dist2;
