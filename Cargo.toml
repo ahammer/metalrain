@@ -4,6 +4,8 @@ members = [
     # New core/game crates
     "crates/game_core",
     "crates/game",
+    # Centralized event & input reduction crate (Event/Input Reduction Subsprint)
+    "crates/event_core",
     # Physics crate (Sprint 2)
     "crates/game_physics",
     # Rendering crate (Sprint 3)

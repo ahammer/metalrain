@@ -144,6 +144,20 @@ Out of Scope (Deferred to later sprints / per‑demo integration):
 
 > NOTE: Demo‑specific key mappings / editor handlers should be registered within each demo crate, not added to core; this preserves modularity and keeps `event_core` lean.
 
+### Deviations (Execution Snapshot – 2025-09-30)
+
+Implemented subset landed in new crate `crates/event_core` with queue, journal, middleware (Filter, KeyMapping, Debounce, Cooldown), handler registry, basic handlers (ball + target counters, reset), determinism & middleware tests. The following acceptance criteria items are partially deferred or simplified:
+
+- Event payload detail minimized (many variants use empty structs) – to be enriched during migration of real systems.
+- Win/Lose condition emission logic not yet auto-triggered (handlers only mutate counters); placeholder for upcoming game flow handler.
+- Journal timestamps use monotonic `Instant` directly (non-mockable); future work: injectable time source for deterministic replay tests.
+- Coverage target: tests implemented (unit + integration) but no tarpaulin run; design kept simple for future instrumentation.
+- Debug/editor events & cfg gating not yet added (scoped out until demos begin migration).
+- Replay / undo, advanced level start logic, and rich spawn parameters intentionally deferred per Scope Boundaries.
+- No integration into existing demos (per user instruction) – plugin is idle unless explicitly added.
+
+Rationale: Focus was on establishing deterministic infrastructure & extension surface with minimal risk before migrating gameplay logic, keeping diff concise and low-risk to existing demos.
+
 ## Problem Statement
 
 **Current Issues:**
