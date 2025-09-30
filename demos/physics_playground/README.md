@@ -22,7 +22,9 @@ A `--features no-compositor` run path is available for legacy (pre-compositor) b
 cargo run -p physics_playground --features no-compositor
 ```
 
-## Controls (Compositor Mode)
+## Controls
+
+All compositor layers are always enabled in this playground; controls focus purely on spawning and physics interaction.
 
 ### Spawning & World Editing
 
@@ -32,8 +34,8 @@ cargo run -p physics_playground --features no-compositor
 * H: Spawn a hazard (pit) rectangle
 * C: Clear walls / targets / hazards
 * S: Create spawn point at cursor
-* Shift+1..9: Select spawn point index
-* Q / E (with spawn point selection mode): Cycle active spawn point (unchanged from legacy)
+* 1..9: Select spawn point index
+* Q / E: Cycle active spawn point
 * X: Toggle active flag on selected spawn point
 * P: Spawn paddle at cursor
 * A: Toggle auto-spawn policy
@@ -47,23 +49,13 @@ cargo run -p physics_playground --features no-compositor
 * +/- : Adjust clustering strength
 * [ / ] : Adjust clustering radius
 
-### Compositor / Rendering
-
-* 1..5: Toggle Background / GameWorld / Metaballs / Effects / Ui layers
-* M: Toggle Metaballs layer (alias of key 3)
-* Q / W / E: Set Metaballs blend mode (Normal / Additive / Multiply)
-
 ### HUD
 
-* Displays body count, FPS, layer enable states, and current metaball blend.
-
-### Spawn Point Selection vs Layer Toggles
-
-* To avoid conflicts, digit keys for spawn point selection now require holding Shift.
+* Displays body count and FPS plus a condensed control reminder.
 
 ## Metaball Overlay
 
-The metaball renderer presents its composited field into the Metaballs layer via `.with_presentation_layer(RenderLayer::Metaballs.order() as u8)`. Disabling the Metaballs layer (3 or M) removes the overlay while keeping physics running.
+The metaball renderer presents its composited field into the Metaballs layer via `.with_presentation_layer(RenderLayer::Metaballs.order() as u8)`. In this demo the layer is permanently enabled (no toggle keys) so you can concentrate on physics editing.
 
 ## Determinism Considerations
 
@@ -75,20 +67,15 @@ The compositor systems only read layer & camera resources; they do not mutate ph
 
 ## Manual Test Matrix
 
-* Toggle each layer individually (1..5) – no panic, framebuffer updates.
-* Disable all layers – final output is clear/empty (black) but app continues.
-* Toggle Metaballs rapidly while spawning balls – no crashes, HUD updates.
-* Change metaball blend Q/W/E – visible difference in composite.
-* Resize window – quad & render targets resize (no stretching artifact).
-* Gravity adjustments still work; layer toggles do not interfere with physics.
+* Spawn, move, and clear world elements (walls, targets, hazards) – no panics.
+* Spawn points selection (1..9) functions without interfering with other inputs.
+* Stress test (T) maintains responsive HUD and rendering.
+* Window resize preserves correct aspect and physics behavior.
+* Gravity and clustering adjustments update HUD values correctly (where shown).
 
 ## Legacy Mode
 
-If run with `--features no-compositor`, the app:
-
-* Spawns a single `Camera2d` instead of layered cameras + compositor.
-* Uses a simplified HUD string indicating legacy mode.
-* Keeps prior controls (digits 1..9 no longer masked by layer logic unless Shift not held).
+If run with `--features no-compositor`, the app still works identically, just without the layered render pipeline (direct camera rendering).
 
 ## Future Enhancements
 

@@ -10,7 +10,7 @@ use rand::Rng;
 use game_core::{BallBundle, GameColor, GameCorePlugin};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
 use widget_renderer::WidgetRendererPlugin;
-use game_rendering::{GameRenderingPlugin, RenderLayer, LayerToggleState, LayerBlendState, BlendMode};
+use game_rendering::{GameRenderingPlugin, RenderLayer};
 
 pub const DEMO_NAME: &str = "physics_playground";
 
@@ -87,8 +87,6 @@ pub fn run_physics_playground() {
                 handle_target_hits,
                 handle_hazard_collisions,
                 apply_spawn_policy_toggle,
-                #[cfg(not(feature = "no-compositor"))]
-                handle_layer_inputs,
                 #[cfg(not(feature = "no-compositor"))]
                 update_hud,
                 #[cfg(feature = "no-compositor")]
@@ -213,12 +211,9 @@ fn handle_spawnpoint_activation_input(
     // Q/E cycle
     if keys.just_pressed(KeyCode::KeyQ) { rotation.retreat(); }
     if keys.just_pressed(KeyCode::KeyE) { rotation.advance(); }
-    // Number keys 1..9 select index (requires Shift to avoid conflict with compositor layer toggles)
-    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    if shift {
-        for (i, code) in [KeyCode::Digit1,KeyCode::Digit2,KeyCode::Digit3,KeyCode::Digit4,KeyCode::Digit5,KeyCode::Digit6,KeyCode::Digit7,KeyCode::Digit8,KeyCode::Digit9].iter().enumerate() {
-            if keys.just_pressed(*code) { rotation.set_index(i); }
-        }
+    // Number keys 1..9 select index (no Shift modifier needed now that digits are not used for layer toggles)
+    for (i, code) in [KeyCode::Digit1,KeyCode::Digit2,KeyCode::Digit3,KeyCode::Digit4,KeyCode::Digit5,KeyCode::Digit6,KeyCode::Digit7,KeyCode::Digit8,KeyCode::Digit9].iter().enumerate() {
+        if keys.just_pressed(*code) { rotation.set_index(i); }
     }
     // X toggles currently selected spawn active flag
     if keys.just_pressed(KeyCode::KeyX) {
@@ -600,39 +595,12 @@ fn handle_hazard_collisions(
     }
 }
 
-// ---------------- Compositor Integration Systems (only active when compositor enabled) ----------------
-
-#[cfg(not(feature = "no-compositor"))]
-fn handle_layer_inputs(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut layers: ResMut<LayerToggleState>,
-    mut blends: ResMut<LayerBlendState>,
-) {
-    // Toggle layers 1-5
-    if keys.just_pressed(KeyCode::Digit1) { toggle_layer(&mut layers, RenderLayer::Background); }
-    if keys.just_pressed(KeyCode::Digit2) { toggle_layer(&mut layers, RenderLayer::GameWorld); }
-    if keys.just_pressed(KeyCode::Digit3) { toggle_layer(&mut layers, RenderLayer::Metaballs); }
-    if keys.just_pressed(KeyCode::Digit4) { toggle_layer(&mut layers, RenderLayer::Effects); }
-    if keys.just_pressed(KeyCode::Digit5) { toggle_layer(&mut layers, RenderLayer::Ui); }
-    // Metaball blend modes Q/W/E (Normal/Additive/Multiply)
-    if keys.just_pressed(KeyCode::KeyQ) { blends.set_blend_for(RenderLayer::Metaballs, BlendMode::Normal); }
-    if keys.just_pressed(KeyCode::KeyW) { blends.set_blend_for(RenderLayer::Metaballs, BlendMode::Additive); }
-    if keys.just_pressed(KeyCode::KeyE) { blends.set_blend_for(RenderLayer::Metaballs, BlendMode::Multiply); }
-    // 'M' toggles metaballs layer specifically (alias of Digit3)
-    if keys.just_pressed(KeyCode::KeyM) { toggle_layer(&mut layers, RenderLayer::Metaballs); }
-}
-
-#[cfg(not(feature = "no-compositor"))]
-fn toggle_layer(state: &mut LayerToggleState, layer: RenderLayer) {
-    if let Some(cfg) = state.config_mut(layer) { cfg.enabled = !cfg.enabled; }
-}
+// ---------------- Simplified HUD (all layers always enabled) ----------------
 
 #[cfg(not(feature = "no-compositor"))]
 fn update_hud(
     diagnostics: Res<DiagnosticsStore>,
     balls: Query<Entity, With<Ball>>,
-    layers: Res<LayerToggleState>,
-    blends: Res<LayerBlendState>,
     mut stats: ResMut<PhysicsStats>,
     mut text_q: Query<&mut Text2d, With<HudText>>,
 ) {
@@ -643,12 +611,9 @@ fn update_hud(
         .get(&FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|d| d.smoothed())
         .unwrap_or(0.0);
-    let mut enabled_flags = String::new();
-    for layer in RenderLayer::ALL { if let Some(cfg) = layers.config(layer) { enabled_flags.push_str(&format!("{}:{} ", &layer.label()[0..1], if cfg.enabled {"1"} else {"0"})); } }
-    let metaball_blend = match blends.blend_for(RenderLayer::Metaballs) { BlendMode::Normal=>"N", BlendMode::Additive=>"A", BlendMode::Multiply=>"M" };
     let new_text = format!(
-        "Bodies:{}  FPS:{:.1}  Layers:{} MBBlend:{}\n1-5 toggle layers  M metaballs  Q/W/E blend  Shift+1..9 select spawn idx",
-        body_count, fps, enabled_flags, metaball_blend
+        "Bodies:{}  FPS:{:.1}\nControls: LMB ball  RMB wall(2-click)  MMB target  H hazard  C clear  S spawn point  1..9 select spawn  Q/E cycle spawn  X toggle spawn  P paddle  A auto-spawn  Arrows grav  +/- strength  [ ] radius  G toggle grav  R reset balls  T stress",
+        body_count, fps
     );
     if new_text != stats.last_text { text.0 = new_text.clone(); stats.last_text = new_text; }
 }
