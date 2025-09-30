@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use bevy::asset::AssetPlugin;
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::render::view::RenderLayers;
 use bevy::text::TextFont;
-use bevy::ui::{Node, PositionType, Val};
 use bevy_rapier2d::prelude::*;
 use game_core::{Ball, Wall, Target, TargetState, Hazard, HazardType, Paddle, SpawnPoint, Selected, SpawnBallEvent, ActiveSpawnRotation, BallSpawnPolicy, BallSpawnPolicyMode, PaddlePlugin, SpawningPlugin};
 use metaball_renderer::{MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin};
@@ -9,6 +10,7 @@ use rand::Rng;
 use game_core::{BallBundle, GameColor, GameCorePlugin};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
 use widget_renderer::WidgetRendererPlugin;
+use game_rendering::{GameRenderingPlugin, RenderLayer, LayerToggleState, LayerBlendState, BlendMode};
 
 pub const DEMO_NAME: &str = "physics_playground";
 
@@ -19,49 +21,80 @@ const TEX_SIZE: UVec2 = UVec2::new(512, 512);
 #[derive(Resource, Default)]
 struct WallPlacement(Option<Vec2>);
 
+#[derive(Resource, Default, Debug, Clone)]
+struct PhysicsStats {
+    body_count: usize,
+    last_text: String,
+}
+
 pub fn run_physics_playground() {
-    App::new()
-        .insert_resource(ClearColor(Color::BLACK))
-        // (MetaballShaderSourcePlugin removed – unified asset path loading)
+    let mut app = App::new();
+    app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: "../../assets".into(), ..default() }))
-        // .add_plugins(FrameTimeDiagnosticsPlugin) // (disabled pending version sync)
-        // (No external UI plugin; using built-in Text UI)
-        .add_plugins(MetaballRendererPlugin::with(
-            MetaballRenderSettings::default()
-                .with_texture_size(TEX_SIZE)
-                .with_world_bounds(Rect::from_corners(
-                    Vec2::new(-ARENA_WIDTH * 0.8, -ARENA_HEIGHT * 0.8),
-                    Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
-                ))
-                .clustering_enabled(true)
-                .with_presentation(true),
-        ))
-        .add_systems(Startup, spawn_camera)
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(GameCorePlugin)
         .add_plugins(PaddlePlugin)
         .add_plugins(SpawningPlugin)
         .add_plugins(GamePhysicsPlugin)
         .add_plugins(WidgetRendererPlugin)
-        .add_plugins(RapierDebugRenderPlugin::default())
-        // .add_plugins(RapierDebugRenderPlugin::default()) // optional
-        .add_systems(Startup, (setup_walls, spawn_initial_balls, spawn_config_text, spawn_initial_spawnpoints))
-        .add_systems(Startup, spawn_initial_paddle)
+        .init_resource::<WallPlacement>()
+        .init_resource::<PhysicsStats>();
+
+    #[cfg(not(feature = "no-compositor"))]
+    {
+        app.add_plugins(GameRenderingPlugin)
+            .add_plugins(MetaballRendererPlugin::with(
+                MetaballRenderSettings::default()
+                    .with_texture_size(TEX_SIZE)
+                    .with_world_bounds(Rect::from_corners(
+                        Vec2::new(-ARENA_WIDTH * 0.8, -ARENA_HEIGHT * 0.8),
+                        Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
+                    ))
+                    .clustering_enabled(true)
+                    // Route presentation quad into dedicated metaballs layer for compositor
+                    .with_presentation(true)
+                    .with_presentation_layer(RenderLayer::Metaballs.order() as u8),
+            ));
+    }
+
+    #[cfg(feature = "no-compositor")]
+    {
+        // Legacy mode (no compositor) spawns direct camera & metaballs presentation directly to screen
+        app.add_systems(Startup, spawn_legacy_camera)
+            .add_plugins(MetaballRendererPlugin::with(
+                MetaballRenderSettings::default()
+                    .with_texture_size(TEX_SIZE)
+                    .with_world_bounds(Rect::from_corners(
+                        Vec2::new(-ARENA_WIDTH * 0.8, -ARENA_HEIGHT * 0.8),
+                        Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
+                    ))
+                    .clustering_enabled(true)
+                    .with_presentation(true),
+            ));
+    }
+
+    app.add_systems(Startup, (setup_walls, spawn_initial_balls, spawn_hud, spawn_initial_spawnpoints, spawn_initial_paddle))
         .add_systems(
             Update,
             (
-                handle_spawn_input, // left click balls / shift for spawn points
+                handle_spawn_input,
                 handle_paddle_spawn_input,
                 handle_spawnpoint_activation_input,
-                handle_world_element_input, // walls / targets / hazards
+                handle_world_element_input,
                 handle_control_input,
                 stress_test_trigger,
                 update_config_text,
-                handle_target_hits, // NEW: target collision handling
-                handle_hazard_collisions, // NEW: hazard ball removal
+                handle_target_hits,
+                handle_hazard_collisions,
                 apply_spawn_policy_toggle,
+                #[cfg(not(feature = "no-compositor"))]
+                handle_layer_inputs,
+                #[cfg(not(feature = "no-compositor"))]
+                update_hud,
+                #[cfg(feature = "no-compositor")]
+                update_config_text_legacy_hud,
             ),
         )
-        .init_resource::<WallPlacement>()
         .run();
 }
 
@@ -81,17 +114,23 @@ fn setup_walls(mut commands: Commands) {
         (Vec2::new(half_w, 0.0), Vec2::new(thickness / 2.0, half_h)),
     ];
     for (center, half_extents) in walls {
-        commands.spawn( (
+        let mut e = commands.spawn((
             Transform::from_translation(center.extend(0.0)),
             GlobalTransform::IDENTITY,
             RigidBody::Fixed,
             Collider::cuboid(half_extents.x, half_extents.y),
+            Name::new("WallSegment"),
         ));
+        #[cfg(not(feature = "no-compositor"))]
+        {
+            e.insert(RenderLayers::layer(RenderLayer::GameWorld.order()));
+        }
     }
 }
 
-fn spawn_camera(mut commands: Commands) {
-    commands.spawn((Camera2d, Name::new("PhysicsPlaygroundCamera")));
+#[cfg(feature = "no-compositor")]
+fn spawn_legacy_camera(mut commands: Commands) {
+    commands.spawn((Camera2d, Name::new("PhysicsPlaygroundLegacyCamera")));
 }
 
 fn handle_spawn_input(
@@ -174,9 +213,12 @@ fn handle_spawnpoint_activation_input(
     // Q/E cycle
     if keys.just_pressed(KeyCode::KeyQ) { rotation.retreat(); }
     if keys.just_pressed(KeyCode::KeyE) { rotation.advance(); }
-    // Number keys 1..9 select index
-    for (i, code) in [KeyCode::Digit1,KeyCode::Digit2,KeyCode::Digit3,KeyCode::Digit4,KeyCode::Digit5,KeyCode::Digit6,KeyCode::Digit7,KeyCode::Digit8,KeyCode::Digit9].iter().enumerate() {
-        if keys.just_pressed(*code) { rotation.set_index(i); }
+    // Number keys 1..9 select index (requires Shift to avoid conflict with compositor layer toggles)
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    if shift {
+        for (i, code) in [KeyCode::Digit1,KeyCode::Digit2,KeyCode::Digit3,KeyCode::Digit4,KeyCode::Digit5,KeyCode::Digit6,KeyCode::Digit7,KeyCode::Digit8,KeyCode::Digit9].iter().enumerate() {
+            if keys.just_pressed(*code) { rotation.set_index(i); }
+        }
     }
     // X toggles currently selected spawn active flag
     if keys.just_pressed(KeyCode::KeyX) {
@@ -366,36 +408,27 @@ fn spawn_ball(
     let initial_velocity = Vec2::new(rng.gen_range(-200.0..200.0), rng.gen_range(0.0..300.0));
     bundle.ball.velocity = initial_velocity;
 
-    let entity = commands
-        .spawn((
-            bundle,
-            RigidBody::Dynamic,
-            Collider::ball(radius),
-            Velocity {
-                linvel: initial_velocity,
-                angvel: 0.0,
-            },
-            Restitution {
-                coefficient: config.ball_restitution,
-                combine_rule: CoefficientCombineRule::Average,
-            },
-            Friction {
-                coefficient: config.ball_friction,
-                combine_rule: CoefficientCombineRule::Average,
-            },
-            ExternalForce::default(),
-            Damping {
-                linear_damping: 0.0,
-                angular_damping: 1.0,
-            },
-            ActiveEvents::COLLISION_EVENTS,
-            MetaBall {
-                radius_world: radius,
-            },
-            MetaBallColor(LinearRgba::new(0.8, 0.2, 0.2, 1.0)),
-            MetaBallCluster(cluster),
-        ))
-        .id();
+    let mut entity_commands = commands.spawn((
+        bundle,
+        RigidBody::Dynamic,
+        Collider::ball(radius),
+        Velocity { linvel: initial_velocity, angvel: 0.0 },
+        Restitution { coefficient: config.ball_restitution, combine_rule: CoefficientCombineRule::Average },
+        Friction { coefficient: config.ball_friction, combine_rule: CoefficientCombineRule::Average },
+        ExternalForce::default(),
+        Damping { linear_damping: 0.0, angular_damping: 1.0 },
+        ActiveEvents::COLLISION_EVENTS,
+        MetaBall { radius_world: radius },
+        MetaBallColor(LinearRgba::new(0.8, 0.2, 0.2, 1.0)),
+        MetaBallCluster(cluster),
+        Name::new("Ball"),
+    ));
+    #[cfg(not(feature = "no-compositor"))]
+    {
+        // Balls are visually represented primarily via metaballs layer; optionally also tag for debug overlays.
+        entity_commands.insert(RenderLayers::layer(RenderLayer::Metaballs.order()));
+    }
+    let entity = entity_commands.id();
     entity
 }
 
@@ -457,36 +490,64 @@ fn spawn_initial_balls(mut commands: Commands, config: Res<PhysicsConfig>) {
 fn spawn_initial_spawnpoints(mut commands: Commands) {
     // Provide a pair of default spawn points for experimentation
     let offsets = [-120.0_f32, 120.0_f32];
-    for x in offsets { commands.spawn((SpawnPoint::default(), Transform::from_translation(Vec3::new(x, 0.0, 0.1)), GlobalTransform::IDENTITY)); }
+    for x in offsets {
+        let mut entity = commands.spawn((
+            SpawnPoint::default(),
+            Transform::from_translation(Vec3::new(x, 0.0, 0.1)),
+            GlobalTransform::IDENTITY,
+            Name::new("SpawnPoint"),
+        ));
+        #[cfg(not(feature = "no-compositor"))]
+        {
+            entity.insert(RenderLayers::layer(RenderLayer::GameWorld.order()));
+        }
+    }
 }
 
 fn spawn_initial_paddle(mut commands: Commands) {
     // Spawn a default paddle centered near bottom of arena for immediate interaction
     let y = -ARENA_HEIGHT * 0.35;
-    commands.spawn((
+    let mut entity = commands.spawn((
         Paddle::default(),
         Transform::from_translation(Vec3::new(0.0, y, 0.2)),
         GlobalTransform::IDENTITY,
         Selected,
         Name::new("InitialPaddle"),
     ));
+    #[cfg(not(feature = "no-compositor"))]
+    {
+        entity.insert(RenderLayers::layer(RenderLayer::GameWorld.order()));
+    }
 }
 
-fn spawn_config_text(mut commands: Commands) {
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font_size: 14.0,
-            ..default()
-        },
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(4.0),
-            left: Val::Px(4.0),
-            ..default()
-        },
+#[derive(Component)]
+struct HudText;
+
+fn spawn_hud(mut commands: Commands) {
+    // HUD text (world-space 2d) - shown in Ui layer under compositor, or directly in legacy mode.
+    let mut entity = commands.spawn((
+        Text2d::new("Initializing HUD..."),
+        TextFont { font_size: 14.0, ..default() },
+        TextColor(Color::WHITE),
+        Transform::from_xyz(-ARENA_WIDTH * 0.9, ARENA_HEIGHT * 0.9, 500.0),
+        HudText,
         ConfigText,
+        Name::new("HudText"),
     ));
+    #[cfg(not(feature = "no-compositor"))]
+    {
+        entity.insert(RenderLayers::layer(RenderLayer::Ui.order()));
+    }
+}
+
+#[cfg(feature = "no-compositor")]
+fn update_config_text_legacy_hud(mut query: Query<&mut Text2d, With<HudText>>, config: Res<PhysicsConfig>) {
+    if let Some(mut text) = query.iter_mut().next() {
+        text.0 = format!(
+            "(Legacy Mode) Gravity ({:.0},{:.0})  Cluster str {:.0} rad {:.0}",
+            config.gravity.x, config.gravity.y, config.clustering_strength, config.clustering_radius
+        );
+    }
 }
 
 // NEW: collision-driven target hit handling
@@ -537,4 +598,57 @@ fn handle_hazard_collisions(
             }
         }
     }
+}
+
+// ---------------- Compositor Integration Systems (only active when compositor enabled) ----------------
+
+#[cfg(not(feature = "no-compositor"))]
+fn handle_layer_inputs(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut layers: ResMut<LayerToggleState>,
+    mut blends: ResMut<LayerBlendState>,
+) {
+    // Toggle layers 1-5
+    if keys.just_pressed(KeyCode::Digit1) { toggle_layer(&mut layers, RenderLayer::Background); }
+    if keys.just_pressed(KeyCode::Digit2) { toggle_layer(&mut layers, RenderLayer::GameWorld); }
+    if keys.just_pressed(KeyCode::Digit3) { toggle_layer(&mut layers, RenderLayer::Metaballs); }
+    if keys.just_pressed(KeyCode::Digit4) { toggle_layer(&mut layers, RenderLayer::Effects); }
+    if keys.just_pressed(KeyCode::Digit5) { toggle_layer(&mut layers, RenderLayer::Ui); }
+    // Metaball blend modes Q/W/E (Normal/Additive/Multiply)
+    if keys.just_pressed(KeyCode::KeyQ) { blends.set_blend_for(RenderLayer::Metaballs, BlendMode::Normal); }
+    if keys.just_pressed(KeyCode::KeyW) { blends.set_blend_for(RenderLayer::Metaballs, BlendMode::Additive); }
+    if keys.just_pressed(KeyCode::KeyE) { blends.set_blend_for(RenderLayer::Metaballs, BlendMode::Multiply); }
+    // 'M' toggles metaballs layer specifically (alias of Digit3)
+    if keys.just_pressed(KeyCode::KeyM) { toggle_layer(&mut layers, RenderLayer::Metaballs); }
+}
+
+#[cfg(not(feature = "no-compositor"))]
+fn toggle_layer(state: &mut LayerToggleState, layer: RenderLayer) {
+    if let Some(cfg) = state.config_mut(layer) { cfg.enabled = !cfg.enabled; }
+}
+
+#[cfg(not(feature = "no-compositor"))]
+fn update_hud(
+    diagnostics: Res<DiagnosticsStore>,
+    balls: Query<Entity, With<Ball>>,
+    layers: Res<LayerToggleState>,
+    blends: Res<LayerBlendState>,
+    mut stats: ResMut<PhysicsStats>,
+    mut text_q: Query<&mut Text2d, With<HudText>>,
+) {
+    let Some(mut text) = text_q.iter_mut().next() else { return; };
+    let body_count = balls.iter().len();
+    stats.body_count = body_count;
+    let fps = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0);
+    let mut enabled_flags = String::new();
+    for layer in RenderLayer::ALL { if let Some(cfg) = layers.config(layer) { enabled_flags.push_str(&format!("{}:{} ", &layer.label()[0..1], if cfg.enabled {"1"} else {"0"})); } }
+    let metaball_blend = match blends.blend_for(RenderLayer::Metaballs) { BlendMode::Normal=>"N", BlendMode::Additive=>"A", BlendMode::Multiply=>"M" };
+    let new_text = format!(
+        "Bodies:{}  FPS:{:.1}  Layers:{} MBBlend:{}\n1-5 toggle layers  M metaballs  Q/W/E blend  Shift+1..9 select spawn idx",
+        body_count, fps, enabled_flags, metaball_blend
+    );
+    if new_text != stats.last_text { text.0 = new_text.clone(); stats.last_text = new_text; }
 }

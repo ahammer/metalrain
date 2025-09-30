@@ -13,3 +13,9 @@ game_core = { path = "../../crates/game_core" }
 game_physics = { path = "../../crates/game_physics" }
 metaball_renderer = { path = "../../crates/metaball_renderer" }
 widget_renderer = { path = "../../crates/widget_renderer" }
+game_rendering = { path = "../../crates/game_rendering" }
+
+[features]
+default = []
+# Enable to run the playground without the compositor pipeline (fallback legacy mode)
+no-compositor = []

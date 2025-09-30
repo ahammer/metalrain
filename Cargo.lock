@@ -3824,6 +3824,7 @@ dependencies = [
  "bevy_rapier2d",
  "game_core",
  "game_physics",
+ "game_rendering",
  "metaball_renderer",
  "rand",
  "widget_renderer",
