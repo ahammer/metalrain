@@ -28,23 +28,47 @@ impl Middleware for FilterMiddleware {
     fn process(&mut self, ev: EventEnvelope) -> Option<EventEnvelope> { if (self.predicate)(&ev) { Some(ev) } else { None } }
 }
 
-/// Key mapping middleware: transforms raw Input(KeyDown) to higher level Game events or PlayerActions.
-pub struct KeyMappingMiddleware;
+/// Output of a key mapping: either a direct GameEvent or a PlayerAction wrapped into a GameEvent.
+#[derive(Clone)]
+pub enum KeyMappingOutput { Game(GameEvent), Action(PlayerAction) }
+
+/// Configurable key mapping middleware: transforms raw Input(KeyDown) into higher level events/actions.
+pub struct KeyMappingMiddleware {
+    mappings: HashMap<KeyCode, KeyMappingOutput>,
+    name: &'static str,
+}
+
+impl KeyMappingMiddleware {
+    /// Create an empty mapping set. No keys transformed until `map` is called.
+    pub fn empty() -> Self { Self { mappings: HashMap::new(), name: "KeyMapping" } }
+    /// Convenience constructor replicating previous hardcoded default gameplay mapping.
+    pub fn with_default_gameplay() -> Self {
+        let mut km = Self::empty();
+        km.map(KeyCode::KeyR, KeyMappingOutput::Game(GameEvent::ResetLevel))
+          .map(KeyCode::KeyP, KeyMappingOutput::Game(GameEvent::PauseGame))
+          .map_many(&[KeyCode::ArrowUp, KeyCode::KeyW], KeyMappingOutput::Action(PlayerAction::Move(Direction2D::Up)))
+          .map_many(&[KeyCode::ArrowDown, KeyCode::KeyS], KeyMappingOutput::Action(PlayerAction::Move(Direction2D::Down)))
+          .map_many(&[KeyCode::ArrowLeft, KeyCode::KeyA], KeyMappingOutput::Action(PlayerAction::Move(Direction2D::Left)))
+          .map_many(&[KeyCode::ArrowRight, KeyCode::KeyD], KeyMappingOutput::Action(PlayerAction::Move(Direction2D::Right)))
+          .map(KeyCode::Space, KeyMappingOutput::Action(PlayerAction::PrimaryAction));
+        km
+    }
+    /// Map a single key to an output (overwrites existing mapping).
+    pub fn map(&mut self, key: KeyCode, out: KeyMappingOutput) -> &mut Self { self.mappings.insert(key, out); self }
+    /// Map multiple keys to the same output.
+    pub fn map_many(&mut self, keys: &[KeyCode], out: KeyMappingOutput) -> &mut Self { for k in keys { self.mappings.insert(*k, out.clone()); } self }
+    /// Replace entire mapping (builder-style chaining support).
+    pub fn set_mappings(&mut self, map: HashMap<KeyCode, KeyMappingOutput>) -> &mut Self { self.mappings = map; self }
+}
+
 impl Middleware for KeyMappingMiddleware {
-    fn name(&self) -> &'static str { "KeyMapping" }
+    fn name(&self) -> &'static str { self.name }
     fn process(&mut self, ev: EventEnvelope) -> Option<EventEnvelope> {
         if let EventPayload::Input(InputEvent::KeyDown(code)) = &ev.payload {
-            let mapped = match code {
-                KeyCode::KeyR => Some(GameEvent::ResetLevel),
-                KeyCode::KeyP => Some(GameEvent::PauseGame),
-                KeyCode::ArrowUp | KeyCode::KeyW => Some(GameEvent::PlayerAction(PlayerAction::Move(Direction2D::Up))),
-                KeyCode::ArrowDown | KeyCode::KeyS => Some(GameEvent::PlayerAction(PlayerAction::Move(Direction2D::Down))),
-                KeyCode::ArrowLeft | KeyCode::KeyA => Some(GameEvent::PlayerAction(PlayerAction::Move(Direction2D::Left))),
-                KeyCode::ArrowRight | KeyCode::KeyD => Some(GameEvent::PlayerAction(PlayerAction::Move(Direction2D::Right))),
-                KeyCode::Space => Some(GameEvent::PlayerAction(PlayerAction::PrimaryAction)),
-                _ => None,
-            };
-            if let Some(game_ev) = mapped { return Some(EventEnvelope { payload: EventPayload::Game(game_ev), ..ev }); }
+            if let Some(out) = self.mappings.get(code).cloned() {
+                let game_ev = match out { KeyMappingOutput::Game(g) => g, KeyMappingOutput::Action(a) => GameEvent::PlayerAction(a) };
+                return Some(EventEnvelope { payload: EventPayload::Game(game_ev), ..ev });
+            }
         }
         Some(ev)
     }

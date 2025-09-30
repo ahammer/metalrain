@@ -7,7 +7,7 @@ fn base_app() -> App {
         .add_plugins(EventCorePlugin::default())
         .register_handler(handlers::BallLifecycleHandler)
         .register_handler(handlers::TargetInteractionHandler)
-        .register_middleware(KeyMappingMiddleware);
+        .register_middleware(KeyMappingMiddleware::with_default_gameplay());
     app
 }
 

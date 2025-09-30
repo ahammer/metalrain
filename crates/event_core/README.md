@@ -40,7 +40,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EventCorePlugin { journal_capacity: 256 })
-        .register_middleware(KeyMappingMiddleware)
+    .register_middleware(KeyMappingMiddleware::with_default_gameplay())
         .register_middleware(DebounceMiddleware::new(0))
         .register_middleware(CooldownMiddleware::new(2))
         .register_handler(handlers::BallLifecycleHandler)
@@ -49,6 +49,7 @@ fn main() {
 ```
 
 To enqueue a raw key input (custom source system):
+
 ```rust
 fn inject_r_key(world: &mut World) {
     let frame = world.resource::<FrameCounter>().0;
@@ -78,6 +79,22 @@ Read via `world.resource::<EventQueue>().journal()` returning an iterator over r
 
 Implement `Middleware` and call `app.register_middleware(MyMw)`. Return `None` to short‑circuit downstream chain & handlers.
 
+### Configurable Key Mapping
+
+`KeyMappingMiddleware` is now configurable instead of hardcoded:
+
+```rust
+// Custom remap: swap Reset (R) with Pause (P), add Space -> PrimaryAction
+let mut km = KeyMappingMiddleware::empty();
+km.map(KeyCode::KeyR, KeyMappingOutput::Game(GameEvent::PauseGame))
+    .map(KeyCode::KeyP, KeyMappingOutput::Game(GameEvent::ResetLevel))
+    .map(KeyCode::Space, KeyMappingOutput::Action(PlayerAction::PrimaryAction));
+
+app.register_middleware(km);
+```
+
+Use `with_default_gameplay()` to obtain the standard mapping (WASD/Arrows movement, Space primary, R reset, P pause).
+
 ## Safety / Performance Considerations
 
 - O(n) per frame where n = events for that frame; no heap allocations during processing besides potential hashmap growth in debounce/cooldown on first encounter of a new key.
@@ -94,4 +111,3 @@ Implement `Middleware` and call `app.register_middleware(MyMw)`. Return `None` t
 ## License
 
 Dual-licensed under MIT or Apache-2.0.
-
