@@ -1726,6 +1726,7 @@ dependencies = [
 name = "compositor_test"
 version = "0.1.0"
 dependencies = [
+ "background_renderer",
  "bevy",
  "bevy_rapier2d",
  "game_assets",

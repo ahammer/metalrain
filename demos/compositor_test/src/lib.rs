@@ -10,6 +10,7 @@ use game_rendering::{
     GameRenderingPlugin, LayerBlendState, LayerToggleState, RenderLayer, RenderSurfaceSettings,
 };
 use game_assets::{GameAssets, GameAssetsPlugin};
+use background_renderer::{BackgroundRendererPlugin, BackgroundConfig, BackgroundMode};
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
 };
@@ -65,9 +66,6 @@ impl Default for WallPulseState {
 }
 
 #[derive(Component)]
-struct BackgroundGlow;
-
-#[derive(Component)]
 struct EffectsPulse;
 
 #[derive(Component)]
@@ -121,7 +119,9 @@ pub fn run_compositor_test() {
             ..Default::default()
         }))
         .add_plugins(GameAssetsPlugin::default())
-        .add_plugins(GameRenderingPlugin)
+    .add_plugins(GameRenderingPlugin)
+    .add_plugins(BackgroundRendererPlugin)
+    .insert_resource(BackgroundConfig::default())
         .add_plugins(MetaballRendererPlugin::with(
             MetaballRenderSettings::default()
                 .with_texture_size(TEX_SIZE)
@@ -164,18 +164,7 @@ pub fn run_compositor_test() {
 }
 
 fn setup_scene(mut commands: Commands) {
-    commands.spawn((
-        Sprite {
-            color: Color::srgba(0.05, 0.07, 0.13, 1.0),
-            custom_size: Some(Vec2::new(1800.0, 1200.0)),
-            ..Default::default()
-        },
-        Transform::from_xyz(0.0, 0.0, -50.0),
-        RenderLayers::layer(RenderLayer::Background.order()),
-        Name::new("Background::Base"),
-    ));
-
-
+    // Background now provided by BackgroundRendererPlugin (full-screen gradient quad)
 
     commands.spawn((
         Sprite {
@@ -247,17 +236,6 @@ fn configure_metaball_presentation(
     }
 }
 
-fn animate_background_glow(
-    time: Res<Time>,
-    mut query: Query<&mut Transform, With<BackgroundGlow>>,
-) {
-    let elapsed = time.elapsed_secs();
-    for mut transform in &mut query {
-        let scale = 1.0 + elapsed.sin() * 0.05;
-        transform.scale = Vec3::splat(scale);
-    }
-}
-
 fn animate_effect_overlay(time: Res<Time>, mut query: Query<&mut Sprite, With<EffectsPulse>>) {
     let elapsed = time.elapsed_secs();
     for mut sprite in &mut query {
@@ -275,6 +253,7 @@ fn handle_compositor_inputs(
     mut zoom_ev: EventWriter<CameraZoomCommand>,
     mut game_cam_q: Query<&mut GameCamera>,
     mut overlay_state: ResMut<PerformanceOverlayState>,
+    mut bg_cfg: ResMut<BackgroundConfig>,
 ) {
     if keys.just_pressed(KeyCode::Digit1) {
         toggle_layer(&mut layer_state, RenderLayer::Background);
@@ -363,6 +342,24 @@ fn handle_compositor_inputs(
         }
         settings.exposure = 1.0;
         info!(target: "compositor_demo", "Camera & exposure reset");
+    }
+
+    // Background mode + parameter controls
+    if keys.just_pressed(KeyCode::KeyB) {
+        bg_cfg.mode = bg_cfg.mode.next();
+        info!(target: "compositor_demo", "Background mode -> {:?}", bg_cfg.mode);
+    }
+    // Rotate linear gradient angle (A/D)
+    if keys.pressed(KeyCode::KeyA) { bg_cfg.angle += 0.9 * 0.016; }
+    if keys.pressed(KeyCode::KeyD) { bg_cfg.angle -= 0.9 * 0.016; }
+    // Adjust radial center with arrows when radial selected
+    if matches!(bg_cfg.mode, BackgroundMode::RadialGradient) {
+        let mut changed = false;
+        if keys.pressed(KeyCode::ArrowLeft) { bg_cfg.radial_center.x -= 0.25 * 0.016; changed = true; }
+        if keys.pressed(KeyCode::ArrowRight){ bg_cfg.radial_center.x += 0.25 * 0.016; changed = true; }
+        if keys.pressed(KeyCode::ArrowUp)   { bg_cfg.radial_center.y += 0.25 * 0.016; changed = true; }
+        if keys.pressed(KeyCode::ArrowDown) { bg_cfg.radial_center.y -= 0.25 * 0.016; changed = true; }
+        if changed { bg_cfg.radial_center = bg_cfg.radial_center.clamp(Vec2::ZERO, Vec2::splat(1.0)); }
     }
 }
 

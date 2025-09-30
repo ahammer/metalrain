@@ -61,8 +61,8 @@ assets/shaders/background.wgsl  # WGSL fragment logic (group(2) material uniform
 
 ### Systems
 
-`setup_background`: spawns a large quad scaled to cover view (RenderLayers layer 0).  
-`update_background`: updates material only when config changed OR animated mode active to minimize uniform writes.  
+`setup_background`: spawns a large quad scaled to cover view (RenderLayers layer 0).
+`update_background`: updates material only when config changed OR animated mode active to minimize uniform writes.
 Optional `cleanup_background` retained for future state-driven lifecycle.
 
 ### Shader (`background.wgsl`)
@@ -104,14 +104,18 @@ fn main() {
 | Add unit / light integration test (panic check) | Low | Ensure plugin registers without panic |
 | Integrate into compositor test demo | Low | Add plugin + config to existing demo for visual validation |
 
+### Progress Note (Integration)
+
+Integrated into `demos/compositor_test`: replaced manual solid sprite background with `BackgroundRendererPlugin` + interactive controls (B cycle modes, A/D rotate angle, arrows move radial center in radial mode). Build verified.
+
 ## Testing Checklist
 
-* Renders behind all other layers (verify compositor layering precedence)  
-* Mode cycling produces expected visual transitions  
-* No uniform updates when idle (Solid/Linear/Radial)  
-* Animated mode exhibits smooth wave; speed param respected  
-* Hot reloading shader (if file_watcher feature active) updates fragment logic without restart  
-* No warnings about missing shader or bind groups  
+* Renders behind all other layers (verify compositor layering precedence)
+* Mode cycling produces expected visual transitions
+* No uniform updates when idle (Solid/Linear/Radial)
+* Animated mode exhibits smooth wave; speed param respected
+* Hot reloading shader (if file_watcher feature active) updates fragment logic without restart
+* No warnings about missing shader or bind groups
 
 ## Future Enhancements (Deferred)
 
@@ -133,9 +137,9 @@ fn main() {
 
 ## Metrics Targets
 
-* < 0.05 ms CPU per frame (avg)  
-* 0 allocations/frame after setup  
-* 0 shader recompilation warnings  
+* < 0.05 ms CPU per frame (avg)
+* 0 allocations/frame after setup
+* 0 shader recompilation warnings
 
 ## Code Snapshot (Representative)
 
