@@ -1,217 +1,162 @@
-# Sub-Sprint: Background Renderer Implementation
+# Sub-Sprint: Background Renderer Crate Implementation (UPDATED)
 
 ## Goal
 
-Implement a clean background rendering system that integrates with the existing layer-based compositor, providing visual depth through gradient backgrounds with optional animation.
+Deliver a dedicated `background_renderer` crate that supplies a reusable, configurable background rendering system (solid / linear / radial / animated gradients) integrated with the existing asset pipeline (`game_assets`) and renderer layering, using a single draw call and zero per‑frame allocations after setup.
 
-## Current State Analysis
+## Current State (Post-Scaffolding)
 
-- ✅ Layer system exists (`game_rendering` crate with Background layer)
-- ✅ Compositor infrastructure ready
-- ✅ Metaball background cycling exists (`src/rendering/metaballs/systems.rs`)
-- ⚠️ Background module stub exists (`src/rendering/background/mod.rs`) but is empty
-- ❌ No actual background rendering implementation
+| Item | Status | Notes |
+|------|--------|-------|
+| Crate added to workspace | ✅ | `crates/background_renderer` registered in root `Cargo.toml` |
+| Core source files | ✅ | `config.rs`, `material.rs`, `systems.rs`, `lib.rs` created |
+| Shader asset | ✅ | `assets/shaders/background.wgsl` implemented |
+| Asset loader integration | ✅ | `background` handle added to `ShaderAssets` in `game_assets` |
+| Material plugin wiring | ✅ | `BackgroundRendererPlugin` registers material + systems |
+| Runtime config resource | ✅ | `BackgroundConfig` with four modes + parameters |
+| Update system | ✅ | Only mutates GPU uniforms when config changes or animated |
+| Cleanup system | ⏳ (Optional) | Simple despawn helper present but not yet scheduled for state exit |
+| Demo / example | 🔜 | To be added (either new `demos/background_test` or integrate into existing demo) |
 
-## Simplified Scope (This Sprint)
+## Mode Definitions
 
-### Core Implementation
+1. `Solid` – single color fill
+2. `LinearGradient` – two-color gradient with angle (radians)
+3. `RadialGradient` – center + radius falloff
+4. `Animated` – vertical wave blend over time (time + speed params)
 
-1. **Single unified background system** (not a separate crate initially)
-   - Extend existing `src/rendering/background/` module
-   - Leverage existing rendering infrastructure
-
-2. **Three practical modes**:
-   - `Solid`: Single color fill
-   - `LinearGradient`: Two-color gradient (vertical/horizontal/diagonal via angle)
-   - `Animated`: Time-based color cycling with smooth interpolation
-
-3. **Integration approach**:
-   - Material2d-based implementation
-   - Full-screen quad renderer
-   - Proper RenderLayers integration
-
-## Implementation Plan
-
-### Phase 1: Core Structure (2 hours)
+## Public API Snapshot
 
 ```rust
-// src/rendering/background/mod.rs
-pub mod material;
-pub mod systems;
-pub mod plugin;
+pub use background_renderer::{
+    BackgroundRendererPlugin,
+    BackgroundConfig, BackgroundMode,
+};
+```
 
-pub use material::{BackgroundMaterial, BackgroundMode};
-pub use plugin::BackgroundPlugin;
+Add to any Bevy app after calling one of the `configure_*` helpers from `game_assets` so the shader path resolves.
 
-// Resource for runtime configuration
-#[derive(Resource, Debug, Clone)]
-pub struct BackgroundConfig {
-    pub mode: BackgroundMode,
-    pub primary_color: LinearRgba,
-    pub secondary_color: LinearRgba,
-    pub angle: f32,           // For gradient direction (radians)
-    pub animation_speed: f32, // For animated mode
+## Crate Structure
+
+```
+crates/background_renderer/
+├── Cargo.toml
+└── src/
+    ├── lib.rs          # Plugin + type registration
+    ├── config.rs       # Modes & BackgroundConfig resource
+    ├── material.rs     # GPU material (AsBindGroup + Material2d)
+    └── systems.rs      # Setup & update systems
+assets/shaders/background.wgsl  # WGSL fragment logic (group(2) material uniforms)
+```
+
+## Key Implementation Details
+
+### Config
+
+`BackgroundConfig` (Resource, Reflect) holds colors, angle, radial parameters, animation speed & mode. Default = linear gradient subtle dark purple.
+
+### Material
+
+`BackgroundMaterial` packs all uniforms into a single bind group (mode, two colors, params vec4, radial center). Uses `Material2d` fragment shader path `shaders/background.wgsl` so reuse is automatic once the asset server loads the file (loaded up-front by `game_assets`).
+
+### Systems
+
+`setup_background`: spawns a large quad scaled to cover view (RenderLayers layer 0).  
+`update_background`: updates material only when config changed OR animated mode active to minimize uniform writes.  
+Optional `cleanup_background` retained for future state-driven lifecycle.
+
+### Shader (`background.wgsl`)
+
+Uniform layout mirrors `AsBindGroup` ordering. Supports the four modes via a `switch` on `material.mode`. Linear gradient uses rotation of centered UV; radial uses distance; animated applies sine wave modulation.
+
+## Performance Considerations
+
+* Single draw call (full-screen quad) – negligible CPU overhead.
+* No per-frame allocations after spawn.
+* Update system early-outs on unchanged, non-animated modes.
+
+## Integration Steps (Consumer Crate)
+
+```rust
+use bevy::prelude::*;
+use game_assets::configure_demo; // or configure_game_crate / configure_workspace_root
+use background_renderer::{BackgroundRendererPlugin, BackgroundConfig, BackgroundMode};
+
+fn main() {
+    let mut app = App::new();
+    configure_demo(&mut app); // sets AssetPlugin root + GameAssetsPlugin
+    app.add_plugins(DefaultPlugins)
+        .add_plugins(BackgroundRendererPlugin)
+        .insert_resource(BackgroundConfig { mode: BackgroundMode::RadialGradient, ..default() })
+        .add_systems(Startup, |mut commands: Commands| { commands.spawn(Camera2d); })
+        .run();
 }
 ```
 
-### Phase 2: Material & Shader (3 hours)
+## Remaining Work (Next Tasks)
+
+| Task | Priority | Notes |
+|------|----------|-------|
+| Add demo crate `demos/background_test` | High | Validate hot-reload & mode cycling |
+| Input system to cycle modes & tweak params | High | Space to cycle, arrow keys adjust radial center, A/D adjust angle |
+| Optional cleanup system scheduling | Medium | Hook into a future state machine if introduced |
+| Documentation / README for crate | Medium | Quick usage + mode table |
+| Add unit / light integration test (panic check) | Low | Ensure plugin registers without panic |
+| Integrate into compositor test demo | Low | Add plugin + config to existing demo for visual validation |
+
+## Testing Checklist
+
+* Renders behind all other layers (verify compositor layering precedence)  
+* Mode cycling produces expected visual transitions  
+* No uniform updates when idle (Solid/Linear/Radial)  
+* Animated mode exhibits smooth wave; speed param respected  
+* Hot reloading shader (if file_watcher feature active) updates fragment logic without restart  
+* No warnings about missing shader or bind groups  
+
+## Future Enhancements (Deferred)
+
+* Multi-stop gradients / gradient textures
+* Procedural noise overlays (fbm / simplex)
+* Parallax multi-layer backgrounds
+* Day/Night color curve blending
+* Theme-driven presets (level biome integration)
+* Post-process bloom hook (if pipeline added)
+
+## Risk & Mitigation
+
+| Risk | Mitigation |
+|------|------------|
+| Shader bind group mismatch | Mirrored layout, single uniform struct, early compile test |
+| Asset path resolution issues | Always configure assets before adding plugin |
+| Layer conflicts | Hard-coded to `RenderLayers::layer(0)`; document contract |
+| Overdraw / performance regression | Single quad -> negligible; profiler validation |
+
+## Metrics Targets
+
+* < 0.05 ms CPU per frame (avg)  
+* 0 allocations/frame after setup  
+* 0 shader recompilation warnings  
+
+## Code Snapshot (Representative)
 
 ```rust
-// src/rendering/background/material.rs
-#[derive(AsBindGroup, TypePath, Debug, Clone, Asset)]
-#[repr(C)]
-pub struct BackgroundMaterial {
-    #[uniform(0)]
-    pub mode: u32,
-    #[uniform(0)]
-    pub color_a: Vec4,
-    #[uniform(0)]
-    pub color_b: Vec4,
-    #[uniform(0)]
-    pub params: Vec4, // x: angle, y: time, z: animation_speed, w: reserved
-}
-```
-
-```wgsl
-// assets/shaders/background.wgsl
-struct BackgroundUniforms {
-    mode: u32,
-    _pad: vec3<u32>,
-    color_a: vec4<f32>,
-    color_b: vec4<f32>,
-    params: vec4<f32>, // angle, time, speed, reserved
-}
-
-@group(1) @binding(0)
-var<uniform> uniforms: BackgroundUniforms;
-
-@fragment
-fn fragment(
-    @location(0) uv: vec2<f32>,
-) -> @location(0) vec4<f32> {
-    if uniforms.mode == 0u { // Solid
-        return uniforms.color_a;
-    } else if uniforms.mode == 1u { // Linear Gradient
-        let angle = uniforms.params.x;
-        let rotated = rotate_uv(uv - 0.5, angle) + 0.5;
-        let t = rotated.y;
-        return mix(uniforms.color_a, uniforms.color_b, t);
-    } else { // Animated
-        let time = uniforms.params.y;
-        let speed = uniforms.params.z;
-        let t = (sin(time * speed) + 1.0) * 0.5;
-        return mix(uniforms.color_a, uniforms.color_b, t);
-    }
-}
-```
-
-### Phase 3: System Integration (2 hours)
-
-```rust
-// src/rendering/background/systems.rs
-pub fn setup_background(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<BackgroundMaterial>>,
-    config: Res<BackgroundConfig>,
-) {
-    // Spawn full-screen quad
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(2.0, 2.0))),
-        MeshMaterial2d(materials.add(BackgroundMaterial::from_config(&config))),
-        Transform::from_scale(Vec3::splat(1000.0)), // Ensure full coverage
-        RenderLayers::layer(0), // Background layer
-        BackgroundEntity,
-    ));
-}
-
+// systems.rs (excerpt)
 pub fn update_background(
     time: Res<Time>,
     config: Res<BackgroundConfig>,
     mut materials: ResMut<Assets<BackgroundMaterial>>,
-    query: Query<&MeshMaterial2d<BackgroundMaterial>, With<BackgroundEntity>>,
+    q: Query<&MeshMaterial2d<BackgroundMaterial>, With<BackgroundEntity>>,
 ) {
-    if !config.is_changed() && config.mode != BackgroundMode::Animated {
-        return;
-    }
-    
-    // Update material uniforms
-    if let Ok(handle) = query.get_single() {
-        if let Some(mat) = materials.get_mut(handle) {
-            mat.update_from_config(&config, time.elapsed_secs());
-        }
-    }
+    let animated = matches!(config.mode, BackgroundMode::Animated);
+    if !config.is_changed() && !animated { return; }
+    let t = time.elapsed_secs();
+    for h in &q { if let Some(m) = materials.get_mut(&h.0) { m.update_from_config(&config, t); } }
 }
 ```
 
-### Phase 4: Demo Integration (1 hour)
+## Done Definition
 
-```rust
-// Add to compositor_test or physics_playground
-app.add_plugins(BackgroundPlugin)
-   .insert_resource(BackgroundConfig {
-       mode: BackgroundMode::LinearGradient,
-       primary_color: LinearRgba::rgb(0.1, 0.05, 0.15),   // Deep purple
-       secondary_color: LinearRgba::rgb(0.02, 0.02, 0.05), // Near black
-       angle: std::f32::consts::PI * 0.25, // 45 degree angle
-       animation_speed: 1.0,
-   });
+This subsprint is considered complete once: crate builds, shader loads without warnings, all four modes function, documentation in this file updated, and a consumer demo exists (or explicit acceptance to defer demo).
 
-// Optional: Key binding to cycle modes
-fn cycle_background_mode(
-    mut config: ResMut<BackgroundConfig>,
-    keys: Res<ButtonInput<KeyCode>>,
-) {
-    if keys.just_pressed(KeyCode::KeyB) {
-        config.mode = config.mode.next();
-        info!("Background mode: {:?}", config.mode);
-    }
-}
-```
-
-## Testing Checklist
-
-- [ ] Background renders behind all other content
-- [ ] Mode switching works without flicker
-- [ ] Animation runs smoothly at 60 FPS
-- [ ] Window resize maintains correct coverage
-- [ ] No z-fighting with game content
-- [ ] Memory usage stable over time
-- [ ] Integration with existing metaball background toggle
-
-## Success Metrics
-
-- Background adds <0.1ms to frame time
-- Zero allocation per frame after setup
-- Clean integration with existing layer system
-- No visual artifacts or tearing
-
-## Deferred for Later
-
-- Radial/circular gradients
-- Multi-stop gradients
-- Noise/procedural textures
-- Parallax layers
-- Image backgrounds
-- Day/night cycles
-
-## Next Steps After Completion
-
-1. Add configuration UI in Sprint 9
-2. Integrate with level themes in Sprint 6
-3. Add particle overlay effects in Sprint 10
-
-## Risk Mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Conflicts with existing rendering | Use established RenderLayers system |
-| Performance impact | Keep shader simple, single draw call |
-| Integration complexity | Build on existing infrastructure, don't recreate |
-
-## Estimated Time: 8 hours total
-
-- Phase 1: 2 hours (structure)
-- Phase 2: 3 hours (shader + material)
-- Phase 3: 2 hours (systems)
-- Phase 4: 1 hour (demo integration)
+---
+Updated: Implementation scaffolding committed; follow-up tasks listed above.

@@ -16,6 +16,7 @@ pub struct ShaderAssets {
     pub compute_metaballs: Handle<Shader>,
     pub compute_3d_normals: Handle<Shader>,
     pub present_fullscreen: Handle<Shader>,
+    pub background: Handle<Shader>,
 }
 
 #[derive(Resource, Debug, Clone, Default)]
@@ -93,6 +94,7 @@ fn load_assets(
     let compute_metaballs: Handle<Shader> = asset_server.load("shaders/compute_metaballs.wgsl");
     let compute_3d_normals: Handle<Shader> = asset_server.load("shaders/compute_3d_normals.wgsl");
     let present_fullscreen: Handle<Shader> = asset_server.load("shaders/present_fullscreen.wgsl");
+    let background: Handle<Shader> = asset_server.load("shaders/background.wgsl");
 
     game_assets.fonts.ui_regular = ui_regular;
     game_assets.fonts.ui_bold = ui_bold;
@@ -100,4 +102,5 @@ fn load_assets(
     game_assets.shaders.compute_metaballs = compute_metaballs;
     game_assets.shaders.compute_3d_normals = compute_3d_normals;
     game_assets.shaders.present_fullscreen = present_fullscreen;
+    game_assets.shaders.background = background;
 }

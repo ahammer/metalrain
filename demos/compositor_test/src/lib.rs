@@ -153,7 +153,6 @@ pub fn run_compositor_test() {
                 update_wall_pulse_state,
                 apply_wall_pulse_forces,
                 handle_compositor_inputs,
-                animate_background_glow,
                 animate_effect_overlay,
                 accumulate_performance_stats,
                 update_hud,
@@ -176,17 +175,7 @@ fn setup_scene(mut commands: Commands) {
         Name::new("Background::Base"),
     ));
 
-    commands.spawn((
-        Sprite {
-            color: Color::srgba(0.45, 0.1, 0.75, 0.22),
-            custom_size: Some(Vec2::new(1400.0, 1400.0)),
-            ..Default::default()
-        },
-        Transform::from_xyz(0.0, 0.0, -40.0),
-        RenderLayers::layer(RenderLayer::Background.order()),
-        BackgroundGlow,
-        Name::new("Background::Glow"),
-    ));
+
 
     commands.spawn((
         Sprite {

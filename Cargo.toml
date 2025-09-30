@@ -12,6 +12,8 @@ members = [
     "crates/widget_renderer",
     # Centralized assets crate
     "crates/game_assets",
+    # Background renderer crate (Sprint: Background Renderer)
+    "crates/background_renderer",
     # Demos
     "demos/metaballs_test",
     "demos/compositor_test",
