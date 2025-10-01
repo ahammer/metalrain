@@ -12,10 +12,7 @@ rand = "0.8"
 game_core = { path = "../../crates/game_core" }
 game_physics = { path = "../../crates/game_physics" }
 metaball_renderer = { path = "../../crates/metaball_renderer" }
-widget_renderer = { path = "../../crates/widget_renderer" }
 game_rendering = { path = "../../crates/game_rendering" }
-event_core = { path = "../../crates/event_core" }
 
-# All previous compile-time feature flags (event_core_integration, no-compositor) have been
-# collapsed. The playground always integrates Event Core and the compositor pipeline now
-# for simplicity and clearer examples.
+# The playground always integrates the compositor pipeline to showcase rendering, but other
+# optional systems are intentionally left out to keep the demo minimal.
