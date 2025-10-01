@@ -4,13 +4,19 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::render::view::RenderLayers;
 use bevy::text::TextFont;
 use bevy_rapier2d::prelude::*;
-use game_core::{Ball, Wall, Target, TargetState, Hazard, HazardType, Paddle, SpawnPoint, Selected, SpawnBallEvent, ActiveSpawnRotation, BallSpawnPolicy, BallSpawnPolicyMode, PaddlePlugin, SpawningPlugin};
-use metaball_renderer::{MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin};
 use rand::Rng;
-use game_core::{BallBundle, GameColor, GameCorePlugin};
+
+// Internal crates
+use game_core::{
+    Ball, Wall, Target, TargetState, Hazard, HazardType, Paddle, SpawnPoint, Selected,
+    SpawnBallEvent, ActiveSpawnRotation, BallSpawnPolicy, BallSpawnPolicyMode, PaddlePlugin,
+    SpawningPlugin, BallBundle, GameColor, GameCorePlugin
+};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
+use metaball_renderer::{MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin};
 use widget_renderer::WidgetRendererPlugin;
 use game_rendering::{GameRenderingPlugin, RenderLayer};
+use event_core::{EventCorePlugin, EventCoreAppExt, KeyMappingMiddleware, DebounceMiddleware, CooldownMiddleware};
 
 pub const DEMO_NAME: &str = "physics_playground";
 
@@ -37,60 +43,29 @@ pub fn run_physics_playground() {
         .add_plugins(SpawningPlugin)
         .add_plugins(GamePhysicsPlugin)
         .add_plugins(WidgetRendererPlugin)
+        .add_plugins(EventCorePlugin::default())
+        // Default gameplay mappings (R reset, P pause, arrows/WASD move, Space primary action)
+        .register_middleware(KeyMappingMiddleware::with_default_gameplay())
+        // Placeholder debouncing/cooldown (no-op values for now)
+        .register_middleware(DebounceMiddleware::new(0))
+        .register_middleware(CooldownMiddleware::new(0))
+        .add_systems(PreUpdate, capture_input_events)
+        .add_plugins(GameRenderingPlugin)
+        .add_plugins(MetaballRendererPlugin::with(
+            MetaballRenderSettings::default()
+                .with_texture_size(TEX_SIZE)
+                .with_world_bounds(Rect::from_corners(
+                    Vec2::new(-ARENA_WIDTH * 0.8, -ARENA_HEIGHT * 0.8),
+                    Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
+                ))
+                .clustering_enabled(true)
+                // Route presentation quad into dedicated metaballs layer for compositor
+                .with_presentation(true)
+                .with_presentation_layer(RenderLayer::Metaballs.order() as u8),
+        ))
         .init_resource::<WallPlacement>()
-        .init_resource::<PhysicsStats>();
-
-    // --- Event Core (Incremental Integration) -----------------------------------------
-    // Feature flag gate: when enabled we wire up the deterministic event pipeline.
-    // Phase 1: just install plugin + key capture → InputEvent → middleware mapping.
-    // Subsequent phases will (a) remove direct just_pressed branches, (b) add handlers
-    // for SpawnBall / ResetLevel / PauseGame etc., and (c) emit collision-derived events.
-    #[cfg(feature = "event_core_integration")]
-    {
-        use event_core::{EventCorePlugin, EventCoreAppExt, KeyMappingMiddleware, DebounceMiddleware, CooldownMiddleware};
-        app.add_plugins(EventCorePlugin::default())
-            // Default gameplay mappings (R reset, P pause, arrows/WASD move, Space primary action)
-            .register_middleware(KeyMappingMiddleware::with_default_gameplay())
-            // Placeholder debouncing/cooldown (no-op values for now)
-            .register_middleware(DebounceMiddleware::new(0))
-            .register_middleware(CooldownMiddleware::new(0))
-            .add_systems(PreUpdate, capture_input_events);
-    }
-
-    #[cfg(not(feature = "no-compositor"))]
-    {
-        app.add_plugins(GameRenderingPlugin)
-            .add_plugins(MetaballRendererPlugin::with(
-                MetaballRenderSettings::default()
-                    .with_texture_size(TEX_SIZE)
-                    .with_world_bounds(Rect::from_corners(
-                        Vec2::new(-ARENA_WIDTH * 0.8, -ARENA_HEIGHT * 0.8),
-                        Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
-                    ))
-                    .clustering_enabled(true)
-                    // Route presentation quad into dedicated metaballs layer for compositor
-                    .with_presentation(true)
-                    .with_presentation_layer(RenderLayer::Metaballs.order() as u8),
-            ));
-    }
-
-    #[cfg(feature = "no-compositor")]
-    {
-        // Legacy mode (no compositor) spawns direct camera & metaballs presentation directly to screen
-        app.add_systems(Startup, spawn_legacy_camera)
-            .add_plugins(MetaballRendererPlugin::with(
-                MetaballRenderSettings::default()
-                    .with_texture_size(TEX_SIZE)
-                    .with_world_bounds(Rect::from_corners(
-                        Vec2::new(-ARENA_WIDTH * 0.8, -ARENA_HEIGHT * 0.8),
-                        Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
-                    ))
-                    .clustering_enabled(true)
-                    .with_presentation(true),
-            ));
-    }
-
-    app.add_systems(Startup, (setup_walls, spawn_initial_balls, spawn_hud, spawn_initial_spawnpoints, spawn_initial_paddle))
+        .init_resource::<PhysicsStats>()
+        .add_systems(Startup, (setup_walls, spawn_initial_balls, spawn_hud, spawn_initial_spawnpoints, spawn_initial_paddle))
         .add_systems(
             Update,
             (
@@ -104,10 +79,7 @@ pub fn run_physics_playground() {
                 handle_target_hits,
                 handle_hazard_collisions,
                 apply_spawn_policy_toggle,
-                #[cfg(not(feature = "no-compositor"))]
                 update_hud,
-                #[cfg(feature = "no-compositor")]
-                update_config_text_legacy_hud,
             ),
         )
         .run();
@@ -129,23 +101,15 @@ fn setup_walls(mut commands: Commands) {
         (Vec2::new(half_w, 0.0), Vec2::new(thickness / 2.0, half_h)),
     ];
     for (center, half_extents) in walls {
-        let mut e = commands.spawn((
+        commands.spawn((
             Transform::from_translation(center.extend(0.0)),
             GlobalTransform::IDENTITY,
             RigidBody::Fixed,
             Collider::cuboid(half_extents.x, half_extents.y),
             Name::new("WallSegment"),
+            RenderLayers::layer(RenderLayer::GameWorld.order()),
         ));
-        #[cfg(not(feature = "no-compositor"))]
-        {
-            e.insert(RenderLayers::layer(RenderLayer::GameWorld.order()));
-        }
     }
-}
-
-#[cfg(feature = "no-compositor")]
-fn spawn_legacy_camera(mut commands: Commands) {
-    commands.spawn((Camera2d, Name::new("PhysicsPlaygroundLegacyCamera")));
 }
 
 fn handle_spawn_input(
@@ -420,7 +384,7 @@ fn spawn_ball(
     let initial_velocity = Vec2::new(rng.gen_range(-200.0..200.0), rng.gen_range(0.0..300.0));
     bundle.ball.velocity = initial_velocity;
 
-    let mut entity_commands = commands.spawn((
+    commands.spawn((
         bundle,
         RigidBody::Dynamic,
         Collider::ball(radius),
@@ -434,14 +398,9 @@ fn spawn_ball(
         MetaBallColor(LinearRgba::new(0.8, 0.2, 0.2, 1.0)),
         MetaBallCluster(cluster),
         Name::new("Ball"),
-    ));
-    #[cfg(not(feature = "no-compositor"))]
-    {
         // Balls are visually represented primarily via metaballs layer; optionally also tag for debug overlays.
-        entity_commands.insert(RenderLayers::layer(RenderLayer::Metaballs.order()));
-    }
-    let entity = entity_commands.id();
-    entity
+        RenderLayers::layer(RenderLayer::Metaballs.order()),
+    )).id()
 }
 
 // (Velocity gizmos temporarily removed pending color API alignment for Bevy 0.16)
@@ -503,33 +462,27 @@ fn spawn_initial_spawnpoints(mut commands: Commands) {
     // Provide a pair of default spawn points for experimentation
     let offsets = [-120.0_f32, 120.0_f32];
     for x in offsets {
-        let mut entity = commands.spawn((
+        commands.spawn((
             SpawnPoint::default(),
             Transform::from_translation(Vec3::new(x, 0.0, 0.1)),
             GlobalTransform::IDENTITY,
             Name::new("SpawnPoint"),
+            RenderLayers::layer(RenderLayer::GameWorld.order()),
         ));
-        #[cfg(not(feature = "no-compositor"))]
-        {
-            entity.insert(RenderLayers::layer(RenderLayer::GameWorld.order()));
-        }
     }
 }
 
 fn spawn_initial_paddle(mut commands: Commands) {
     // Spawn a default paddle centered near bottom of arena for immediate interaction
     let y = -ARENA_HEIGHT * 0.35;
-    let mut entity = commands.spawn((
+    commands.spawn((
         Paddle::default(),
         Transform::from_translation(Vec3::new(0.0, y, 0.2)),
         GlobalTransform::IDENTITY,
         Selected,
         Name::new("InitialPaddle"),
+        RenderLayers::layer(RenderLayer::GameWorld.order()),
     ));
-    #[cfg(not(feature = "no-compositor"))]
-    {
-        entity.insert(RenderLayers::layer(RenderLayer::GameWorld.order()));
-    }
 }
 
 #[derive(Component)]
@@ -537,7 +490,7 @@ struct HudText;
 
 fn spawn_hud(mut commands: Commands) {
     // HUD text (world-space 2d) - shown in Ui layer under compositor, or directly in legacy mode.
-    let mut entity = commands.spawn((
+    commands.spawn((
         Text2d::new("Initializing HUD..."),
         TextFont { font_size: 14.0, ..default() },
         TextColor(Color::WHITE),
@@ -545,11 +498,8 @@ fn spawn_hud(mut commands: Commands) {
         HudText,
         ConfigText,
         Name::new("HudText"),
+        RenderLayers::layer(RenderLayer::Ui.order()),
     ));
-    #[cfg(not(feature = "no-compositor"))]
-    {
-        entity.insert(RenderLayers::layer(RenderLayer::Ui.order()));
-    }
 }
 
 // ================= Event Core Integration (Phase 1) =================
@@ -558,7 +508,6 @@ fn spawn_hud(mut commands: Commands) {
 // Arrow/gravity continuous adjustments (pressed) will later be converted to high-level directional Move actions.
 // These comments provide the "before" snapshot for acceptance criteria tracking.
 
-#[cfg(feature = "event_core_integration")]
 fn capture_input_events(
     keys: Res<ButtonInput<KeyCode>>,
     frame: Option<Res<event_core::FrameCounter>>, // optional for safety if plugin order changes
@@ -570,16 +519,6 @@ fn capture_input_events(
     for code in keys.get_just_pressed() {
         let env = EventEnvelope::new(EventPayload::Input(InputEvent::KeyDown(*code)), EventSourceTag::Input, frame_idx);
         queue.enqueue(env, frame_idx);
-    }
-}
-
-#[cfg(feature = "no-compositor")]
-fn update_config_text_legacy_hud(mut query: Query<&mut Text2d, With<HudText>>, config: Res<PhysicsConfig>) {
-    if let Some(mut text) = query.iter_mut().next() {
-        text.0 = format!(
-            "(Legacy Mode) Gravity ({:.0},{:.0})  Cluster str {:.0} rad {:.0}",
-            config.gravity.x, config.gravity.y, config.clustering_strength, config.clustering_radius
-        );
     }
 }
 
@@ -635,7 +574,6 @@ fn handle_hazard_collisions(
 
 // ---------------- Simplified HUD (all layers always enabled) ----------------
 
-#[cfg(not(feature = "no-compositor"))]
 fn update_hud(
     diagnostics: Res<DiagnosticsStore>,
     balls: Query<Entity, With<Ball>>,
