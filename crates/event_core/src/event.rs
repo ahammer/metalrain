@@ -28,6 +28,41 @@ pub enum GameEvent {
     PauseGame,
     ResumeGame,
     PlayerAction(PlayerAction),
+    
+    // Playground events
+    SpawnBallAtCursor { position: Vec2 },
+    PlaceWidget { widget_type: WidgetType, position: Vec2 },
+    SelectEntity { entity: Option<Entity> },
+    DeleteEntity { entity: Entity },
+    MoveEntity { entity: Entity, position: Vec2 },
+    ClearArena,
+    TogglePhysics,
+    ChangeTool { mode: PlaygroundMode },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Resource)]
+pub enum PlaygroundMode {
+    SpawnBall,
+    PlaceWall,
+    PlaceTarget,
+    PlaceHazard,
+    PlacePaddle,
+    PlaceSpawnPoint,
+    Select,
+    Delete,
+}
+
+impl Default for PlaygroundMode {
+    fn default() -> Self { Self::SpawnBall }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WidgetType {
+    Wall { start: Vec2, end: Vec2, thickness: f32 },
+    Target { health: u8, radius: f32 },
+    Hazard { bounds: Rect },
+    Paddle,
+    SpawnPoint,
 }
 
 #[derive(Debug, Clone, PartialEq)]
