@@ -14,8 +14,11 @@ game_physics = { path = "../../crates/game_physics" }
 metaball_renderer = { path = "../../crates/metaball_renderer" }
 widget_renderer = { path = "../../crates/widget_renderer" }
 game_rendering = { path = "../../crates/game_rendering" }
+event_core = { path = "../../crates/event_core", optional = true }
 
 [features]
 default = []
 # Enable to run the playground without the compositor pipeline (fallback legacy mode)
 no-compositor = []
+# Incremental event system retrofit (see sprints/subsprints/UpgradePhysicsPlaygroundToEventCore.md)
+event_core_integration = ["event_core"]

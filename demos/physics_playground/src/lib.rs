@@ -40,6 +40,23 @@ pub fn run_physics_playground() {
         .init_resource::<WallPlacement>()
         .init_resource::<PhysicsStats>();
 
+    // --- Event Core (Incremental Integration) -----------------------------------------
+    // Feature flag gate: when enabled we wire up the deterministic event pipeline.
+    // Phase 1: just install plugin + key capture → InputEvent → middleware mapping.
+    // Subsequent phases will (a) remove direct just_pressed branches, (b) add handlers
+    // for SpawnBall / ResetLevel / PauseGame etc., and (c) emit collision-derived events.
+    #[cfg(feature = "event_core_integration")]
+    {
+        use event_core::{EventCorePlugin, EventCoreAppExt, KeyMappingMiddleware, DebounceMiddleware, CooldownMiddleware};
+        app.add_plugins(EventCorePlugin::default())
+            // Default gameplay mappings (R reset, P pause, arrows/WASD move, Space primary action)
+            .register_middleware(KeyMappingMiddleware::with_default_gameplay())
+            // Placeholder debouncing/cooldown (no-op values for now)
+            .register_middleware(DebounceMiddleware::new(0))
+            .register_middleware(CooldownMiddleware::new(0))
+            .add_systems(PreUpdate, capture_input_events);
+    }
+
     #[cfg(not(feature = "no-compositor"))]
     {
         app.add_plugins(GameRenderingPlugin)
@@ -532,6 +549,27 @@ fn spawn_hud(mut commands: Commands) {
     #[cfg(not(feature = "no-compositor"))]
     {
         entity.insert(RenderLayers::layer(RenderLayer::Ui.order()));
+    }
+}
+
+// ================= Event Core Integration (Phase 1) =================
+// Baseline metrics prior to full migration (recorded automatically on first patch):
+// Direct input branches (keys.just_pressed / buttons.just_pressed) BEFORE refactor: 16 unique key just_pressed usages + several mouse button checks.
+// Arrow/gravity continuous adjustments (pressed) will later be converted to high-level directional Move actions.
+// These comments provide the "before" snapshot for acceptance criteria tracking.
+
+#[cfg(feature = "event_core_integration")]
+fn capture_input_events(
+    keys: Res<ButtonInput<KeyCode>>,
+    frame: Option<Res<event_core::FrameCounter>>, // optional for safety if plugin order changes
+    queue: Option<ResMut<event_core::EventQueue>>,
+) {
+    use event_core::{EventEnvelope, EventPayload, InputEvent, EventSourceTag};
+    let (Some(frame), Some(mut queue)) = (frame, queue) else { return; };
+    let frame_idx = frame.0;
+    for code in keys.get_just_pressed() {
+        let env = EventEnvelope::new(EventPayload::Input(InputEvent::KeyDown(*code)), EventSourceTag::Input, frame_idx);
+        queue.enqueue(env, frame_idx);
     }
 }
 

@@ -83,6 +83,17 @@ If run with `--features no-compositor`, the app still works identically, just wi
 * Introduce Effects layer examples (pulse, particles).
 * Determinism automated harness (record & diff frame states).
 * Optional per-layer performance overlay.
+* (In Progress) Event Core integration behind `--features event_core_integration` enabling deterministic input→event→handler pipeline. Phase 1 adds plugin + raw key capture; later phases will migrate spawn/reset/pause and collision flows to events and provide a journal overlay.
+
+### Event Core Migration Baseline (Recorded)
+
+| Metric | Baseline |
+|--------|----------|
+| `keys.just_pressed` branches | 16 unique occurrences |
+| Mouse button just_pressed branches | 3 (LMB, RMB, MMB) |
+| Direct reset/despawn branches | 2 (R reset balls, C clear world) |
+
+These numbers will be reduced by ≥50% after full migration (see `sprints/subsprints/UpgradePhysicsPlaygroundToEventCore.md`).
 
 ---
 
