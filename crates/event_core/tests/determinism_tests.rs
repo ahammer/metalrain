@@ -13,10 +13,9 @@ fn build_app() -> App {
 fn deterministic_journal_order() {
     let mut a1 = build_app();
     let mut a2 = build_app();
-    // enqueue identical sequence across several frames
     for f in 0..5u64 {
-        a1.world_mut().resource_mut::<EventQueue>().enqueue_game(GameEvent::SpawnBall{}, EventSourceTag::Test, f);
-        a2.world_mut().resource_mut::<EventQueue>().enqueue_game(GameEvent::SpawnBall{}, EventSourceTag::Test, f);
+        a1.world_mut().resource_mut::<EventQueue>().enqueue_game(GameEvent::SpawnBall, EventSourceTag::Test, f);
+        a2.world_mut().resource_mut::<EventQueue>().enqueue_game(GameEvent::SpawnBall, EventSourceTag::Test, f);
         a1.update(); a2.update();
     }
     let j1: Vec<String> = a1.world().resource::<EventQueue>().journal().map(|e| format!("{:?}", e.event.payload)).collect();

@@ -17,9 +17,6 @@ pub struct Ball {
     pub radius: f32,
     pub color: GameColor,
 }
-
-// === Sprint 4 World Elements (updated to match sprint4 spec) ===
-
 #[derive(Component, Clone, Debug)]
 pub struct Wall {
     pub start: Vec2,
@@ -40,8 +37,8 @@ impl Wall {
 pub enum TargetState {
     #[default]
     Idle,
-    Hit(f32),        // animation progress 0..1
-    Destroying(f32), // animation progress 0..1
+    Hit(f32),
+    Destroying(f32),
 }
 
 #[derive(Component, Clone, Debug)]
@@ -61,7 +58,7 @@ impl Target {
 }
 
 #[derive(Clone, Debug)]
-pub enum HazardType { Pit /* future: Laser, SlowZone, etc */ }
+pub enum HazardType { Pit }
 
 #[derive(Component, Clone, Debug)]
 pub struct Hazard {
@@ -74,9 +71,6 @@ impl Hazard {
     pub fn center(&self) -> Vec2 { self.bounds.center() }
     pub fn size(&self) -> Vec2 { self.bounds.size() }
 }
-
-// === Sprint 4.5: Dynamic Interaction Components ===
-
 #[derive(Clone, Debug, Default)]
 pub enum PaddleControl {
     #[default]
@@ -87,8 +81,8 @@ pub enum PaddleControl {
 
 #[derive(Component, Debug)]
 pub struct Paddle {
-    pub half_extents: Vec2, // size / 2
-    pub move_speed: f32,    // units per second
+    pub half_extents: Vec2,
+    pub move_speed: f32,
     pub control: PaddleControl,
 }
 
@@ -106,8 +100,8 @@ impl Default for Paddle {
 pub struct SpawnPoint {
     pub radius: f32,
     pub active: bool,
-    pub cooldown: f32, // seconds between auto spawns (per point)
-    pub timer: f32,    // internal accumulator
+    pub cooldown: f32,
+    pub timer: f32,
 }
 
 impl Default for SpawnPoint {
@@ -116,7 +110,6 @@ impl Default for SpawnPoint {
     }
 }
 
-/// Marker for selection highlighting (visual crate may tint when present)
 #[derive(Component, Debug, Default)]
 pub struct Selected;
 

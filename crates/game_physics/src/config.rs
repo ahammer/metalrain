@@ -10,7 +10,7 @@ pub struct PhysicsConfig {
     pub clustering_radius: f32,
     pub max_ball_speed: f32,
     pub min_ball_speed: f32,
-    pub optimize_clustering: bool, // if true use spatial hash to reduce pair count
+    pub optimize_clustering: bool,
 }
 
 impl Default for PhysicsConfig {

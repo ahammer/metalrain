@@ -77,10 +77,10 @@ impl Middleware for KeyMappingMiddleware {
 fn event_kind_key(env: &EventEnvelope) -> &'static str {
     match &env.payload {
         EventPayload::Game(g) => match g {
-            GameEvent::SpawnBall { .. } => "SpawnBall",
-            GameEvent::BallLostToHazard { .. } => "BallLostToHazard",
-            GameEvent::TargetHit { .. } => "TargetHit",
-            GameEvent::TargetDestroyed { .. } => "TargetDestroyed",
+            GameEvent::SpawnBall => "SpawnBall",
+            GameEvent::BallLostToHazard => "BallLostToHazard",
+            GameEvent::TargetHit => "TargetHit",
+            GameEvent::TargetDestroyed => "TargetDestroyed",
             GameEvent::GameWon { .. } => "GameWon",
             GameEvent::GameLost { .. } => "GameLost",
             GameEvent::StartLevel { .. } => "StartLevel",

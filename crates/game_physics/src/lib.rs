@@ -12,7 +12,6 @@ use bevy_rapier2d::prelude::*;
 
 mod config;
 mod systems;
-// (UI panel moved into demo to avoid cross-version plugin duplication issues.)
 
 pub use config::PhysicsConfig;
 use systems::*;
@@ -20,24 +19,21 @@ use systems::*;
 pub struct GamePhysicsPlugin;
 impl Plugin for GamePhysicsPlugin {
     fn build(&self, app: &mut App) {
-        // Resource
         app.init_resource::<PhysicsConfig>();
 
-        // Rapier configuration
         app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0));
 
-        // Systems (order roughly follows Sprint 2 pipeline draft)
         app.add_systems(
             Update,
             (
-                attach_paddle_kinematic_physics, // ensure paddle bodies exist
-                spawn_physics_for_new_balls, // must run before forces / sync
-                drive_paddle_velocity,       // set linvel before clustering/forces
+                attach_paddle_kinematic_physics,
+                spawn_physics_for_new_balls,
+                drive_paddle_velocity,
                 apply_clustering_forces,
                 apply_config_gravity,
                 sync_physics_to_balls,
                 clamp_velocities,
-                clamp_paddle_positions,      // after velocities applied and possibly clamped
+                clamp_paddle_positions,
                 handle_collision_events,
             ),
         );
@@ -85,14 +81,12 @@ mod tests {
             Transform::from_translation(Vec3::ZERO),
             GlobalTransform::IDENTITY,
         )).id();
-        // Simulate key press (A -> left)
         {
             app.world_mut().init_resource::<ButtonInput<KeyCode>>();
             let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
             input.press(KeyCode::KeyA);
         }
         app.update();
-        // Run a second frame to ensure velocity system observes kinematic body
         app.update();
         assert!(app.world().get::<RigidBody>(paddle_e).is_some());
         let vel = app.world().get::<Velocity>(paddle_e).unwrap();

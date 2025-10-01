@@ -45,7 +45,6 @@ fn emit_events_once(
         return;
     }
     if let Ok(entity) = query.single() {
-        // Emit a cluster of events to validate propagation across plugin boundaries.
         spawn_writer.write(BallSpawned(
             entity,
             Ball {
@@ -85,7 +84,6 @@ fn observe_events(
 fn exit_after_demo(mut counter: ResMut<DemoFrameCounter>, mut exit: EventWriter<AppExit>) {
     counter.0 += 1;
     if counter.0 > 5 {
-        // run a few frames then exit
         exit.write(AppExit::Success);
     }
 }

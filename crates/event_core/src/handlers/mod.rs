@@ -11,12 +11,12 @@ pub struct BallLifecycleHandler;
 impl EventHandler for BallLifecycleHandler {
     fn handle(&mut self, ev: &GameEvent, world: &mut World) -> EventResult {
         match ev {
-            GameEvent::SpawnBall { .. } => {
+            GameEvent::SpawnBall => {
                 let mut c = world.get_resource_or_insert_with::<BallCounter>(Default::default);
                 c.balls += 1;
                 EventResult::Handled
             }
-            GameEvent::BallLostToHazard { .. } => {
+            GameEvent::BallLostToHazard => {
                 let mut c = world.get_resource_or_insert_with::<BallCounter>(Default::default);
                 if c.balls > 0 { c.balls -= 1; }
                 EventResult::Handled
@@ -31,17 +31,15 @@ pub struct TargetInteractionHandler;
 impl EventHandler for TargetInteractionHandler {
     fn handle(&mut self, ev: &GameEvent, world: &mut World) -> EventResult {
         match ev {
-            GameEvent::TargetHit { .. } => {
-                // For MVP treat hit as destroy directly by emitting TargetDestroyed via reducer helper later (omitted for now)
+            GameEvent::TargetHit => {
                 EventResult::Handled
             }
-            GameEvent::TargetDestroyed { .. } => {
+            GameEvent::TargetDestroyed => {
                 let mut t = world.get_resource_or_insert_with::<TargetCounter>(Default::default);
                 if t.targets > 0 { t.targets -= 1; }
                 EventResult::Handled
             }
             GameEvent::StartLevel { .. } | GameEvent::ResetLevel => {
-                // Reset counters for simplicity
                 world.insert_resource(TargetCounter { targets: 5 });
                 world.insert_resource(BallCounter { balls: 0 });
                 EventResult::Handled

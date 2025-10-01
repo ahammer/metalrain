@@ -12,7 +12,6 @@ pub const DEMO_NAME: &str = "metaballs_test";
 pub fn run_metaballs_test() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
-        // (MetaballShaderSourcePlugin removed – shaders load from centralized assets directory)
         .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: "../../assets".into(), ..default() }))
         .add_plugins(MetaballRendererPlugin::with(
             MetaballRenderSettings::default()
@@ -31,6 +30,5 @@ pub fn run_metaballs_test() {
 }
 
 fn spawn_camera(mut commands: Commands) {
-    // Simple 2D camera at origin; users can adjust scaling mode as needed externally.
     commands.spawn((Camera2d, Name::new("MetaballDemoCamera")));
 }

@@ -72,7 +72,7 @@ struct EffectsPulse;
 struct HudText;
 
 #[derive(Resource, Debug)]
-struct PerformanceOverlayState { // retains F1 toggle semantics
+struct PerformanceOverlayState {
     visible: bool,
 }
 
@@ -95,11 +95,6 @@ struct LayerHudCache {
     last_text: String,
 }
 
-// TODO(ui-layer-dirty-detect): Integrate optional dirty UI layer detection.
-// Idea: count entities with RenderLayers::layer(RenderLayer::Ui.order()) each second.
-// If zero for N consecutive checks, automatically disable Ui layer (skip compositor sampling)
-// until a UI entity (e.g., HudText) spawns again. This reduces overdraw when HUD hidden.
-
 #[derive(Resource, Debug, Default)]
 struct FrameCounter {
     frame: u64,
@@ -111,9 +106,7 @@ pub fn run_compositor_test() {
             base_resolution: UVec2::new(1280, 720),
             ..Default::default()
         })
-        // (MetaballShaderSourcePlugin removed – shaders now loaded from centralized assets path)
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        // Standard asset path + centralized game assets (fonts, shaders, etc.)
         .add_plugins(bevy::DefaultPlugins.set(bevy::asset::AssetPlugin {
             file_path: "../../assets".into(),
             ..Default::default()
@@ -131,7 +124,6 @@ pub fn run_compositor_test() {
                 ))
                 .clustering_enabled(true)
                 .with_presentation(true)
-                // Route presentation quad directly to dedicated Metaballs layer (2)
                 .with_presentation_layer(RenderLayer::Metaballs.order() as u8),
         ))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
@@ -164,8 +156,6 @@ pub fn run_compositor_test() {
 }
 
 fn setup_scene(mut commands: Commands) {
-    // Background now provided by BackgroundRendererPlugin (full-screen gradient quad)
-
     commands.spawn((
         Sprite {
             color: Color::srgba(0.06, 0.12, 0.20, 0.65),
@@ -189,7 +179,6 @@ fn setup_scene(mut commands: Commands) {
         Name::new("Effects::PulseOverlay"),
     ));
 
-    // Minimal UI layer placeholder (Sprint 3 cleanup)
     commands.spawn((
         Sprite {
             color: Color::srgba(1.0, 1.0, 1.0, 0.06),
@@ -284,7 +273,6 @@ fn handle_compositor_inputs(
         info!(target: "compositor_demo", "Metaballs blend mode: Multiply");
     }
 
-    // Zoom controls (- / +)
     if keys.just_pressed(KeyCode::Minus) {
         zoom_ev.write(CameraZoomCommand { delta_scale: -0.1 });
     }
@@ -292,12 +280,10 @@ fn handle_compositor_inputs(
         zoom_ev.write(CameraZoomCommand { delta_scale: 0.1 });
     }
 
-    // Camera shake trigger (Space)
     if keys.just_pressed(KeyCode::Space) {
         shake_ev.write(CameraShakeCommand { intensity: 12.0 });
     }
 
-    // Exposure moved to bracket keys to free +/- for zoom
     if keys.just_pressed(KeyCode::BracketLeft) {
         settings.exposure = (settings.exposure - 0.1).clamp(0.1, 3.0);
         info!(
@@ -332,7 +318,6 @@ fn handle_compositor_inputs(
         info!(target: "compositor_demo", "HUD {}", if overlay_state.visible { "shown" } else { "hidden" });
     }
 
-    // Reset (R) restores camera defaults & exposure
     if keys.just_pressed(KeyCode::KeyR) {
         if let Some(mut cam) = game_cam_q.iter_mut().next() {
             cam.viewport_scale = 1.0;
@@ -344,15 +329,12 @@ fn handle_compositor_inputs(
         info!(target: "compositor_demo", "Camera & exposure reset");
     }
 
-    // Background mode + parameter controls
     if keys.just_pressed(KeyCode::KeyB) {
         bg_cfg.mode = bg_cfg.mode.next();
         info!(target: "compositor_demo", "Background mode -> {:?}", bg_cfg.mode);
     }
-    // Rotate linear gradient angle (A/D)
     if keys.pressed(KeyCode::KeyA) { bg_cfg.angle += 0.9 * 0.016; }
     if keys.pressed(KeyCode::KeyD) { bg_cfg.angle -= 0.9 * 0.016; }
-    // Adjust radial center with arrows when radial selected
     if matches!(bg_cfg.mode, BackgroundMode::RadialGradient) {
         let mut changed = false;
         if keys.pressed(KeyCode::ArrowLeft) { bg_cfg.radial_center.x -= 0.25 * 0.016; changed = true; }
@@ -403,7 +385,7 @@ fn update_hud(
     mut text_q: Query<&mut Text2d, With<HudText>>,
     entities_layers: Query<&RenderLayers>,
 ) {
-    let mut text = if let Some(t) = text_q.iter_mut().next() { t } else { return }; // single HUD entity expected
+    let mut text = if let Some(t) = text_q.iter_mut().next() { t } else { return };
     if !overlay_state.visible { text.0 = "(HUD hidden - F1)".to_string(); return; }
 
     let mut enabled = [true;5];
@@ -432,7 +414,6 @@ fn update_hud(
     if (settings.exposure - cache.last_exposure).abs() > f32::EPSILON { needs_rebuild = true; cache.last_exposure = settings.exposure; }
     if settings.debug_layer_boundaries != cache.last_boundary_debug { needs_rebuild = true; cache.last_boundary_debug = settings.debug_layer_boundaries; }
     if (camera_scale - cache.last_camera_scale).abs() > 1e-4 { needs_rebuild = true; cache.last_camera_scale = camera_scale; }
-    // (Optional periodic refresh removed; change detection + fps windows suffice.)
     if !needs_rebuild { return; }
     let layer_lines: String = RenderLayer::ALL.iter().enumerate().map(|(i,l)| {
         let en = if enabled[i] { "ON " } else { "OFF" };

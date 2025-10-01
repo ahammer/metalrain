@@ -7,7 +7,7 @@ pub mod bundles;
 pub mod components;
 pub mod events;
 pub mod resources;
-mod spawning; // sprint 4.5 systems / plugins
+mod spawning;
 
 pub use bundles::*;
 pub use components::*;
@@ -27,10 +27,6 @@ impl Plugin for GameCorePlugin {
             .init_resource::<ArenaConfig>();
     }
 }
-
-// --- Sprint 4.5 Plugins re-exported for demo integration ---
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

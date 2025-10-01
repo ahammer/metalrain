@@ -34,7 +34,6 @@ pub fn update_background(
     mut materials: ResMut<Assets<BackgroundMaterial>>,
     query: Query<&MeshMaterial2d<BackgroundMaterial>, With<BackgroundEntity>>,
 ) {
-    // Only update if config changed or animated
     let animated = matches!(config.mode, BackgroundMode::Animated);
     if !config.is_changed() && !animated { return; }
     let t = time.elapsed_secs();

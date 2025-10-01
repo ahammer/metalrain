@@ -28,7 +28,6 @@ fn setup_lines(
     let red = materials.add(Color::linear_rgba(0.9, 0.15, 0.15, 1.0));
     let green = materials.add(Color::linear_rgba(0.15, 0.9, 0.25, 1.0));
     let gray = materials.add(Color::linear_rgba(0.55, 0.55, 0.65, 1.0));
-    // Helper to spawn a thin quad between two points (axis-aligned only for simplicity)
     let mut spawn_rect = |w: f32, h: f32, x: f32, y: f32, mat: Handle<ColorMaterial>| {
         let m = Mesh::from(Rectangle::new(w, h));
         let mh = meshes.add(m);
@@ -40,16 +39,14 @@ fn setup_lines(
         ));
     };
     let thickness = 2.0;
-    // Axes
     spawn_rect(he * 2.0, thickness, 0.0, 0.0, red.clone());
     spawn_rect(thickness, he * 2.0, 0.0, 0.0, green.clone());
-    // Bounds
     let bw = 1.5;
     let size = he * 2.0;
-    spawn_rect(size, bw, 0.0, he, gray.clone()); // top
-    spawn_rect(size, bw, 0.0, -he, gray.clone()); // bottom
-    spawn_rect(bw, size, -he, 0.0, gray.clone()); // left
-    spawn_rect(bw, size, he, 0.0, gray.clone()); // right
+    spawn_rect(size, bw, 0.0, he, gray.clone());
+    spawn_rect(size, bw, 0.0, -he, gray.clone());
+    spawn_rect(bw, size, -he, 0.0, gray.clone());
+    spawn_rect(bw, size, he, 0.0, gray.clone());
 }
 
 fn toggle_debug(keys: Res<ButtonInput<KeyCode>>, mut toggle: ResMut<DebugVisToggle>) {
@@ -73,7 +70,6 @@ fn apply_visibility(toggle: Res<DebugVisToggle>, mut q: Query<&mut Visibility, W
     }
 }
 
-// Draw per-ball simulation circles (world space) via gizmos (transient, no entities).
 fn draw_ball_circles(
     toggle: Res<DebugVisToggle>,
     q: Query<(&Transform, &MetaBall, Option<&MetaBallColor>)>,

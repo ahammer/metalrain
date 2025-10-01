@@ -24,7 +24,6 @@ impl EventQueue {
     }
     pub fn set_journal_capacity(&mut self, cap: usize) { self.journal_capacity = cap; if self.journal.len() > cap { while self.journal.len() > cap { self.journal.pop_front(); } } }
     pub fn enqueue(&mut self, ev: EventEnvelope, current_frame: u64) {
-        // Events created during processing of current frame go to next_frame to ensure atomic drain.
         if ev.frame_enqueued == current_frame { self.incoming.push_back(ev); } else { self.next_frame.push_back(ev); }
     }
     pub fn drain_for_frame(&mut self, _frame: u64) -> Vec<EventEnvelope> {

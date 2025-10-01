@@ -35,10 +35,10 @@ pub struct BackgroundConfig {
     pub mode: BackgroundMode,
     pub primary_color: LinearRgba,
     pub secondary_color: LinearRgba,
-    pub angle: f32,          // radians for linear gradient direction
-    pub animation_speed: f32, // cycles per second for animated mode
-    pub radial_center: Vec2, // 0..1 uv space center
-    pub radial_radius: f32,  // radius in uv distance
+    pub angle: f32,
+    pub animation_speed: f32,
+    pub radial_center: Vec2,
+    pub radial_radius: f32,
 }
 
 impl Default for BackgroundConfig {

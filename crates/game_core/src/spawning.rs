@@ -3,8 +3,6 @@ use crate::{
     Paddle, PaddleControl, SpawnPoint, ActiveSpawnRotation, BallSpawnPolicy, BallSpawnPolicyMode,
     SpawnBallEvent, SpawnMetrics, ArenaConfig,
 };
-
-// --- Paddle Movement (transform based; physics collider handled elsewhere) ---
 pub fn paddle_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -31,8 +29,6 @@ pub fn paddle_input_system(
         }
     }
 }
-
-// --- Auto Spawn Processing ---
 pub fn process_spawn_points(
     time: Res<Time>,
     policy: Res<BallSpawnPolicy>,
@@ -50,8 +46,6 @@ pub fn process_spawn_points(
         }
     }
 }
-
-// --- Maintain rotation list of active spawn points ---
 pub fn maintain_spawn_rotation(
     mut rotation: ResMut<ActiveSpawnRotation>,
     changed: Query<(Entity, &SpawnPoint), Changed<SpawnPoint>>,
@@ -68,14 +62,10 @@ pub fn maintain_spawn_rotation(
             dirty = true;
         }
     }
-    // remove stale entities
     rotation.indices.retain(|e| all.get(*e).is_ok());
     if dirty && rotation.current >= rotation.indices.len() { rotation.current = 0; }
 }
 
-// (Despawn tracking omitted pending Bevy RemovedComponents API stabilization)
-
-// --- Plugins ---
 pub struct PaddlePlugin;
 impl Plugin for PaddlePlugin {
     fn build(&self, app: &mut App) {
@@ -117,7 +107,6 @@ mod tests {
         assert_eq!(rot.current_entity(), Some(e2));
         rot.advance();
         assert_eq!(rot.current_entity(), Some(e1));
-        // deactivate one
         {
             let mut sp = app.world_mut().get_mut::<SpawnPoint>(e1).unwrap();
             sp.active = false;

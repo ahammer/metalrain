@@ -17,10 +17,10 @@ pub enum PlayerAction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GameEvent {
-    SpawnBall { /* minimal for now */ },
-    BallLostToHazard { /* stub */ },
-    TargetHit { /* stub */ },
-    TargetDestroyed { /* stub */ },
+    SpawnBall,
+    BallLostToHazard,
+    TargetHit,
+    TargetDestroyed,
     GameWon { balls_remaining: u32, time_elapsed: f32 },
     GameLost { targets_remaining: u32, time_elapsed: f32 },
     StartLevel { level_id: Option<String> },

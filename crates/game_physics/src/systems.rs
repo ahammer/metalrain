@@ -14,7 +14,6 @@ pub fn apply_clustering_forces(
         return;
     }
     if !config.optimize_clustering {
-        // Fallback to naive implementation
         let positions: Vec<Vec2> = query
             .iter()
             .map(|(t, _)| t.translation.truncate())
@@ -40,15 +39,13 @@ pub fn apply_clustering_forces(
         return;
     }
 
-    // Spatial hash optimization
-    let cell_size = config.clustering_radius.max(1.0); // avoid division by zero
+    let cell_size = config.clustering_radius.max(1.0);
     let mut positions: Vec<Vec2> = Vec::new();
     positions.reserve(query.iter().len());
     for (t, _) in query.iter() {
         positions.push(t.translation.truncate());
     }
 
-    // Build grid: map from cell coord -> indices of balls in that cell
     let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
     for (i, pos) in positions.iter().enumerate() {
         let cell = (
@@ -58,8 +55,6 @@ pub fn apply_clustering_forces(
         grid.entry(cell).or_default().push(i);
     }
 
-    // Collect mutable references after we built positions (to satisfy borrow rules)
-    // We'll recreate an iterator to mutate forces.
     let mut idx = 0usize;
     for (transform, mut ext_force) in query.iter_mut() {
         let my_pos = transform.translation.truncate();
@@ -103,7 +98,6 @@ pub fn clamp_velocities(
         if lin > config.max_ball_speed {
             vel.linvel = vel.linvel.normalize_or_zero() * config.max_ball_speed;
         }
-        // Optionally nudge up extremely slow moving balls (excluding nearly stopped ones)
         if lin > 0.0 && lin < config.min_ball_speed * 0.5 {
             vel.linvel = vel.linvel.normalize_or_zero() * config.min_ball_speed * 0.5;
         }
@@ -123,8 +117,6 @@ pub fn apply_config_gravity(
     config: Res<PhysicsConfig>,
 ) {
     for mut force in &mut query {
-        // Accumulate gravity; clustering system will overwrite force, so instead we add here then clustering overwrites => order matters.
-        // To preserve both, we could store both forces; for now if clustering active, gravity is weaker so we blend.
         force.force += config.gravity;
     }
 }
@@ -134,17 +126,10 @@ pub fn apply_config_gravity(
 /// emit higher‑level game events or apply effects.
 pub fn handle_collision_events(
     mut collisions: EventReader<CollisionEvent>,
-    balls: Query<(), With<Ball>>,
+    _balls: Query<(), With<Ball>>,
 ) {
     for ev in collisions.read() {
-        if let CollisionEvent::Started(e1, e2, _flags) = ev {
-            let a_ball = balls.get(*e1).is_ok();
-            let b_ball = balls.get(*e2).is_ok();
-            if a_ball && b_ball {
-                // info!("Ball-Ball collision: {:?} <-> {:?}", e1, e2);
-                // Do nothing right now
-            }
-        }
+        if let CollisionEvent::Started(_, _, _) = ev {}
     }
 }
 
@@ -159,7 +144,6 @@ pub fn spawn_physics_for_new_balls(
     let mut rng = rand::thread_rng();
     for (e, mut ball, transform) in &mut q {
         let radius = ball.radius.max(1.0);
-        // give an initial random upward-ish velocity if currently zero
         if ball.velocity == Vec2::ZERO {
             ball.velocity = Vec2::new(rng.gen_range(-200.0..200.0), rng.gen_range(0.0..300.0));
         }
@@ -173,12 +157,9 @@ pub fn spawn_physics_for_new_balls(
             Damping { linear_damping: 0.0, angular_damping: 1.0 },
             ActiveEvents::COLLISION_EVENTS,
         ));
-        // transform already present via BallBundle
-        let _ = transform; // silence unused (documentation clarity)
+        let _ = transform;
     }
 }
-
-// === Paddle Kinematic Integration ===
 /// Attach kinematic physics to newly added paddles (if not already physics-enabled).
 pub fn attach_paddle_kinematic_physics(
     mut commands: Commands,

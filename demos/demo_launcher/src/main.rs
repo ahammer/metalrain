@@ -7,7 +7,6 @@ struct DemoEntry {
     description: &'static str,
 }
 
-// Import demos and their run functions.
 use architecture_test::{run_architecture_test, DEMO_NAME as ARCH_DEMO};
 use compositor_test::{run_compositor_test, DEMO_NAME as COMPOSITOR_DEMO};
 use metaballs_test::{run_metaballs_test, DEMO_NAME as METABALLS_DEMO};
@@ -33,16 +32,13 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
-    // Explicit list request: show and exit.
     if cli.list { list_demos(); return; }
 
-    // If a name was provided, try to launch directly.
     if let Some(name) = cli.demo.as_ref() {
         launch_by_name(name);
         return;
     }
 
-    // Interactive mode when no name supplied.
     interactive_select_and_launch();
 }
 
@@ -78,7 +74,6 @@ fn interactive_select_and_launch() {
         list_demos();
         println!("Select a demo by number (or 'q' to quit):");
         print!("> ");
-        // Flush prompt before reading.
         let _ = io::stdout().flush();
         let mut line = String::new();
         match io::stdin().read_line(&mut line) {
@@ -91,7 +86,7 @@ fn interactive_select_and_launch() {
                         let entry = &DEMOS[idx - 1];
                         println!("Launching demo: {}", entry.name);
                         run_entry(entry);
-                        return; // after demo exits
+                        return;
                     }
                 }
                 println!("Invalid selection '{trimmed}'. Please enter a number 1-{} or 'q'.", DEMOS.len());

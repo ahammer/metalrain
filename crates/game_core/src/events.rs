@@ -13,8 +13,6 @@ pub struct GameWon;
 #[derive(Event, Default)]
 pub struct GameLost;
 
-// === Sprint 4.5 Events ===
-
 #[derive(Event, Debug)]
 pub struct SpawnBallEvent {
 	pub spawn_entity: Entity,

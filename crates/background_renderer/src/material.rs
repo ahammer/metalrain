@@ -15,7 +15,7 @@ pub struct BackgroundMaterial {
     #[uniform(0)]
     pub secondary_color: Vec4,
     #[uniform(0)]
-    pub params: Vec4,       // x: angle, y: time, z: anim_speed, w: radial_radius
+    pub params: Vec4,
     #[uniform(0)]
     pub radial_center: Vec2,
 }

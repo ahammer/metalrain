@@ -36,13 +36,10 @@ impl Default for ArenaConfig {
         }
     }
 }
-
-// === Sprint 4.5 Resources ===
-
 #[derive(Debug, Clone, Copy)]
 pub enum BallSpawnPolicyMode {
     Manual,
-    Auto(f32), // interval seconds
+    Auto(f32),
 }
 
 #[derive(Resource, Debug)]

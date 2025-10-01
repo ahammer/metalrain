@@ -32,9 +32,7 @@ fn simulate_win_condition(
 ) {
     *timer += time.delta_secs();
     if *timer > 0.25 {
-        // arbitrary short delay
         events_won.write(GameWon);
-        // Prevent spamming
         *timer = f32::MIN;
         commands.spawn_empty();
     }

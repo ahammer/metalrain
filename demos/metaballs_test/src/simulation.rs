@@ -1,20 +1,11 @@
 use bevy::prelude::*;
-// Bouncy simulation demo
-// Controls:
-//   G - toggle gravity
-//   C - toggle clustering pass (repacked into compute uniforms)
-// Mirrors core behavioral parameters from original PoC while using the
-// structured MetaballRendererPlugin packing + compute pipeline.
 use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, RuntimeSettings,
 };
 use rand::prelude::*;
 
-// World half extent for simulation (logical space: -HALF_EXTENT..HALF_EXTENT in both axes)
-pub const HALF_EXTENT: f32 = 256.0; // made public for debug viz / debug visualization overlays
-                                    // Interior collision walls are inset by a fixed padding to keep balls away from texture edge artifacts.
-pub const COLLISION_PADDING: f32 = 64.0; // requested collision padding (wall inset)
-const WORLD_SIZE: f32 = HALF_EXTENT * 2.0; // full logical span used for tex mapping (padding only affects collisions)
+pub const HALF_EXTENT: f32 = 256.0;
+pub const COLLISION_PADDING: f32 = 64.0;
 
 #[derive(Component, Clone, Copy)]
 pub(crate) struct Velocity(pub Vec2);
@@ -42,20 +33,17 @@ impl Plugin for BouncySimulationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BouncyParams>()
             .add_systems(Startup, spawn_balls)
-            // Order: integrate -> collision resolution -> input toggles (for responsive toggles after physics)
             .add_systems(Update, (update_balls, input_toggles).chain());
     }
 }
 
 fn spawn_balls(mut commands: Commands, _settings: Res<MetaballRenderSettings>) {
     let mut rng = StdRng::from_entropy();
-    // Dynamic count – heuristic based on world area (mirrors previous texture based sizing)
     let area = (HALF_EXTENT * 2.0).powi(2).max(1.0);
     let mut desired = (area / (24.0 * 24.0)) as usize;
-    desired = desired.clamp(64, 10_000); // arbitrary safety cap
+    desired = desired.clamp(64, 10_000);
     for i in 0..desired {
         let radius = rng.gen_range(1.0..8.0);
-        // Spawn inside padded collision bounds
         let x = rng.gen_range(
             (-HALF_EXTENT + COLLISION_PADDING) + radius..(HALF_EXTENT - COLLISION_PADDING) - radius,
         );
@@ -65,12 +53,7 @@ fn spawn_balls(mut commands: Commands, _settings: Res<MetaballRenderSettings>) {
         let angle = rng.gen_range(0.0..std::f32::consts::TAU);
         let speed = rng.gen_range(2.0..10.0);
         let vel = Vec2::from_angle(angle) * speed;
-        let color_palette = [
-            LinearRgba::new(1.0, 0.3, 0.3, 1.0),
-            // LinearRgba::new(0.3,1.0,0.3,1.0),
-            // LinearRgba::new(0.3,0.3,1.0,1.0),
-            // LinearRgba::new(1.0,1.0,0.3,1.0),
-        ];
+        let color_palette = [LinearRgba::new(1.0, 0.3, 0.3, 1.0)];
         let cluster = (i % color_palette.len()) as i32;
         commands.spawn((
             Transform::from_translation(Vec3::new(x, y, 0.0)),
@@ -104,7 +87,6 @@ fn update_balls(
         let mut pos = tr.translation.truncate();
         vel.0 += grav * dt;
         pos += vel.0 * dt;
-        // Collision bounds (inset by COLLISION_PADDING)
         let min = -HALF_EXTENT + COLLISION_PADDING + mb.radius_world;
         let max = HALF_EXTENT - COLLISION_PADDING - mb.radius_world;
         if pos.x < min {
@@ -149,4 +131,3 @@ fn input_toggles(
     }
 }
 
-// Legacy world<->texture mapping removed – handled internally during packing.

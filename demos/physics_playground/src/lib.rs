@@ -6,7 +6,6 @@ use bevy::text::TextFont;
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
-// Internal crates
 use game_core::{
     Ball, Wall, Target, TargetState, Hazard, HazardType, Paddle, SpawnPoint, Selected,
     SpawnBallEvent, ActiveSpawnRotation, BallSpawnPolicy, BallSpawnPolicyMode, PaddlePlugin,
@@ -44,9 +43,7 @@ pub fn run_physics_playground() {
         .add_plugins(GamePhysicsPlugin)
         .add_plugins(WidgetRendererPlugin)
         .add_plugins(EventCorePlugin::default())
-        // Default gameplay mappings (R reset, P pause, arrows/WASD move, Space primary action)
         .register_middleware(KeyMappingMiddleware::with_default_gameplay())
-        // Placeholder debouncing/cooldown (no-op values for now)
         .register_middleware(DebounceMiddleware::new(0))
         .register_middleware(CooldownMiddleware::new(0))
         .add_systems(PreUpdate, capture_input_events)
@@ -59,7 +56,6 @@ pub fn run_physics_playground() {
                     Vec2::new(ARENA_WIDTH * 0.8, ARENA_HEIGHT * 0.8),
                 ))
                 .clustering_enabled(true)
-                // Route presentation quad into dedicated metaballs layer for compositor
                 .with_presentation(true)
                 .with_presentation_layer(RenderLayer::Metaballs.order() as u8),
         ))
@@ -86,18 +82,13 @@ pub fn run_physics_playground() {
 }
 
 fn setup_walls(mut commands: Commands) {
-    // Four static colliders forming a bounding box.
     let thickness = 20.0;
     let half_w = ARENA_WIDTH / 2.0;
     let half_h = ARENA_HEIGHT / 2.0;
     let walls = [
-        // Floor
         (Vec2::new(0.0, -half_h), Vec2::new(half_w, thickness / 2.0)),
-        // Ceiling
         (Vec2::new(0.0, half_h), Vec2::new(half_w, thickness / 2.0)),
-        // Left
         (Vec2::new(-half_w, 0.0), Vec2::new(thickness / 2.0, half_h)),
-        // Right
         (Vec2::new(half_w, 0.0), Vec2::new(thickness / 2.0, half_h)),
     ];
     for (center, half_extents) in walls {
@@ -130,7 +121,6 @@ fn handle_spawn_input(
     let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
 
     if shift {
-        // Spawn via nearest active spawn point (or create one temporarily)
         let mut nearest: Option<(Entity, f32)> = None;
         for (e, tf, sp) in &spawn_points {
             if !sp.active { continue; }
@@ -139,9 +129,8 @@ fn handle_spawn_input(
         }
         if let Some((e, _)) = nearest {
             spawn_writer.write(SpawnBallEvent { spawn_entity: e, override_position: None });
-            return; // physics system will add body next frame
+            return;
         }
-        // Fallback: direct spawn if no active spawn point exists yet
     }
     spawn_ball(world_pos, &mut commands, &config, 0);
 }
@@ -161,7 +150,7 @@ fn handle_paddle_spawn_input(
         Paddle::default(),
         Transform::from_translation(world_pos.extend(0.2)),
         GlobalTransform::IDENTITY,
-        Selected, // mark most recent for clarity
+        Selected,
     ));
 }
 
@@ -173,7 +162,6 @@ fn handle_spawnpoint_activation_input(
     mut rotation: ResMut<ActiveSpawnRotation>,
     mut spawns: Query<(Entity, &Transform, &mut SpawnPoint)>,
 ) {
-    // S to create spawn point at cursor
     if keys.just_pressed(KeyCode::KeyS) {
         let window = match windows.single().ok() { Some(w) => w, None => return };
         if let Some(cursor_pos) = window.cursor_position() {
@@ -184,19 +172,16 @@ fn handle_spawnpoint_activation_input(
                         Transform::from_translation(world_pos.extend(0.1)),
                         GlobalTransform::IDENTITY,
                     )).id();
-                    rotation.indices.push(e); // ensure selectable immediately
+                    rotation.indices.push(e);
                 }
             }
         }
     }
-    // Q/E cycle
     if keys.just_pressed(KeyCode::KeyQ) { rotation.retreat(); }
     if keys.just_pressed(KeyCode::KeyE) { rotation.advance(); }
-    // Number keys 1..9 select index (no Shift modifier needed now that digits are not used for layer toggles)
     for (i, code) in [KeyCode::Digit1,KeyCode::Digit2,KeyCode::Digit3,KeyCode::Digit4,KeyCode::Digit5,KeyCode::Digit6,KeyCode::Digit7,KeyCode::Digit8,KeyCode::Digit9].iter().enumerate() {
         if keys.just_pressed(*code) { rotation.set_index(i); }
     }
-    // X toggles currently selected spawn active flag
     if keys.just_pressed(KeyCode::KeyX) {
         if let Some(cur) = rotation.current_entity() {
             if let Ok((_e,_tf, mut sp)) = spawns.get_mut(cur) { sp.active = !sp.active; }
@@ -208,7 +193,7 @@ fn apply_spawn_policy_toggle(
     keys: Res<ButtonInput<KeyCode>>,
     mut policy: ResMut<BallSpawnPolicy>,
 ) {
-    if keys.just_pressed(KeyCode::KeyA) { // 'A' toggles auto spawn interval 0.8s
+    if keys.just_pressed(KeyCode::KeyA) {
         policy.mode = match policy.mode { BallSpawnPolicyMode::Manual => BallSpawnPolicyMode::Auto(0.8), BallSpawnPolicyMode::Auto(_) => BallSpawnPolicyMode::Manual };
     }
 }
@@ -226,11 +211,8 @@ fn handle_world_element_input(
     let Some(cursor_pos) = window.cursor_position() else { return };
     let (camera, cam_transform) = if let Ok(c) = cameras.single() { c } else { return };
     let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else { return };
-
-    // Right click: two-phase wall placement
     if buttons.just_pressed(MouseButton::Right) {
         if let Some(start) = wall_placement.0.take() {
-            // finalize
             let end = world_pos;
             let thickness = 10.0;
             let wall = Wall::new(start, end, thickness, Color::srgb(0.6,0.7,0.9));
@@ -251,7 +233,6 @@ fn handle_world_element_input(
         }
     }
 
-    // Middle click: target
     if buttons.just_pressed(MouseButton::Middle) {
         let target = Target::new(3, 20.0, Color::srgb(0.9,0.9,0.3));
         commands.spawn((
@@ -264,7 +245,6 @@ fn handle_world_element_input(
         ));
     }
 
-    // H key: hazard
     if keys.just_pressed(KeyCode::KeyH) {
         let size = Vec2::new(80.0, 40.0);
         let bounds = Rect::from_center_size(world_pos, size);
@@ -278,10 +258,9 @@ fn handle_world_element_input(
         ));
     }
 
-    // C key: clear all (walls, targets, hazards)
     if keys.just_pressed(KeyCode::KeyC) {
         for e in &mut clear_q { commands.entity(e).despawn(); }
-        wall_placement.0 = None; // cancel pending wall start
+        wall_placement.0 = None;
     }
 }
 
@@ -291,7 +270,6 @@ fn handle_control_input(
     mut commands: Commands,
     balls: Query<Entity, With<Ball>>,
 ) {
-    // Arrow keys adjust gravity components continuously while held.
     let mut changed = false;
     if keys.pressed(KeyCode::ArrowUp) {
         config.gravity.y += 10.0;
@@ -315,14 +293,12 @@ fn handle_control_input(
             .clamp(Vec2::splat(-1000.0), Vec2::splat(1000.0));
     }
 
-    // +/- adjust clustering strength
     if keys.just_pressed(KeyCode::Equal) {
         config.clustering_strength = (config.clustering_strength + 10.0).min(500.0);
     }
     if keys.just_pressed(KeyCode::Minus) {
         config.clustering_strength = (config.clustering_strength - 10.0).max(0.0);
     }
-    // [ ] adjust clustering radius
     if keys.just_pressed(KeyCode::BracketRight) {
         config.clustering_radius = (config.clustering_radius + 10.0).min(400.0);
     }
@@ -380,7 +356,6 @@ fn spawn_ball(
     };
     let mut bundle = BallBundle::new(position, radius, color);
 
-    // Initial random velocity.
     let initial_velocity = Vec2::new(rng.gen_range(-200.0..200.0), rng.gen_range(0.0..300.0));
     bundle.ball.velocity = initial_velocity;
 
@@ -398,12 +373,9 @@ fn spawn_ball(
         MetaBallColor(LinearRgba::new(0.8, 0.2, 0.2, 1.0)),
         MetaBallCluster(cluster),
         Name::new("Ball"),
-        // Balls are visually represented primarily via metaballs layer; optionally also tag for debug overlays.
         RenderLayers::layer(RenderLayer::Metaballs.order()),
     )).id()
 }
-
-// (Velocity gizmos temporarily removed pending color API alignment for Bevy 0.16)
 
 /// Keep metaball centers in sync with physics-driven transforms.
 
@@ -428,15 +400,13 @@ fn draw_debug_gizmos(
     balls: Query<(&Transform, &Velocity)>,
     config: Res<PhysicsConfig>,
 ) {
-    let scale = 0.25; // shorten arrows for readability
+    let scale = 0.25;
     for (tr, vel) in &balls {
         let p = tr.translation.truncate();
         let v = vel.linvel * scale;
         let color = Color::WHITE;
         gizmos.line_2d(p, p + v, color);
-        // Draw faint circle for clustering radius (could be heavy; sample subset)
         if balls.iter().len() <= 40 {
-            // avoid overdraw spam at high counts
             gizmos.circle_2d(
                 p,
                 config.clustering_radius,
@@ -446,12 +416,9 @@ fn draw_debug_gizmos(
     }
 }
 
-// world_to_tex & sync system removed – mapping now handled internally during packing.
-
 fn spawn_initial_balls(mut commands: Commands, config: Res<PhysicsConfig>) {
     let mut rng = rand::thread_rng();
     for i in 0..20 {
-        // seed some balls so screen isn't empty
         let x = rng.gen_range(-ARENA_WIDTH * 0.45..ARENA_WIDTH * 0.45);
         let y = rng.gen_range(-ARENA_HEIGHT * 0.45..ARENA_HEIGHT * 0.45);
         spawn_ball(Vec2::new(x, y), &mut commands, &config, (i % 4) as i32);
@@ -459,7 +426,6 @@ fn spawn_initial_balls(mut commands: Commands, config: Res<PhysicsConfig>) {
 }
 
 fn spawn_initial_spawnpoints(mut commands: Commands) {
-    // Provide a pair of default spawn points for experimentation
     let offsets = [-120.0_f32, 120.0_f32];
     for x in offsets {
         commands.spawn((
@@ -473,7 +439,6 @@ fn spawn_initial_spawnpoints(mut commands: Commands) {
 }
 
 fn spawn_initial_paddle(mut commands: Commands) {
-    // Spawn a default paddle centered near bottom of arena for immediate interaction
     let y = -ARENA_HEIGHT * 0.35;
     commands.spawn((
         Paddle::default(),
@@ -489,7 +454,6 @@ fn spawn_initial_paddle(mut commands: Commands) {
 struct HudText;
 
 fn spawn_hud(mut commands: Commands) {
-    // HUD text (world-space 2d) - shown in Ui layer under compositor, or directly in legacy mode.
     commands.spawn((
         Text2d::new("Initializing HUD..."),
         TextFont { font_size: 14.0, ..default() },
@@ -502,15 +466,9 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-// ================= Event Core Integration (Phase 1) =================
-// Baseline metrics prior to full migration (recorded automatically on first patch):
-// Direct input branches (keys.just_pressed / buttons.just_pressed) BEFORE refactor: 16 unique key just_pressed usages + several mouse button checks.
-// Arrow/gravity continuous adjustments (pressed) will later be converted to high-level directional Move actions.
-// These comments provide the "before" snapshot for acceptance criteria tracking.
-
 fn capture_input_events(
     keys: Res<ButtonInput<KeyCode>>,
-    frame: Option<Res<event_core::FrameCounter>>, // optional for safety if plugin order changes
+    frame: Option<Res<event_core::FrameCounter>>,
     queue: Option<ResMut<event_core::EventQueue>>,
 ) {
     use event_core::{EventEnvelope, EventPayload, InputEvent, EventSourceTag};
@@ -522,7 +480,6 @@ fn capture_input_events(
     }
 }
 
-// NEW: collision-driven target hit handling
 fn handle_target_hits(
     mut collisions: EventReader<CollisionEvent>,
     mut targets: Query<&mut Target>,
@@ -543,7 +500,6 @@ fn handle_target_hits(
     }
 }
 
-// NEW: collision-driven hazard effect (Pit clears balls)
 fn handle_hazard_collisions(
     mut collisions: EventReader<CollisionEvent>,
     hazards: Query<&Hazard>,
@@ -552,7 +508,6 @@ fn handle_hazard_collisions(
 ) {
     for ev in collisions.read() {
         if let CollisionEvent::Started(a, b, _) = ev {
-            // Determine which (if any) is a hazard and which is a ball
             let a_hazard = hazards.get(*a).ok();
             let b_hazard = hazards.get(*b).ok();
             if let Some(h) = a_hazard {
@@ -571,8 +526,6 @@ fn handle_hazard_collisions(
         }
     }
 }
-
-// ---------------- Simplified HUD (all layers always enabled) ----------------
 
 fn update_hud(
     diagnostics: Res<DiagnosticsStore>,
