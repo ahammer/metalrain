@@ -11,12 +11,14 @@ use architecture_test::{run_architecture_test, DEMO_NAME as ARCH_DEMO};
 use compositor_test::{run_compositor_test, DEMO_NAME as COMPOSITOR_DEMO};
 use metaballs_test::{run_metaballs_test, DEMO_NAME as METABALLS_DEMO};
 use physics_playground::{run_physics_playground, DEMO_NAME as PHYSICS_DEMO};
+use input_demo::{run_input_demo, DEMO_NAME as INPUT_DEMO};
 
 static DEMOS: &[DemoEntry] = &[
     DemoEntry { name: ARCH_DEMO, run: run_architecture_test, description: "Minimal architecture integration demo" },
     DemoEntry { name: COMPOSITOR_DEMO, run: run_compositor_test, description: "Compositor + rendering layers stress test" },
     DemoEntry { name: METABALLS_DEMO, run: run_metaballs_test, description: "Metaball renderer clustering / presentation demo" },
     DemoEntry { name: PHYSICS_DEMO, run: run_physics_playground, description: "Interactive physics playground" },
+    DemoEntry { name: INPUT_DEMO, run: run_input_demo, description: "Focused input integration + diagnostics" },
 ];
 
 #[derive(Parser, Debug)]

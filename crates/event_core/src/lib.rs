@@ -17,6 +17,21 @@ pub use reducer::*;
 
 use bevy::prelude::*;
 
+/// High-level standardized system flow ordering for input + event pipeline aware apps.
+///
+/// Stages:
+/// - InputCollect: gather raw device input (mouse position, button/key states)
+/// - InputProcess: transform raw input into high-level domain events (enqueue Game / Input events)
+/// - UIUpdate: update overlays / previews that depend on processed input state
+///
+/// Additional sets can be layered before reducer_system (which runs PostUpdate) if needed.
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum EventFlowSet {
+    InputCollect,
+    InputProcess,
+    UIUpdate,
+}
+
 /// Plugin configuring the event pipeline (queue, journal, reducer system).
 pub struct EventCorePlugin {
     pub journal_capacity: usize,
@@ -32,6 +47,12 @@ impl Plugin for EventCorePlugin {
             .insert_resource(EventQueue::with_capacity(self.journal_capacity))
             .init_resource::<HandlerRegistry>()
             .init_resource::<MiddlewareChain>()
+            // Configure ordered chain for higher-level gameplay crates to hook into.
+            .configure_sets(Update, (
+                EventFlowSet::InputCollect,
+                EventFlowSet::InputProcess,
+                EventFlowSet::UIUpdate,
+            ).chain())
             .add_systems(PreUpdate, increment_frame_counter)
             .add_systems(PostUpdate, reducer_system);
     }

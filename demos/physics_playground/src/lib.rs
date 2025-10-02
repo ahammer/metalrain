@@ -11,6 +11,7 @@ use metaball_renderer::{
     MetaBall, MetaBallCluster, MetaBallColor, MetaballRenderSettings, MetaballRendererPlugin,
 };
 use event_core::*;
+use event_core::EventFlowSet;
 use widget_renderer::WidgetRendererPlugin;
 
 pub const DEMO_NAME: &str = "physics_playground";
@@ -26,6 +27,9 @@ pub struct PlaygroundState {
     pub selected_entity: Option<Entity>,
     pub ball_cluster_counter: i32,
 }
+
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct InputDiagnostics { pub dropped_clicks: u32 }
 
 #[derive(Resource, Clone)]
 pub struct BallSpawnPreset {
@@ -91,7 +95,8 @@ pub fn run_physics_playground() {
         ))
         .add_plugins(WidgetRendererPlugin)
         .add_plugins(EventCorePlugin::default())
-        .init_resource::<PlaygroundState>()
+    .init_resource::<PlaygroundState>()
+    .init_resource::<InputDiagnostics>()
         .init_resource::<BallSpawnPreset>()
         .insert_resource(PlaygroundMode::default())
         .register_middleware(km)
@@ -104,13 +109,16 @@ pub fn run_physics_playground() {
         .register_handler(ToolChangeHandler)
         .register_handler(PhysicsToggleHandler)
         .add_systems(Startup, (setup_board, setup_camera, spawn_instructions_overlay, spawn_test_ball))
+        // Order-sensitive: ensure cursor position updates before click handling (and preview) every frame.
         .add_systems(Update, (
-            track_mouse_position,
-            handle_mouse_clicks,
-            handle_key_input,
-            update_instructions_overlay,
-            preview_widget_placement,
-            highlight_selected_entity,
+            // InputCollect set
+            track_mouse_position.in_set(EventFlowSet::InputCollect),
+            handle_key_input.in_set(EventFlowSet::InputCollect),
+            // InputProcess set
+            handle_mouse_clicks.in_set(EventFlowSet::InputProcess),
+            // UIUpdate set
+            (preview_widget_placement, update_instructions_overlay, highlight_selected_entity)
+                .in_set(EventFlowSet::UIUpdate),
         ))
         .run();
 }
@@ -228,6 +236,7 @@ fn spawn_ball(
 
 // Camera setup
 fn setup_camera(mut commands: Commands) {
+    // Spawn the 2D camera marker; required components (Camera, Projection, etc.) are added via #[require] on Camera2d.
     commands.spawn(Camera2d);
 }
 
@@ -247,20 +256,20 @@ impl EventHandler for BallSpawnHandler {
             state.ball_cluster_counter += 1;
             let cluster = state.ball_cluster_counter;
             drop(state);
-            
+
             let preset = world.resource::<BallSpawnPreset>().clone();
             let config = world.resource::<PhysicsConfig>().clone();
             let mut rng = rand::thread_rng();
-            
+
             let mut commands = world.commands();
             spawn_ball(cursor_pos, preset.color, cluster, &mut commands, &config, &mut rng);
-            
+
             EventResult::Handled
         } else {
             EventResult::Ignored
         }
     }
-    
+
     fn name(&self) -> &'static str { "BallSpawnHandler" }
 }
 
@@ -275,7 +284,7 @@ impl EventHandler for WidgetPlacementHandler {
                         let diff = *end - *start;
                         let length = diff.length();
                         let angle = diff.y.atan2(diff.x);
-                        
+
                         commands.spawn((
                             Name::new("PlacedWall"),
                             RigidBody::Fixed,
@@ -358,7 +367,7 @@ impl EventHandler for WidgetPlacementHandler {
             EventResult::Ignored
         }
     }
-    
+
     fn name(&self) -> &'static str { "WidgetPlacementHandler" }
 }
 
@@ -381,7 +390,7 @@ impl EventHandler for SelectionHandler {
             _ => EventResult::Ignored,
         }
     }
-    
+
     fn name(&self) -> &'static str { "SelectionHandler" }
 }
 
@@ -399,7 +408,7 @@ impl EventHandler for DeletionHandler {
             EventResult::Ignored
         }
     }
-    
+
     fn name(&self) -> &'static str { "DeletionHandler" }
 }
 
@@ -411,21 +420,21 @@ impl EventHandler for ClearArenaHandler {
                 .query_filtered::<Entity, With<DynamicEntity>>()
                 .iter(world)
                 .collect();
-            
+
             for entity in entities {
                 world.despawn(entity);
             }
-            
+
             let mut state = world.resource_mut::<PlaygroundState>();
             state.selected_entity = None;
             state.ball_cluster_counter = 0;
-            
+
             EventResult::Handled
         } else {
             EventResult::Ignored
         }
     }
-    
+
     fn name(&self) -> &'static str { "ClearArenaHandler" }
 }
 
@@ -439,7 +448,7 @@ impl EventHandler for ToolChangeHandler {
             EventResult::Ignored
         }
     }
-    
+
     fn name(&self) -> &'static str { "ToolChangeHandler" }
 }
 
@@ -455,7 +464,7 @@ impl EventHandler for PhysicsToggleHandler {
             EventResult::Ignored
         }
     }
-    
+
     fn name(&self) -> &'static str { "PhysicsToggleHandler" }
 }
 
@@ -465,13 +474,27 @@ fn track_mouse_position(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     mut state: ResMut<PlaygroundState>,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let Ok((camera, camera_transform)) = camera_q.single() else { return };
-    
+    let Ok(window) = windows.single() else {
+        warn!("No window in track_mouse_position");
+        return;
+    };
+    let Ok((camera, camera_transform)) = camera_q.single() else {
+        warn!("No camera in track_mouse_position");
+        return;
+    };
+
     if let Some(cursor_pos) = window.cursor_position() {
-        if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
-            state.cursor_world_pos = Some(world_pos);
+        match camera.viewport_to_world_2d(camera_transform, cursor_pos) {
+            Ok(world_pos) => {
+                state.cursor_world_pos = Some(world_pos);
+            }
+            Err(e) => {
+                warn!("Failed to convert cursor position: {:?}", e);
+            }
         }
+    } else {
+        // Cursor not in window
+        state.cursor_world_pos = None;
     }
 }
 
@@ -481,13 +504,24 @@ fn handle_mouse_clicks(
     state: Res<PlaygroundState>,
     mut queue: ResMut<EventQueue>,
     frame: Res<FrameCounter>,
+    mut diag: ResMut<InputDiagnostics>,
 ) {
+    if buttons.just_pressed(MouseButton::Left) {
+        info!("Left click detected!");
+    }
+
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    
-    let Some(pos) = state.cursor_world_pos else { return };
-    
+
+    let Some(pos) = state.cursor_world_pos else {
+        diag.dropped_clicks += 1;
+        warn!("Click detected but no cursor position available (dropped: {})", diag.dropped_clicks);
+        return;
+    };
+
+    info!("Placing in mode {:?} at {:?}", *mode, pos);
+
     match *mode {
         PlaygroundMode::SpawnBall => {
             queue.enqueue(EventEnvelope::new(EventPayload::Game(GameEvent::SpawnBallAtCursor { position: pos }), EventSourceTag::Input, frame.0), frame.0);
@@ -595,7 +629,7 @@ fn handle_key_input(
 fn spawn_instructions_overlay(mut commands: Commands) {
     let half_w = ARENA_WIDTH * 0.5;
     let half_h = ARENA_HEIGHT * 0.5;
-    
+
     commands.spawn((
         Text2d::new(""),
         TextFont {
@@ -611,10 +645,11 @@ fn spawn_instructions_overlay(mut commands: Commands) {
 fn update_instructions_overlay(
     mode: Res<PlaygroundMode>,
     state: Res<PlaygroundState>,
+    diag: Res<InputDiagnostics>,
     mut query: Query<&mut Text2d, With<InstructionsText>>,
 ) {
     let Ok(mut text) = query.single_mut() else { return };
-    
+
     let mode_name = match *mode {
         PlaygroundMode::SpawnBall => "Spawn Ball",
         PlaygroundMode::PlaceWall => "Place Wall",
@@ -625,13 +660,13 @@ fn update_instructions_overlay(
         PlaygroundMode::Select => "Select Entity",
         PlaygroundMode::Delete => "Delete Entity",
     };
-    
+
     let cursor_info = if let Some(pos) = state.cursor_world_pos {
         format!("Cursor: ({:.0}, {:.0})", pos.x, pos.y)
     } else {
         "Cursor: --".to_string()
     };
-    
+
     text.0 = format!(
         "PHYSICS PLAYGROUND\n\
 Mode: [{}]\n\
@@ -646,9 +681,11 @@ Space: Spawn Ball\n\
 Left Click: Use Current Tool\n\
 C: Clear Arena\n\
 R: Reset Level\n\
-P: Toggle Physics",
+P: Toggle Physics\n\n\
+DIAG: Dropped Clicks: {}",
         mode_name,
-        cursor_info
+        cursor_info,
+        diag.dropped_clicks,
     );
 }
 
@@ -662,11 +699,11 @@ fn preview_widget_placement(
     for entity in &preview_q {
         commands.entity(entity).despawn();
     }
-    
+
     let Some(pos) = state.cursor_world_pos else { return };
-    
+
     let color = Color::srgba(1.0, 1.0, 1.0, 0.3);
-    
+
     match *mode {
         PlaygroundMode::PlaceWall => {
             let size = Vec2::new(80.0, 20.0);

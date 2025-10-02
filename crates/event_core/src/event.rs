@@ -28,7 +28,7 @@ pub enum GameEvent {
     PauseGame,
     ResumeGame,
     PlayerAction(PlayerAction),
-    
+
     // Playground events
     SpawnBallAtCursor { position: Vec2 },
     PlaceWidget { widget_type: WidgetType, position: Vec2 },

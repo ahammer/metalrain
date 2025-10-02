@@ -24,6 +24,8 @@ members = [
     "demos/physics_playground",
     # Unified launcher for demos
     "demos/demo_launcher",
+    # Focused input integration + diagnostics demo
+    "demos/input_demo",
 ]
 exclude = [
     "external/bevy"
