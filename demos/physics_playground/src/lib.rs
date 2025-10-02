@@ -471,29 +471,39 @@ impl EventHandler for PhysicsToggleHandler {
 // Input Systems
 fn track_mouse_position(
     windows: Query<&Window>,
-    camera_q: Query<(&Camera, &GlobalTransform)>,
+    // Only consider non-UI 2D cameras so default UI camera(s) are ignored.
+    camera_q: Query<(&Camera, &GlobalTransform), (With<Camera2d>, Without<IsDefaultUiCamera>)>,
     mut state: ResMut<PlaygroundState>,
+    mut logged_multi: Local<bool>,
+    mut logged_none: Local<bool>,
 ) {
-    let Ok(window) = windows.single() else {
-        warn!("No window in track_mouse_position");
-        return;
-    };
-    let Ok((camera, camera_transform)) = camera_q.single() else {
-        warn!("No camera in track_mouse_position");
+    let Ok(window) = windows.get_single() else { return; };
+
+    // Gather candidates (non-UI 2D cameras)
+    let mut iter = camera_q.iter();
+
+    let Some((camera, tf)) = iter.next() else {
+        // No suitable camera yet; log once
+        if !*logged_none {
+            info!("track_mouse_position: no non-UI Camera2d found yet ({} total including UI)", camera_q.iter().count());
+            *logged_none = true;
+        }
         return;
     };
 
-    if let Some(cursor_pos) = window.cursor_position() {
-        match camera.viewport_to_world_2d(camera_transform, cursor_pos) {
-            Ok(world_pos) => {
-                state.cursor_world_pos = Some(world_pos);
-            }
-            Err(e) => {
-                warn!("Failed to convert cursor position: {:?}", e);
-            }
+    // If there is >1 candidate, log once (still proceed with the first)
+    if iter.next().is_some() && !*logged_multi {
+        info!("track_mouse_position: multiple non-UI 2D cameras detected; using the first.");
+        *logged_multi = true;
+    }
+
+    if let Some(screen_pos) = window.cursor_position() {
+        if let Ok(world_pos) = camera.viewport_to_world_2d(tf, screen_pos) {
+            state.cursor_world_pos = Some(world_pos);
         }
+        // On projection failure, keep last known value instead of erasing it.
     } else {
-        // Cursor not in window
+        // Cursor left the window; clear.
         state.cursor_world_pos = None;
     }
 }
