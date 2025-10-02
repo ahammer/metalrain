@@ -24,6 +24,7 @@ const TEX_SIZE: UVec2 = UVec2::new(512, 512);
 #[derive(Resource, Default)]
 pub struct PlaygroundState {
     pub cursor_world_pos: Option<Vec2>,
+    pub cursor_pixels: Option<Vec2>,
     pub selected_entity: Option<Entity>,
     pub ball_cluster_counter: i32,
 }
@@ -57,6 +58,19 @@ struct PlacementPreview;
 
 #[derive(Component)]
 struct DynamicEntity;
+
+// Marker for the camera that should drive world interaction (cursor picking, spawning, etc.)
+#[derive(Component)]
+struct InteractionCamera;
+
+// Resource storing the chosen interaction camera entity (set at startup)
+#[derive(Resource, Default, Debug, Clone, Copy)]
+struct InteractionCameraHandle(Option<Entity>);
+
+// (Removed duplicate) Adjustable camera scale constant retained below with #[allow(dead_code)]
+
+#[allow(dead_code)]
+const PLAYGROUND_CAMERA_SCALE: f32 = 1.0; // Reserved for future zoom control
 
 pub fn run_physics_playground() {
     let mut km = KeyMappingMiddleware::empty();
@@ -97,7 +111,8 @@ pub fn run_physics_playground() {
         .add_plugins(EventCorePlugin::default())
     .init_resource::<PlaygroundState>()
     .init_resource::<InputDiagnostics>()
-        .init_resource::<BallSpawnPreset>()
+    .init_resource::<BallSpawnPreset>()
+    .init_resource::<InteractionCameraHandle>()
         .insert_resource(PlaygroundMode::default())
         .register_middleware(km)
         .register_middleware(DebounceMiddleware::new(2))
@@ -235,9 +250,18 @@ fn spawn_ball(
 }
 
 // Camera setup
-fn setup_camera(mut commands: Commands) {
-    // Spawn the 2D camera marker; required components (Camera, Projection, etc.) are added via #[require] on Camera2d.
-    commands.spawn(Camera2d);
+fn setup_camera(mut commands: Commands, mut handle: ResMut<InteractionCameraHandle>) {
+    // Explicitly spawn a single interaction camera we control; tag it.
+    let entity = commands
+        .spawn((
+            Camera2d,
+            InteractionCamera,
+            // Ensure it renders above world objects (z) while not interfering with layering system.
+            Transform::from_xyz(0.0, 0.0, 1000.0),
+            GlobalTransform::IDENTITY,
+        ))
+        .id();
+    handle.0 = Some(entity);
 }
 
 // Test ball to ensure metaballs renderer has something to render
@@ -471,50 +495,41 @@ impl EventHandler for PhysicsToggleHandler {
 // Input Systems
 fn track_mouse_position(
     windows: Query<&Window>,
-    // Only consider non-UI 2D cameras so default UI camera(s) are ignored.
-    camera_q: Query<(&Camera, &GlobalTransform), (With<Camera2d>, Without<IsDefaultUiCamera>)>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<InteractionCamera>>,
     mut state: ResMut<PlaygroundState>,
-    mut logged_multi: Local<bool>,
-    mut logged_none: Local<bool>,
+    handle: Res<InteractionCameraHandle>,
+    mut logged: Local<bool>,
 ) {
-    let Ok(window) = windows.get_single() else { return; };
-
-    // Gather candidates (non-UI 2D cameras)
-    let mut iter = camera_q.iter();
-
-    let Some((camera, tf)) = iter.next() else {
-        // No suitable camera yet; log once
-        if !*logged_none {
-            info!("track_mouse_position: no non-UI Camera2d found yet ({} total including UI)", camera_q.iter().count());
-            *logged_none = true;
-        }
+    let Ok(window) = windows.single() else { return; };
+    let Some(cam_entity) = handle.0 else {
+        if !*logged { info!("InteractionCameraHandle not initialized yet"); *logged = true; }
         return;
     };
-
-    // If there is >1 candidate, log once (still proceed with the first)
-    if iter.next().is_some() && !*logged_multi {
-        info!("track_mouse_position: multiple non-UI 2D cameras detected; using the first.");
-        *logged_multi = true;
-    }
-
+    let Ok((camera, tf)) = camera_q.get(cam_entity) else {
+        if !*logged { info!("Interaction camera entity not found in query"); *logged = true; }
+        return;
+    };
     if let Some(screen_pos) = window.cursor_position() {
+        state.cursor_pixels = Some(screen_pos);
         if let Ok(world_pos) = camera.viewport_to_world_2d(tf, screen_pos) {
             state.cursor_world_pos = Some(world_pos);
         }
-        // On projection failure, keep last known value instead of erasing it.
     } else {
-        // Cursor left the window; clear.
         state.cursor_world_pos = None;
+        state.cursor_pixels = None;
     }
 }
 
 fn handle_mouse_clicks(
     buttons: Res<ButtonInput<MouseButton>>,
     mode: Res<PlaygroundMode>,
-    state: Res<PlaygroundState>,
+    mut state: ResMut<PlaygroundState>,
     mut queue: ResMut<EventQueue>,
     frame: Res<FrameCounter>,
     mut diag: ResMut<InputDiagnostics>,
+    windows: Query<&Window>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<InteractionCamera>>,
+    handle: Res<InteractionCameraHandle>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
         info!("Left click detected!");
@@ -523,10 +538,23 @@ fn handle_mouse_clicks(
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
+    // Fallback: if world pos missing attempt immediate recompute (e.g., race with tracking system)
+    if state.cursor_world_pos.is_none() {
+    if let (Some(cam_entity), Ok(window)) = (handle.0, windows.single()) {
+            if let Ok((camera, tf)) = camera_q.get(cam_entity) {
+                if let Some(px) = window.cursor_position() {
+                    if let Ok(world_pos) = camera.viewport_to_world_2d(tf, px) {
+                        state.cursor_world_pos = Some(world_pos);
+                        state.cursor_pixels = Some(px);
+                    }
+                }
+            }
+        }
+    }
 
     let Some(pos) = state.cursor_world_pos else {
         diag.dropped_clicks += 1;
-        warn!("Click detected but no cursor position available (dropped: {})", diag.dropped_clicks);
+        warn!("Click detected but no cursor world position (dropped: {})", diag.dropped_clicks);
         return;
     };
 
@@ -671,10 +699,10 @@ fn update_instructions_overlay(
         PlaygroundMode::Delete => "Delete Entity",
     };
 
-    let cursor_info = if let Some(pos) = state.cursor_world_pos {
-        format!("Cursor: ({:.0}, {:.0})", pos.x, pos.y)
-    } else {
-        "Cursor: --".to_string()
+    let cursor_info = match (state.cursor_world_pos, state.cursor_pixels) {
+        (Some(world), Some(px)) => format!("Cursor: world=({:.0},{:.0}) px=({:.0},{:.0})", world.x, world.y, px.x, px.y),
+        (Some(world), None) => format!("Cursor: world=({:.0},{:.0})", world.x, world.y),
+        _ => "Cursor: --".to_string(),
     };
 
     text.0 = format!(
