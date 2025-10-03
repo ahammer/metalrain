@@ -405,15 +405,6 @@ commands.spawn((
 - **Render Layers**: Use targeted layers to reduce overdraw
 - **Event Pipeline**: Keep handlers lightweight, defer heavy work to regular systems
 
-## Future Roadmap
-
-- **Dynamic Resolution Scaling** - LOD system for metaballs and render targets
-- **Embedded Assets** - Build web-compatible binaries with included assets
-- **Replay System** - Full event journal serialization and playback
-- **Advanced Physics** - Spatial partitioning, soft body simulation
-- **Post-Processing** - Bloom, chromatic aberration, screen-space effects
-- **Editor Tools** - Level editor, visual debugging overlays
-
 ## License
 
 All crates are dual-licensed under MIT or Apache-2.0 at your option.
