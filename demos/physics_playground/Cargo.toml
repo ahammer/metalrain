@@ -3,6 +3,14 @@ name = "physics_playground"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "physics_playground"
+path = "src/lib.rs"
+
+[[bin]]
+name = "physics_playground"
+path = "src/main.rs"
+
 [dependencies]
 bevy = { workspace = true }
 bevy_rapier2d = { workspace = true }
@@ -15,6 +23,8 @@ metaball_renderer = { path = "../../crates/metaball_renderer" }
 game_rendering = { path = "../../crates/game_rendering" }
 event_core = { path = "../../crates/event_core" }
 widget_renderer = { path = "../../crates/widget_renderer" }
+background_renderer = { path = "../../crates/background_renderer" }
+game_assets = { path = "../../crates/game_assets" }
 
 # The playground always integrates the compositor pipeline to showcase rendering, but other
 # optional systems are intentionally left out to keep the demo minimal.

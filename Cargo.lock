@@ -3838,9 +3838,11 @@ dependencies = [
 name = "physics_playground"
 version = "0.1.0"
 dependencies = [
+ "background_renderer",
  "bevy",
  "bevy_rapier2d",
  "event_core",
+ "game_assets",
  "game_core",
  "game_physics",
  "game_rendering",
