@@ -1,15 +1,13 @@
 use bevy::prelude::*;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
-use bevy::render::view::RenderLayers;
 use bevy::window::PrimaryWindow;
-use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
-use game_core::{Ball, BallBundle, GameColor, GameState, Wall};
+use game_core::{Ball, BallBundle, GameColor, GameCorePlugin, Wall};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
 use metaball_renderer::{MetaBall, MetaballRenderSettings, MetaballRendererPlugin};
-use game_rendering::{BlendMode, CompositorSettings, GameCamera, GameRenderingPlugin, LayerBlendState, RenderLayer};
-use event_core::{EventCorePlugin, EventFlowSet};
+use game_rendering::{GameCamera, GameRenderingPlugin, RenderLayer};
+use event_core::EventCorePlugin;
 use widget_renderer::WidgetRendererPlugin;
 use background_renderer::{BackgroundRendererPlugin, BackgroundConfig, BackgroundMode};
 use game_assets::GameAssetsPlugin;
@@ -23,7 +21,6 @@ const WALL_THICKNESS: f32 = 20.0;
 // Local game state resource for pause tracking
 #[derive(Resource, Default)]
 struct PlaygroundState {
-    is_paused: bool,
     balls_spawned: u32,
 }
 
@@ -46,21 +43,49 @@ pub fn run_physics_playground() {
             ..Default::default()
         }))
         .add_plugins(game_assets::GameAssetsPlugin::default())
+        // Core game components (MUST BE FIRST)
+        .add_plugins(GameCorePlugin)
+        // Physics (includes RapierPhysicsPlugin internally)
+        .add_plugins(GamePhysicsPlugin)
+        // Metaball rendering with proper world bounds
+        .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings {
+            texture_size: bevy::math::UVec2::new(1024, 1024),
+            world_bounds: bevy::math::Rect::from_center_size(
+                Vec2::ZERO,
+                Vec2::splat(ARENA_HALF_EXTENT * 2.0 + 100.0),
+            ),
+            enable_clustering: true,
+            present_via_quad: true,
+            presentation_layer: Some(RenderLayer::Metaballs.order() as u8),
+        }))
+        // Multi-layer compositor
         .add_plugins(GameRenderingPlugin)
+        // Background
         .add_plugins(BackgroundRendererPlugin)
         .insert_resource(BackgroundConfig {
             mode: BackgroundMode::LinearGradient,
-            primary_color: LinearRgba::rgb(0.05, 0.05, 0.15),
-            secondary_color: LinearRgba::rgb(0.1, 0.1, 0.2),
+            primary_color: bevy::color::LinearRgba::rgb(0.05, 0.05, 0.15),
+            secondary_color: bevy::color::LinearRgba::rgb(0.1, 0.1, 0.2),
             angle: 0.25 * std::f32::consts::PI,
             animation_speed: 0.5,
             radial_center: Vec2::new(0.5, 0.5),
             radial_radius: 0.75,
         })
-        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
+        // Widget rendering (walls, targets, etc.)
+        .add_plugins(WidgetRendererPlugin)
+        // Event system
+        .add_plugins(EventCorePlugin::default())
+        // Local state
         .init_resource::<PlaygroundState>()
         .add_systems(Startup, (setup_camera, setup_arena, setup_ui, spawn_test_balls))
-        .add_systems(Update, (exit_on_escape, spawn_ball_on_click, reset_on_key, update_stats_text))
+        .add_systems(Update, (
+            exit_on_escape,
+            spawn_ball_on_click,
+            reset_on_key,
+            pause_on_key,
+            adjust_physics_with_keys,
+            update_stats_text,
+        ))
         .run();
 }
 
@@ -76,37 +101,18 @@ fn spawn_test_balls(mut commands: Commands) {
     
     for (i, &pos) in test_positions.iter().enumerate() {
         let color = test_colors[i];
-        let sprite_color = match color {
-            GameColor::Red => Color::srgb(1.0, 0.3, 0.3),
-            GameColor::Blue => Color::srgb(0.3, 0.4, 1.0),
-            GameColor::Green => Color::srgb(0.3, 1.0, 0.4),
-            GameColor::Yellow => Color::srgb(1.0, 1.0, 0.3),
-            GameColor::White => Color::srgb(0.9, 0.9, 0.9),
-        };
-        
         let radius = 20.0;
         
+        // Just spawn with BallBundle and MetaBall
+        // GamePhysicsPlugin will automatically add RigidBody, Collider, Velocity
         commands.spawn((
             BallBundle::new(pos, radius, color),
-            Sprite {
-                color: sprite_color,
-                custom_size: Some(Vec2::splat(radius * 2.0)),
-                ..default()
-            },
-            RenderLayers::layer(game_rendering::RenderLayer::GameWorld.order()),
-            RigidBody::Dynamic,
-            Collider::ball(radius),
-            Velocity {
-                linvel: Vec2::new(0.0, -50.0),
-                angvel: 0.0,
-            },
-            Restitution::coefficient(0.7),
             MetaBall { radius_world: radius },
             Name::new("TestBall"),
         ));
     }
     
-    info!("Spawned 3 test balls");
+    info!("Spawned {} test balls", test_positions.len());
 }
 
 fn exit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut exit: EventWriter<AppExit>) {
@@ -126,7 +132,7 @@ fn setup_arena(mut commands: Commands) {
     let half = ARENA_HALF_EXTENT;
     let thickness = WALL_THICKNESS;
     
-    // Bottom wall
+    // Bottom wall - WidgetRendererPlugin will add Sprite automatically
     commands.spawn((
         Wall {
             start: Vec2::new(-half, -half),
@@ -134,16 +140,9 @@ fn setup_arena(mut commands: Commands) {
             thickness,
             color: Color::srgb(0.3, 0.3, 0.4),
         },
-        Sprite {
-            color: Color::srgb(0.3, 0.3, 0.4),
-            custom_size: Some(Vec2::new(half * 2.0, thickness)),
-            ..default()
-        },
-        RenderLayers::layer(game_rendering::RenderLayer::GameWorld.order()),
         Transform::from_xyz(0.0, -half, 0.0),
-        GlobalTransform::IDENTITY,
-        RigidBody::Fixed,
-        Collider::cuboid(half, thickness / 2.0),
+        bevy_rapier2d::prelude::RigidBody::Fixed,
+        bevy_rapier2d::prelude::Collider::cuboid(half, thickness / 2.0),
         Name::new("BottomWall"),
     ));
     
@@ -155,16 +154,9 @@ fn setup_arena(mut commands: Commands) {
             thickness,
             color: Color::srgb(0.3, 0.3, 0.4),
         },
-        Sprite {
-            color: Color::srgb(0.3, 0.3, 0.4),
-            custom_size: Some(Vec2::new(half * 2.0, thickness)),
-            ..default()
-        },
-        RenderLayers::layer(game_rendering::RenderLayer::GameWorld.order()),
         Transform::from_xyz(0.0, half, 0.0),
-        GlobalTransform::IDENTITY,
-        RigidBody::Fixed,
-        Collider::cuboid(half, thickness / 2.0),
+        bevy_rapier2d::prelude::RigidBody::Fixed,
+        bevy_rapier2d::prelude::Collider::cuboid(half, thickness / 2.0),
         Name::new("TopWall"),
     ));
     
@@ -176,16 +168,9 @@ fn setup_arena(mut commands: Commands) {
             thickness,
             color: Color::srgb(0.3, 0.3, 0.4),
         },
-        Sprite {
-            color: Color::srgb(0.3, 0.3, 0.4),
-            custom_size: Some(Vec2::new(thickness, half * 2.0)),
-            ..default()
-        },
-        RenderLayers::layer(game_rendering::RenderLayer::GameWorld.order()),
         Transform::from_xyz(-half, 0.0, 0.0),
-        GlobalTransform::IDENTITY,
-        RigidBody::Fixed,
-        Collider::cuboid(thickness / 2.0, half),
+        bevy_rapier2d::prelude::RigidBody::Fixed,
+        bevy_rapier2d::prelude::Collider::cuboid(thickness / 2.0, half),
         Name::new("LeftWall"),
     ));
     
@@ -197,26 +182,13 @@ fn setup_arena(mut commands: Commands) {
             thickness,
             color: Color::srgb(0.3, 0.3, 0.4),
         },
-        Sprite {
-            color: Color::srgb(0.3, 0.3, 0.4),
-            custom_size: Some(Vec2::new(thickness, half * 2.0)),
-            ..default()
-        },
-        RenderLayers::layer(game_rendering::RenderLayer::GameWorld.order()),
         Transform::from_xyz(half, 0.0, 0.0),
-        GlobalTransform::IDENTITY,
-        RigidBody::Fixed,
-        Collider::cuboid(thickness / 2.0, half),
+        bevy_rapier2d::prelude::RigidBody::Fixed,
+        bevy_rapier2d::prelude::Collider::cuboid(thickness / 2.0, half),
         Name::new("RightWall"),
     ));
-}
-
-fn setup_initial_state(mut commands: Commands) {
-    // Insert playground-specific state
-    commands.insert_resource(PlaygroundState {
-        is_paused: false,
-        balls_spawned: 0,
-    });
+    
+    info!("Arena setup complete");
 }
 
 fn spawn_ball_on_click(
@@ -224,61 +196,49 @@ fn spawn_ball_on_click(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
+    mut playground_state: ResMut<PlaygroundState>,
 ) {
     if !mouse_button.just_pressed(MouseButton::Left) {
         return;
     }
     
-    let Ok(window) = windows.single() else { return; };
-    let Some(cursor_pos) = window.cursor_position() else { return; };
-    let Ok((camera, camera_transform)) = camera_q.single() else { return; };
-    
-    // Convert screen position to world position
-    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else { return; };
-    
-    // Random velocity
-    let mut rng = rand::thread_rng();
-    let velocity = Vec2::new(
-        rng.gen_range(-200.0..200.0),
-        rng.gen_range(-200.0..200.0),
-    );
-    
-    // Random color
-    let colors = [GameColor::Red, GameColor::Blue, GameColor::Green, GameColor::Yellow, GameColor::White];
-    let color = *colors.choose(&mut rng).unwrap();
-    
-    let radius = rng.gen_range(15.0..30.0);
-    
-    // Convert GameColor to Color for sprite
-    let sprite_color = match color {
-        GameColor::Red => Color::srgb(1.0, 0.3, 0.3),
-        GameColor::Blue => Color::srgb(0.3, 0.4, 1.0),
-        GameColor::Green => Color::srgb(0.3, 1.0, 0.4),
-        GameColor::Yellow => Color::srgb(1.0, 1.0, 0.3),
-        GameColor::White => Color::srgb(0.9, 0.9, 0.9),
+    let Ok(window) = windows.single() else {
+        error!("No primary window found");
+        return;
     };
     
-    // Spawn ball with physics and metaball components
+    let Some(cursor_pos) = window.cursor_position() else { 
+        warn!("No cursor position");
+        return; 
+    };
+    
+    let Ok((camera, camera_transform)) = camera_q.single() else { 
+        warn!("No camera found");
+        return; 
+    };
+    
+    // Convert screen position to world position
+    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) else { 
+        warn!("Failed to convert viewport to world");
+        return; 
+    };
+    
+    // Random parameters
+    let mut rng = rand::thread_rng();
+    let colors = [GameColor::Red, GameColor::Blue, GameColor::Green, GameColor::Yellow, GameColor::White];
+    let color = *colors.choose(&mut rng).unwrap();
+    let radius = rng.gen_range(15.0..30.0);
+    
+    // Spawn ball - GamePhysicsPlugin will add RigidBody, Collider, Velocity automatically
     commands.spawn((
         BallBundle::new(world_pos, radius, color),
-        Sprite {
-            color: sprite_color,
-            custom_size: Some(Vec2::splat(radius * 2.0)),
-            ..default()
-        },
-        RenderLayers::layer(game_rendering::RenderLayer::GameWorld.order()),
-        RigidBody::Dynamic,
-        Collider::ball(radius),
-        Velocity {
-            linvel: velocity,
-            angvel: 0.0,
-        },
-        Restitution::coefficient(0.7),
         MetaBall { radius_world: radius },
         Name::new("Ball"),
     ));
     
-    info!("Spawned ball at {:?} with velocity {:?}", world_pos, velocity);
+    playground_state.balls_spawned += 1;
+    
+    info!("Spawned ball #{} at {:?}", playground_state.balls_spawned, world_pos);
 }
 
 fn reset_on_key(
@@ -296,86 +256,112 @@ fn reset_on_key(
         // Reset playground state
         playground_state.balls_spawned = 0;
         
-        info!("Reset simulation");
+        info!("Reset simulation - despawned {} balls", balls.iter().count());
     }
 }
 
 fn pause_on_key(
     keys: Res<ButtonInput<KeyCode>>,
-    mut playground_state: ResMut<PlaygroundState>,
-    mut rapier_config: Query<&mut RapierConfiguration>,
+    mut rapier_config: Query<&mut bevy_rapier2d::prelude::RapierConfiguration>,
 ) {
     if keys.just_pressed(KeyCode::KeyP) {
-        playground_state.is_paused = !playground_state.is_paused;
-        
         if let Ok(mut config) = rapier_config.single_mut() {
-            config.physics_pipeline_active = !playground_state.is_paused;
+            config.physics_pipeline_active = !config.physics_pipeline_active;
+            info!("Physics paused: {}", !config.physics_pipeline_active);
         }
-        
-        info!("Pause: {}", playground_state.is_paused);
     }
 }
 
 fn setup_ui(mut commands: Commands) {
-    // Stats text in top-left
-    commands.spawn((
-        Text::new("Stats"),
-        TextColor(Color::WHITE),
-        TextFont {
-            font_size: 20.0,
-            ..default()
-        },
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(10.0),
-            left: Val::Px(10.0),
-            ..default()
-        },
-        StatsText,
-    ));
-    
-    // Controls text in bottom-left
-    commands.spawn((
-        Text::new("Controls:\nLeft Click: Spawn Ball\nR: Reset\nP: Pause\nArrows: Adjust Gravity\n+/-: Clustering Strength"),
-        TextColor(Color::srgb(0.8, 0.8, 0.8)),
-        TextFont {
-            font_size: 16.0,
-            ..default()
-        },
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(10.0),
-            left: Val::Px(10.0),
-            ..default()
-        },
-        ControlsText,
-    ));
+    // Root container
+    commands.spawn(Node {
+        width: Val::Percent(100.0),
+        height: Val::Percent(100.0),
+        flex_direction: FlexDirection::Column,
+        justify_content: JustifyContent::SpaceBetween,
+        ..default()
+    }).with_children(|parent| {
+        // Top stats bar
+        parent.spawn((
+            Node {
+                padding: UiRect::all(Val::Px(10.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+        )).with_children(|parent| {
+            parent.spawn((
+                Text::new("Stats Loading..."),
+                TextColor(Color::WHITE),
+                TextFont {
+                    font_size: 20.0,
+                    ..default()
+                },
+                StatsText,
+            ));
+        });
+        
+        // Bottom controls bar
+        parent.spawn((
+            Node {
+                padding: UiRect::all(Val::Px(10.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+        )).with_children(|parent| {
+            parent.spawn((
+                Text::new("Controls: Left Click=Spawn | R=Reset | P=Pause | Arrows=Gravity | +/-=Clustering"),
+                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                TextFont {
+                    font_size: 16.0,
+                    ..default()
+                },
+                ControlsText,
+            ));
+        });
+    });
 }
 
 fn adjust_physics_with_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mut physics_config: ResMut<PhysicsConfig>,
+    time: Res<Time>,
 ) {
+    let delta = time.delta_secs();
+    let speed = 500.0;
+    
+    let mut changed = false;
+    
     // Gravity adjustments
     if keys.pressed(KeyCode::ArrowUp) {
-        physics_config.gravity.y += 10.0;
+        physics_config.gravity.y += speed * delta;
+        changed = true;
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        physics_config.gravity.y -= 10.0;
+        physics_config.gravity.y -= speed * delta;
+        changed = true;
     }
     if keys.pressed(KeyCode::ArrowLeft) {
-        physics_config.gravity.x -= 10.0;
+        physics_config.gravity.x -= speed * delta;
+        changed = true;
     }
     if keys.pressed(KeyCode::ArrowRight) {
-        physics_config.gravity.x += 10.0;
+        physics_config.gravity.x += speed * delta;
+        changed = true;
     }
     
     // Clustering strength
     if keys.pressed(KeyCode::Equal) || keys.pressed(KeyCode::NumpadAdd) {
-        physics_config.clustering_strength = (physics_config.clustering_strength + 5.0).min(500.0);
+        physics_config.clustering_strength = (physics_config.clustering_strength + 100.0 * delta).min(500.0);
+        changed = true;
     }
     if keys.pressed(KeyCode::Minus) || keys.pressed(KeyCode::NumpadSubtract) {
-        physics_config.clustering_strength = (physics_config.clustering_strength - 5.0).max(0.0);
+        physics_config.clustering_strength = (physics_config.clustering_strength - 100.0 * delta).max(0.0);
+        changed = true;
+    }
+    
+    if changed {
+        info!("Physics - Gravity: ({:.0}, {:.0}), Clustering: {:.0}", 
+            physics_config.gravity.x, physics_config.gravity.y, physics_config.clustering_strength);
     }
 }
 
@@ -383,7 +369,8 @@ fn update_stats_text(
     mut text_query: Query<&mut Text, With<StatsText>>,
     diagnostics: Res<DiagnosticsStore>,
     balls: Query<&Ball>,
-    playground_state: Res<PlaygroundState>,
+    _playground_state: Res<PlaygroundState>,
+    physics_config: Res<PhysicsConfig>,
 ) {
     let Ok(mut text) = text_query.single_mut() else { return; };
     
@@ -392,10 +379,14 @@ fn update_stats_text(
         .and_then(|d| d.smoothed())
         .unwrap_or(0.0);
     
+    let ball_count = balls.iter().count();
+    
     **text = format!(
-        "FPS: {:.1}\nBalls: {}\nSpawned: {}",
+        "FPS: {:.1} | Balls: {} | Gravity: ({:.0}, {:.0}) | Clustering: {:.0}",
         fps,
-        balls.iter().count(),
-        playground_state.balls_spawned,
+        ball_count,
+        physics_config.gravity.x,
+        physics_config.gravity.y,
+        physics_config.clustering_strength,
     );
 }
