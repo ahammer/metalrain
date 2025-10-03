@@ -405,10 +405,6 @@ commands.spawn((
 - **Render Layers**: Use targeted layers to reduce overdraw
 - **Event Pipeline**: Keep handlers lightweight, defer heavy work to regular systems
 
-## License
-
-All crates are dual-licensed under MIT or Apache-2.0 at your option.
-
 ## Questions?
 
 Each crate has detailed documentation in its README.md. For integration examples, see the demo applications in the `demos/` directory.
