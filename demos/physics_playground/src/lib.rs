@@ -5,6 +5,7 @@ use rand::prelude::*;
 
 use game_core::{Ball, BallBundle, GameColor, GameCorePlugin, Wall};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
+use bevy_rapier2d::prelude::{Ccd, RigidBody as RapierRigidBody, Collider as RapierCollider};
 use bevy_rapier2d::prelude::RapierDebugRenderPlugin; // debug draw for physics
 use metaball_renderer::{MetaBall, MetaballRenderSettings, MetaballRendererPlugin};
 use game_rendering::{GameCamera, GameRenderingPlugin, RenderLayer};
@@ -83,7 +84,7 @@ pub fn run_physics_playground() {
         .add_plugins(EventCorePlugin::default())
         // Local state
         .init_resource::<PlaygroundState>()
-        .add_systems(Startup, (setup_camera, setup_arena, setup_ui, spawn_test_balls))
+    .add_systems(Startup, (setup_camera, setup_arena, setup_ui, spawn_test_balls))
         .add_systems(Update, (
             exit_on_escape,
             spawn_ball_on_click,
@@ -92,6 +93,7 @@ pub fn run_physics_playground() {
             adjust_physics_with_keys,
             update_stats_text,
             update_mouse_position_text,
+            enable_ccd_for_balls,
         ))
         .run();
 }
@@ -99,9 +101,9 @@ pub fn run_physics_playground() {
 fn spawn_test_balls(mut commands: Commands) {
     // Spawn a few test balls so there's something to see immediately
     let test_positions = [
-        Vec2::new(-100.0, 100.0),
-        Vec2::new(0.0, 150.0),
-        Vec2::new(100.0, 100.0),
+        Vec2::new(-150.0, 220.0),
+        Vec2::new(0.0, 260.0),
+        Vec2::new(150.0, 240.0),
     ];
 
     let test_colors = [GameColor::Red, GameColor::Blue, GameColor::Green];
@@ -129,69 +131,47 @@ fn exit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut exit: EventWriter<AppExit
 }
 
 fn setup_camera(mut commands: Commands) {
-    // Spawn 2D camera; Bevy will also insert the underlying `Camera` component
+    // Spawn 2D camera; underlying `Camera` provided; tag with GameCamera so queries filter reliably
     commands.spawn((Camera2d, GameCamera::default()));
 }
 
 fn setup_arena(mut commands: Commands) {
     let half = ARENA_HALF_EXTENT;
-    let thickness = WALL_THICKNESS;
+    // Slight physics padding to reduce tunneling; kept internal.
+    let phys_pad = 8.0_f32;
 
-    // Bottom wall - WidgetRendererPlugin will add Sprite automatically
-    commands.spawn((
-        Wall {
-            start: Vec2::new(-half, -half),
-            end: Vec2::new(half, -half),
-            thickness,
-            color: Color::srgb(0.3, 0.3, 0.4),
-        },
-        Transform::from_xyz(0.0, -half, 0.0),
-        bevy_rapier2d::prelude::RigidBody::Fixed,
-        bevy_rapier2d::prelude::Collider::cuboid(half, thickness / 2.0),
-        Name::new("BottomWall"),
-    ));
+    // New simplified helper: only start, end, thickness.
+    // Computes center, orientation, and collider extents from the segment.
+    fn spawn_wall(commands: &mut Commands, start: Vec2, end: Vec2, thickness: f32, phys_pad: f32) {
+        let delta = end - start;
+        let length = delta.length().max(1.0);
+        let center = (start + end) * 0.5;
+        let angle = delta.y.atan2(delta.x); // rotation around Z
+        // Half extents for collider: (along, across)
+        let half_along = length * 0.5;
+        let half_across = thickness * 0.5 + phys_pad;
+        commands.spawn((
+            Wall { start, end, thickness, color: Color::srgb(0.3, 0.3, 0.4) },
+            Transform {
+                translation: center.extend(0.0),
+                rotation: Quat::from_rotation_z(angle),
+                ..Default::default()
+            },
+            GlobalTransform::IDENTITY,
+            RapierRigidBody::Fixed,
+            RapierCollider::cuboid(half_along, half_across),
+            Name::new(format!("Wall({:.0},{:.0})->({:.0},{:.0})", start.x, start.y, end.x, end.y)),
+        ));
+    }
 
-    // Top wall
-    commands.spawn((
-        Wall {
-            start: Vec2::new(-half, half),
-            end: Vec2::new(half, half),
-            thickness,
-            color: Color::srgb(0.3, 0.3, 0.4),
-        },
-        Transform::from_xyz(0.0, half, 0.0),
-        bevy_rapier2d::prelude::RigidBody::Fixed,
-        bevy_rapier2d::prelude::Collider::cuboid(half, thickness / 2.0),
-        Name::new("TopWall"),
-    ));
-
-    // Left wall
-    commands.spawn((
-        Wall {
-            start: Vec2::new(-half, -half),
-            end: Vec2::new(-half, half),
-            thickness,
-            color: Color::srgb(0.3, 0.3, 0.4),
-        },
-        Transform::from_xyz(-half, 0.0, 0.0),
-        bevy_rapier2d::prelude::RigidBody::Fixed,
-        bevy_rapier2d::prelude::Collider::cuboid(thickness / 2.0, half),
-        Name::new("LeftWall"),
-    ));
-
-    // Right wall
-    commands.spawn((
-        Wall {
-            start: Vec2::new(half, -half),
-            end: Vec2::new(half, half),
-            thickness,
-            color: Color::srgb(0.3, 0.3, 0.4),
-        },
-        Transform::from_xyz(half, 0.0, 0.0),
-        bevy_rapier2d::prelude::RigidBody::Fixed,
-        bevy_rapier2d::prelude::Collider::cuboid(thickness / 2.0, half),
-        Name::new("RightWall"),
-    ));
+    // Bottom
+    spawn_wall(&mut commands, Vec2::new(-half, -half), Vec2::new(half, -half), WALL_THICKNESS, phys_pad);
+    // Top
+    spawn_wall(&mut commands, Vec2::new(-half, half), Vec2::new(half, half), WALL_THICKNESS, phys_pad);
+    // Left
+    spawn_wall(&mut commands, Vec2::new(-half, -half), Vec2::new(-half, half), WALL_THICKNESS, phys_pad);
+    // Right
+    spawn_wall(&mut commands, Vec2::new(half, -half), Vec2::new(half, half), WALL_THICKNESS, phys_pad);
 
     info!("Arena setup complete");
 }
@@ -288,52 +268,70 @@ fn pause_on_key(
 }
 
 fn setup_ui(mut commands: Commands) {
-    // Root container
-    commands.spawn(Node {
-        width: Val::Percent(100.0),
-        height: Val::Percent(100.0),
-        flex_direction: FlexDirection::Column,
-        justify_content: JustifyContent::SpaceBetween,
-        ..default()
-    }).with_children(|parent| {
-        // Top stats bar
-        parent.spawn((
-            Node {
-                padding: UiRect::all(Val::Px(10.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
-        )).with_children(|parent| {
-            parent.spawn((
-                Text::new("Stats Loading..."),
-                TextColor(Color::WHITE),
-                TextFont {
-                    font_size: 20.0,
-                    ..default()
-                },
-                StatsText,
-            ));
-        });
+    commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::SpaceBetween,
+            ..default()
+        })
+        .with_children(|root| {
+            // Top bar (stats left, mouse pos right)
+            root
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        padding: UiRect::all(Val::Px(10.0)),
+                        flex_direction: FlexDirection::Row,
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+                ))
+                .with_children(|bar| {
+                    bar.spawn((
+                        Text::new("Stats Loading..."),
+                        TextColor(Color::WHITE),
+                        TextFont { font_size: 20.0, ..default() },
+                        StatsText,
+                    ));
+                    bar.spawn((
+                        Text::new("Mouse: ---, ---"),
+                        TextColor(Color::WHITE),
+                        TextFont { font_size: 20.0, ..default() },
+                        MousePositionText,
+                    ));
+                });
 
-        // Bottom controls bar
-        parent.spawn((
-            Node {
-                padding: UiRect::all(Val::Px(10.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
-        )).with_children(|parent| {
-            parent.spawn((
-                Text::new("Controls: Left Click=Spawn | R=Reset | P=Pause | Arrows=Gravity | +/-=Clustering"),
-                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                TextFont {
-                    font_size: 16.0,
-                    ..default()
-                },
-                ControlsText,
-            ));
+            // Bottom controls bar
+            root
+                .spawn((
+                    Node {
+                        padding: UiRect::all(Val::Px(10.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+                ))
+                .with_children(|c| {
+                    c.spawn((
+                        Text::new("Controls: Left Click=Spawn | R=Reset | P=Pause | Arrows=Gravity | +/-=Clustering"),
+                        TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        TextFont { font_size: 16.0, ..default() },
+                        ControlsText,
+                    ));
+                });
         });
-    });
+}
+
+// (Removed configure_rapier: direct gravity field not available in current RapierConfiguration version; using built-in gravity only.)
+
+// System: enable CCD on all dynamic ball bodies (prevents tunneling through thin walls)
+fn enable_ccd_for_balls(mut commands: Commands, q: Query<(Entity, &RapierRigidBody), (With<Ball>, Without<Ccd>)>) {
+    for (e, body) in &q {
+        if matches!(body, RapierRigidBody::Dynamic) { commands.entity(e).insert(Ccd::enabled()); }
+    }
 }
 
 fn adjust_physics_with_keys(
