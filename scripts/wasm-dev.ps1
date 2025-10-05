@@ -100,23 +100,30 @@ function Invoke-WasmRun {
     [switch]$ReleaseBuild,
     [switch]$UseWatch
   )
+  # Ensure cargo uses wasm-server-runner to serve and execute the produced .wasm instead of
+  # trying to run the raw wasm file (which fails on Windows with os error 193).
+  if (-not $env:CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER) {
+    $env:CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER = 'wasm-server-runner'
+  }
   $profileFlag = $ReleaseBuild.IsPresent ? "--release" : ""
   $target = "wasm32-unknown-unknown"
+  $package = "metaballs_test"
 
   if ($UseWatch -and (Test-CommandAvailable cargo-watch)) {
     Write-Section "Starting watch mode (src, assets, web)"
     cargo watch `
-      -w src `
+      -w demos/metaballs_test/src `
+      -w crates/metaball_renderer/src `
       -w assets `
       -w web `
-      -x "run --target $target $profileFlag" `
+      -x "run --package $package --target $target $profileFlag" `
       --why
   } else {
     if ($UseWatch -and -not (Test-CommandAvailable cargo-watch)) {
       Write-Warn "Watch requested but cargo-watch missing; performing single run."
     }
     Write-Section "Running (single invocation)"
-    cargo run --target $target $profileFlag
+    cargo run --package $package --target $target $profileFlag
   }
 }
 
