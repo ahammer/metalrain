@@ -4,17 +4,38 @@
 
 Enable our Bevy WASM build to run compute shaders using `var<storage>` buffers under **core WebGPU** (no WebGL2 fallback) while keeping native (desktop) backends stable and ensuring shaders reliably load on web.
 
-## Current Status (Post‑Attempt Audit)
+## Phase 1 Results (Executed)
 
-| Aspect | Result | Notes |
-|--------|--------|-------|
-| WASM window / surface | ✅ | Graphics context & buffers created. |
-| Compute pipelines queued | ✅ | Pipeline nodes entered Loading state. |
-| WGSL shader load (wasm) | ❌ | Pipelines never reached Ready → shader asset load likely failed or delayed (filesystem delivery). |
-| Native desktop run | ❌ | Forcing `Backends::BROWSER_WEBGPU` broke adapter selection on non-web targets. |
-| Storage buffer limits log | ❌ | No diagnostic system; lack of visibility into adapter limits. |
-| Fallback (uniform) removal | ✅ (implicit) | We retained storage binding, no evidence of downgrade path. |
-| Explicit `webgpu` feature usage | Incomplete | Workspace `bevy` dependency lacks the `webgpu` feature flag. |
+| Aspect | Target | Actual Result | Status |
+|--------|--------|---------------|--------|
+| Bevy `webgpu` feature | Enable | ✅ Added to workspace dependency | Complete |
+| `embed_shaders` feature | Add crate feature | ✅ Added to `metaball_renderer` | Complete |
+| Wasm-only backend gating | Conditional insert | ⚠️ Skipped (WgpuSettings not Resource) | Acceptable - default works |
+| Shader embedding path | Compile-time inclusion | ✅ Both compute shaders embed when feature enabled | Complete |
+| Adapter limits diagnostics | Log & assert | ✅ Logs `max_storage_buffers_per_shader_stage=10` | Complete |
+| Pipeline readiness watchdog | Warn after N frames | ❌ Not implemented | Phase 2 |
+| Asset path (wasm) | Sync or configure | ❌ Still `../../assets` → 404s | **Blocking** |
+| Meta file suppression | AssetMetaCheck | ❌ Still defaults → 404 .meta | Phase 2 |
+| wasm-dev script sync | Copy to served path | ⚠️ Copies to wrong location | **Blocking** |
+| README updates | Document approach | ✅ Added WebGPU section | Complete |
+
+## Current Runtime Failure (Phase 1 Exit State)
+
+**Symptom**: Panic at `pipeline.rs:410` with "Pipeline could not be compiled because the following shader could not be loaded"
+
+**Browser Console**: 404 errors for:
+
+- `/assets/shaders/compute_metaballs.wgsl.meta`
+- `/assets/shaders/compute_3d_normals.wgsl.meta`
+- `/assets/shaders/present_fullscreen.wgsl.meta`
+- (Likely also the `.wgsl` files themselves, though may not show distinct 404s)
+
+**Root Causes Identified**:
+
+1. **Asset path mismatch**: Demo uses `AssetPlugin { file_path: "../../assets" }` but wasm-server-runner serves from demo package root
+2. **Script sync destination wrong**: Copies to `embedded_assets/` but runtime never looks there
+3. **Meta file noise**: Default `AssetMetaCheck::Always` generates extra failing requests
+4. **Eager pipeline creation**: `FromWorld` queues pipeline before shader `Handle` resolves → premature compile attempt
 
 ## Root Cause Analysis
 
@@ -63,75 +84,185 @@ Focused on reliability, diagnostics, and native/web parity:
 | C. Trunk bundler | Robust static pipelining | Adds new tooling now | Later consideration |
 | D. Hybrid flag (`embed_shaders`) | Flexible, CI-stable, dev-friendly | Slight complexity | ✅ Selected |
 
-## Revised Work Plan (Actionable Steps)
+## Phase 2 Work Plan: Fix Asset Delivery & Pipeline Staging
 
-### Step 0: Final Discovery (DONE)
+**Objective**: Eliminate 404s, prevent premature pipeline compilation, add observability.
 
-Confirmed absence of `webgl2` features; found shader loads via `AssetServer` only; pipelines rely on those handles.
+### Step 1: Fix Asset Path for WASM ✅ PRIORITY
 
-### Step 1: Cargo / Feature Updates
-
-1. Add `"webgpu"` to workspace `bevy` dependency features.
-2. Introduce `[features] embed_shaders = []` at workspace root (or in `metaball_renderer` + `game_assets` if scoping preferred).
-3. (Optional) Add `web_webgpu` workspace feature if we need conditional CI matrix – otherwise always enable.
-
-### Step 2: Conditional WgpuSettings
-
-Wrap backend force:
+Change `demos/metaballs_test/src/lib.rs` to use conditional AssetPlugin configuration:
 
 ```rust
-#[cfg(target_arch="wasm32")]
-app.insert_resource(WgpuSettings {
-    backends: Some(Backends::BROWSER_WEBGPU),
-    limits: Limits { max_storage_buffers_per_shader_stage: 1, ..Default::default() },
-    ..Default::default()
-});
-```
+use bevy::asset::{AssetPlugin, AssetMetaCheck};
 
-Do NOT insert on native.
-
-### Step 3: Shader Embedding (Feature-Gated)
-
-```rust
-#[cfg(feature = "embed_shaders")] const COMPUTE_METABALLS_WGSL: &str = include_str!("../../assets/shaders/compute_metaballs.wgsl");
-#[cfg(feature = "embed_shaders")] fn register_embedded_shaders(world: &mut World) {
-    use bevy::asset::Assets; use bevy::prelude::*; use bevy::render::render_resource::Shader;
-    let mut shaders = world.resource_mut::<Assets<Shader>>();
-    let handle = shaders.add(Shader::from_wgsl(COMPUTE_METABALLS_WGSL));
-    // store handle somewhere (resource) so pipelines can use it immediately.
+pub fn run_metaballs_test() {
+    App::new()
+        .insert_resource(ClearColor(Color::BLACK))
+        .add_plugins({
+            #[cfg(target_arch = "wasm32")]
+            {
+                DefaultPlugins.set(AssetPlugin {
+                    file_path: "assets".into(),
+                    processed_file_path: "imported_assets/Default".into(),
+                    meta_check: AssetMetaCheck::Never,
+                    watch_for_changes_override: Some(false),
+                    ..default()
+                })
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                DefaultPlugins.set(AssetPlugin {
+                    file_path: "../../assets".into(),
+                    ..default()
+                })
+            }
+        })
+        // ... rest of setup
+        .run();
 }
 ```
 
-Pipelines: if `embed_shaders`, skip `asset_server.load` and use stored handle.
+**Why**: On wasm32, `wasm-server-runner` serves from the demo package directory. Using `"assets"` as a relative path allows the runtime to find files copied there, while `AssetMetaCheck::Never` suppresses `.meta` 404 noise.
 
-### Step 4: Filesystem Delivery (Non-Embedded Path)
+### Step 2: Fix Script Asset Sync Destination ✅ PRIORITY
 
-Enhance `wasm-dev.ps1` to sync assets into the served directory prior to `cargo run`.
+Update `scripts/wasm-dev.ps1` to copy assets to the correct location:
 
-### Step 5: Diagnostics Systems
-
-Add after plugins:
-
-```rust
-fn log_adapter_limits(render_device: Res<bevy::render::renderer::RenderDevice>) {
-    let l = render_device.limits();
-    info!(target: "diagnostics", "Adapter limits: max_storage_buffers_per_shader_stage={}", l.max_storage_buffers_per_shader_stage);
-    assert!(l.max_storage_buffers_per_shader_stage >= 1, "Storage buffers per stage == 0 (unexpected WebGL path)");
+```powershell
+if (-not $Embed) {
+  Write-Section "Syncing assets (non-embedded mode)"
+  $dest = Join-Path $root "demos/metaballs_test/assets"  # Changed from embedded_assets
+  if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+  Copy-Item (Join-Path $root 'assets') $dest -Recurse
 }
 ```
 
-Optional system counting frames until pipeline readiness to warn after e.g. 120 frames.
+**Why**: Must align script destination with runtime path configured in Step 1.
 
-### Step 6: README & Index.html
+### Step 3: Add Pipeline Readiness Watchdog
 
-Document required browsers, embedding flag, and diagnostic output signature. Add WebGPU guard script if absent.
+Create `crates/metaball_renderer/src/compute/watchdog.rs`:
 
-### Step 7: Verification
+```rust
+use bevy::prelude::*;
+use bevy::render::render_resource::{CachedPipelineState, PipelineCache};
+use super::pipeline::GpuMetaballPipeline;
+use super::pipeline_normals::GpuNormalsPipeline;
 
-1. Native run → confirm successful backend selection (no BROWSER_WEBGPU forced, compute still runs).
-2. WASM dev (filesystem) → verify network requests for WGSL succeed (no 404), pipeline ready quickly.
-3. WASM with `--features embed_shaders` → zero WGSL network requests; immediate pipeline readiness.
-4. Console shows limit ≥ 1.
+#[derive(Resource, Default)]
+pub struct PipelineWatchdog {
+    pub frames_waiting: u32,
+    pub warned_metaballs: bool,
+    pub warned_normals: bool,
+}
+
+pub fn metaball_pipeline_watchdog(
+    mut wd: ResMut<PipelineWatchdog>,
+    cache: Res<PipelineCache>,
+    metaball_pipeline: Option<Res<GpuMetaballPipeline>>,
+    normals_pipeline: Option<Res<GpuNormalsPipeline>>,
+) {
+    let mut all_ready = true;
+    
+    if let Some(pipeline) = metaball_pipeline {
+        match cache.get_compute_pipeline_state(pipeline.pipeline_id) {
+            CachedPipelineState::Ok(_) => {},
+            CachedPipelineState::Err(e) => {
+                error!("Metaballs compute pipeline failed: {}", e);
+                return;
+            },
+            _ => {
+                all_ready = false;
+                if !wd.warned_metaballs && wd.frames_waiting >= 120 {
+                    warn!("Metaballs compute pipeline still Loading after 120 frames.\nCheck: 1) Network 404s in browser console; 2) Asset path config; 3) Try with -Embed flag");
+                    wd.warned_metaballs = true;
+                }
+            }
+        }
+    }
+    
+    if let Some(pipeline) = normals_pipeline {
+        match cache.get_compute_pipeline_state(pipeline.pipeline_id) {
+            CachedPipelineState::Ok(_) => {},
+            CachedPipelineState::Err(e) => {
+                error!("Normals compute pipeline failed: {}", e);
+                return;
+            },
+            _ => {
+                all_ready = false;
+                if !wd.warned_normals && wd.frames_waiting >= 120 {
+                    warn!("Normals compute pipeline still Loading after 120 frames.\nCheck: 1) Network 404s in browser console; 2) Asset path config; 3) Try with -Embed flag");
+                    wd.warned_normals = true;
+                }
+            }
+        }
+    }
+    
+    if !all_ready {
+        wd.frames_waiting += 1;
+        
+        if cfg!(debug_assertions) && wd.frames_waiting >= 600 {
+            panic!("Compute pipelines failed to become Ready in 600 frames (debug build timeout).\nLikely causes:\n- Asset 404s (check Network tab)\n- Incorrect AssetPlugin.file_path for wasm\n- Missing shader files");
+        }
+    }
+}
+```
+
+Add to `settings.rs` plugin build:
+
+```rust
+render_app.init_resource::<crate::compute::watchdog::PipelineWatchdog>();
+render_app.add_systems(Render, crate::compute::watchdog::metaball_pipeline_watchdog);
+```
+
+### Step 4: Improve Pipeline Error Messages
+
+Update panic sites in `pipeline.rs` and `pipeline_normals.rs` Node::update methods:
+
+```rust
+CachedPipelineState::Err(err) => {
+    panic!(
+        "Failed to compile metaballs compute pipeline.\n\
+        Error: {}\n\
+        Shader handle: {:?}\n\
+        Troubleshooting:\n\
+        - On WASM: Check browser Network tab for 404 errors on .wgsl files\n\
+        - Verify AssetPlugin.file_path matches served directory\n\
+        - Try embedded mode: cargo run --target wasm32-unknown-unknown --features metaball_renderer/embed_shaders\n\
+        - Check that assets/ directory exists and contains shaders/", 
+        err, 
+        pipeline.pipeline_id
+    )
+}
+```
+
+### Step 5: Extend Embedding to Present Shader (Optional)
+
+If `present_fullscreen.wgsl` also needs embedding, add to `present/mod.rs`:
+
+```rust
+#[cfg(feature = "embed_shaders")]
+const PRESENT_FULLSCREEN_WGSL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/shaders/present_fullscreen.wgsl"
+));
+
+// In shader load site:
+let shader: Handle<Shader> = {
+    #[cfg(feature = "embed_shaders")]
+    {
+        let mut shaders = world.resource_mut::<Assets<Shader>>();
+        shaders.add(Shader::from_wgsl(
+            PRESENT_FULLSCREEN_WGSL,
+            "embedded://present_fullscreen.wgsl",
+        ))
+    }
+    #[cfg(not(feature = "embed_shaders"))]
+    {
+        asset_server.load("shaders/present_fullscreen.wgsl")
+    }
+};
+```
 
 ## Updated Success Criteria
 
@@ -153,46 +284,80 @@ Document required browsers, embedding flag, and diagnostic output signature. Add
 | Native backend break | Keep backend override behind `cfg(target_arch="wasm32")` |
 | Drift in asset roots | Standardize via `configure_demo()` helpers |
 
-## Implementation Checklist (to execute next)
+## Phase 2 Checklist (Actionable – Execute Next)
 
-1. Cargo: add `webgpu` feature to `bevy` dependency.
-2. Add `[features] embed_shaders = []` and gate code.
-3. Add wasm-only `WgpuSettings` insertion helper.
-4. Implement embedded shader registration + handle resource.
-5. Modify compute pipelines to branch on feature for handle acquisition.
-6. Enhance `scripts/wasm-dev.ps1` asset sync and `-Embed` switch.
-7. Add diagnostics systems (limits + pipeline readiness optional).
-8. Update README (WebGPU-only, embedding flag, expected logs).
-9. Optional: Add automated smoke test (headless wasm build) verifying no compile errors.
+- [ ] **Fix wasm AssetPlugin path**: Add conditional `#[cfg(target_arch = "wasm32")]` block with `file_path: "assets"` and `meta_check: AssetMetaCheck::Never`
+- [ ] **Fix wasm-dev.ps1 sync**: Change destination from `embedded_assets/` to `demos/metaballs_test/assets`
+- [ ] **Add watchdog module**: Create `crates/metaball_renderer/src/compute/watchdog.rs` with frame counter and warnings
+- [ ] **Wire watchdog into plugin**: Add `init_resource` and system in `settings.rs`
+- [ ] **Enrich panic messages**: Update `pipeline.rs` and `pipeline_normals.rs` error messages with troubleshooting steps
+- [ ] **Extend embedding to present shader**: Add `PRESENT_FULLSCREEN_WGSL` constant and conditional loading in `present/mod.rs`
+- [ ] **Test non-embedded mode**: Run `pwsh scripts/wasm-dev.ps1` and verify zero 404s
+- [ ] **Test embedded mode**: Run `pwsh scripts/wasm-dev.ps1 -Embed` and verify zero shader network requests
+- [ ] **Update FixWebGPU.md**: Mark Phase 2 complete and add Phase 3 planning
 
-## Deliverables
+## Phase 1 Deliverables (Completed)
 
-- Updated Cargo / feature configuration.
+- ✅ Updated Cargo / feature configuration (webgpu, embed_shaders)
+- ✅ Conditional shader embedding implemented
+- ✅ Adapter limits diagnostics added
+- ✅ README section: "WebGPU-only & Shader Delivery Modes"
+- ✅ Script `-Embed` switch added
+- ⚠️ Asset path still needs wasm fix (Phase 2)
 
-- Conditional backend + diagnostics code merged.
-- Hybrid shader delivery implemented; default dev iteration unchanged.
-- README section: “WebGPU-only & Shader Delivery Modes”.
-- Script updates for wasm dev + embed flag.
-- Console evidence: adapter limits and pipeline readiness.
+## Phase 2 Success Criteria
 
-## Commit Message Template
+| Criterion | Pass Condition |
+|-----------|----------------|
+| 404 Elimination | Zero 404s for `.wgsl` in Network tab (non-embedded) |
+| Meta Noise | No `.wgsl.meta` requests when `AssetMetaCheck::Never` |
+| Panic Timing | Watchdog warns at 120 frames; panics at 600 (debug only) |
+| Embedded Mode | Zero network shader requests; pipeline ready in ≤5 frames |
+| Logging | Clear warnings with actionable troubleshooting steps |
 
+## Commit Message Templates
+
+### Phase 1 (Completed)
+
+```text
+feat(webgpu): add WebGPU support with hybrid shader delivery
+
+- Add Bevy webgpu feature to workspace dependency
+- Introduce embed_shaders feature for deterministic WASM builds
+- Add adapter limits diagnostics + assertion
+- Update README with WebGPU requirements
+- Add -Embed switch to wasm-dev.ps1 script
 ```
-feat(webgpu): stabilize WebGPU compute (storage buffers) with hybrid shader delivery & diagnostics
 
-- Add Bevy webgpu feature; remove any implicit webgl2 paths
-- Gate BROWSER_WEBGPU backend to wasm only
-- Introduce optional embed_shaders feature for deterministic wasm builds
-- Add adapter limits logging + assertion
-- Improve wasm dev script asset sync & embed mode
+### Phase 2 (To Execute)
+
+```text
+fix(webgpu): resolve WASM asset delivery and add pipeline watchdog
+
+- Fix AssetPlugin.file_path for wasm32 target (use "assets")
+- Suppress .meta file requests with AssetMetaCheck::Never
+- Correct wasm-dev.ps1 asset sync destination
+- Add pipeline readiness watchdog with frame counter
+- Enrich panic messages with troubleshooting guidance
+- Extend embedding to present_fullscreen.wgsl shader
 ```
 
-## Follow-Up (Optional Enhancements)
+## Phase 3 Preview: Performance & Build Hygiene
 
-- Add a small integration test that instantiates the app for a few frames and checks pipeline cache state (native only).
+### Objectives
 
-- Introduce trunk-based build pipeline later for production packaging and hashed assets.
-- Explore automatic shader pre-warm metrics / timing logs to monitor WGSL compile latency.
+1. Reduce wasm binary size (169 MB debug is fine, but release + LTO guidelines).
+2. Add a headless native smoke test verifying pipeline readiness within a small frame budget.
+3. Optional: unify a `web_embed_shaders` workspace feature alias.
+4. Introduce structured timing metrics (shader compile duration, first frame to Ready).
+
+### Action Steps
+
+1. **Release Build Guidance & Script Flag**: Add `-Release` + `-Embed` recommendation for CI.
+2. **Smoke Test (Native)**: New test in `metaball_renderer/tests/ready.rs` asserting pipeline ready < 240 frames.
+3. **Metrics**: Resource timestamps for shader request, pipeline queued, pipeline ready; log derived durations.
+4. **Feature Alias**: Optional root `Cargo.toml` feature `web_embed_shaders = ["metaball_renderer/embed_shaders"]`.
+5. **Bundle Prep (Exploratory)**: Evaluate moving to `trunk` or `wasm-bindgen-cli` + asset hashing (defer unless needed).
 
 ---
 
