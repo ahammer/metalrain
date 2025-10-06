@@ -11,6 +11,8 @@ repository = "https://github.com/ahammer/metalrain"
 default = ["present", "shader_hot_reload"]
 present = []
 shader_hot_reload = []
+# Embed WGSL shaders directly (skips AssetServer loading; useful for wasm deterministic builds / CI)
+embed_shaders = []
 
 [dependencies]
 bevy = { workspace = true }

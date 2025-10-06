@@ -3,6 +3,7 @@ use crate::coordinates::MetaballCoordinateMapper;
 use crate::diagnostics::MetaballDiagnosticsPlugin;
 use crate::pack::PackingPlugin;
 use bevy::prelude::*;
+use bevy::render::{Render, RenderApp, renderer::RenderDevice};
 
 /// Public settings controlling renderer subsystems & coordinate mapping.
 #[derive(Clone, Resource, Debug)]
@@ -107,5 +108,18 @@ impl Plugin for MetaballRendererPlugin {
         if self.settings.present_via_quad {
             app.add_plugins(crate::present::MetaballDisplayPlugin);
         }
+
+        // Insert GPU adapter limits diagnostics into render world (runs once when render device ready).
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app.add_systems(Render, log_adapter_limits_once);
     }
+}
+
+/// Logs adapter limits (once) and asserts storage buffer availability.
+fn log_adapter_limits_once(render_device: Res<RenderDevice>, mut done: Local<bool>) {
+    if *done { return; }
+    let limits = render_device.limits();
+    info!(target: "gpu", "Adapter limits: max_storage_buffers_per_shader_stage={}", limits.max_storage_buffers_per_shader_stage);
+    assert!(limits.max_storage_buffers_per_shader_stage >= 1, "Storage buffers per shader stage < 1 (unexpected WebGL fallback path)");
+    *done = true;
 }

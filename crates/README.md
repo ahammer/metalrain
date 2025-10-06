@@ -6,9 +6,68 @@ This directory contains the modular crate architecture for the metalrain project
 
 The project is organized into specialized crates that can be composed together, enabling code reuse, independent testing, and clear separation of concerns. Each crate focuses on a specific domain and exposes clean APIs for integration.
 
+## WebGPU-only & Shader Delivery Modes
+
+The workspace now targets **core WebGPU only** for the browser build (no WebGL2 fallback). Desktop builds auto‑select Vulkan/Metal/DX12 as provided by Bevy. Key points:
+
+### Requirements
+
+* Modern browser with `navigator.gpu` available (Chrome ≥113, Edge, Firefox Nightly with `dom.webgpu.enabled`, Safari Technology Preview).
+* `web/index.html` contains a capability guard; unsupported browsers fail fast with a clear message.
+
+### Shader Delivery Strategies
+
+Two delivery modes are supported for WGSL compute shaders:
+
+| Mode | Activation | Use Case | Pros | Cons |
+|------|------------|----------|------|------|
+| Filesystem (default) | No extra features | Local dev & hot reload | Small WASM, editable shaders | Network fetch / 404 risk if assets not copied |
+| Embedded | `--features embed_shaders` | CI, deterministic builds | Zero network latency, cannot 404 | Larger binary, no hot reload |
+
+Enable embedding (crate-scoped feature path):
+
+```bash
+cargo run -p metaballs_test --target wasm32-unknown-unknown --features metaball_renderer/embed_shaders
+```
+
+Or use the helper script:
+
+```powershell
+pwsh scripts/wasm-dev.ps1 -Embed
+```
+
+When embedding, the WGSL sources are compiled from inlined `include_str!` data instead of being requested via `AssetServer`.
+
+### Diagnostics & Assertions
+
+On startup (render stage) the engine logs adapter limits:
+
+```text
+[gpu] Adapter limits: max_storage_buffers_per_shader_stage=4
+```
+
+An assertion will trigger (debug builds) if `max_storage_buffers_per_shader_stage < 1`, indicating an unintended fallback path.
+
+### wasm-dev Script Enhancements
+
+`scripts/wasm-dev.ps1` now supports:
+
+* `-Embed` switch → adds `--features embed_shaders`.
+* Asset sync step (skipped when embedding) to reduce risk of missing shader files during browser fetch.
+
+### Troubleshooting
+
+* Stuck compute pipeline (never logs normals/field activity): ensure shaders resolved (check dev tools Network panel) or retry with `-Embed`.
+* Unexpected assertion: verify you are not launching with WebGL features; ensure `webgpu` Bevy feature is enabled (already configured at workspace level).
+
+### Future Enhancements
+
+* Optional trunk / bundler integration for hashed asset delivery.
+* Automated smoke test to assert compute pipeline readiness within N frames.
+
 ## Crate Dependency Graph
 
-```
+```text
 game (top-level integration)
 ├── game_core (foundational types)
 ├── game_physics (Rapier2D integration)
@@ -33,9 +92,9 @@ game (top-level integration)
 
 **Foundational ECS types** - Components, resources, events, and bundles that define the game's domain model.
 
-- Components: `Ball`, `Paddle`, `Target`, `Wall`, `Hazard`, `SpawnPoint`
-- Events: `BallSpawned`, `TargetDestroyed`, `GameWon`, `GameLost`
-- Resources: `GameState`, `ArenaConfig`
+* Components: `Ball`, `Paddle`, `Target`, `Wall`, `Hazard`, `SpawnPoint`
+* Events: `BallSpawned`, `TargetDestroyed`, `GameWon`, `GameLost`
+* Resources: `GameState`, `ArenaConfig`
 
 **Use when:** You need core game entity definitions shared across systems.
 
@@ -45,9 +104,9 @@ game (top-level integration)
 
 **Centralized asset management** - Loads and provides typed handles to fonts, shaders, and other resources.
 
-- Eliminates hardcoded asset paths
-- Handles workspace structure complexity (demos, tests, workspace root)
-- Future: embedded assets for web builds
+* Eliminates hardcoded asset paths
+* Handles workspace structure complexity (demos, tests, workspace root)
+* Future: embedded assets for web builds
 
 **Use when:** You need access to game fonts, shaders, or centralized asset loading.
 
@@ -59,10 +118,10 @@ game (top-level integration)
 
 **Rapier2D physics integration** - Realistic ball physics, paddle kinematics, and clustering forces.
 
-- Automatic physics body creation for game entities
-- Runtime-configurable parameters (gravity, clustering, velocity limits)
-- Synchronization between physics and game components
-- Ball clustering behavior for visual appeal
+* Automatic physics body creation for game entities
+* Runtime-configurable parameters (gravity, clustering, velocity limits)
+* Synchronization between physics and game components
+* Ball clustering behavior for visual appeal
 
 **Use when:** You need realistic physics simulation for gameplay.
 
@@ -72,10 +131,10 @@ game (top-level integration)
 
 **Deterministic event pipeline** - Redux-inspired architecture for input processing and game state changes.
 
-- Frame-atomic event processing with journaling
-- Middleware chain (key mapping, debouncing, cooldowns)
-- Handler registry for game state mutations
-- Testable, replayable event stream
+* Frame-atomic event processing with journaling
+* Middleware chain (key mapping, debouncing, cooldowns)
+* Handler registry for game state mutations
+* Testable, replayable event stream
 
 **Use when:** You need structured input handling, event logging, or replay functionality.
 
@@ -87,10 +146,10 @@ game (top-level integration)
 
 **Multi-layer rendering pipeline** - Compositor with per-layer targets and camera effects.
 
-- Four render layers: Background, GameWorld, Metaballs, UI
-- Compositor with blend modes (Normal, Additive, Multiply, Screen)
-- Camera system with shake and zoom effects
-- Runtime layer toggling and configuration
+* Four render layers: Background, GameWorld, Metaballs, UI
+* Compositor with blend modes (Normal, Additive, Multiply, Screen)
+* Camera system with shake and zoom effects
+* Runtime layer toggling and configuration
 
 **Use when:** You need layered rendering with compositing and camera effects.
 
@@ -100,10 +159,10 @@ game (top-level integration)
 
 **GPU compute metaball rendering** - High-performance blob visuals with field and albedo textures.
 
-- Compute shader-based rendering (2-pass: field + normals)
-- World-space to texture-space coordinate mapping
-- Dynamic metaballs with colors and clustering
-- Offscreen rendering for flexible compositing
+* Compute shader-based rendering (2-pass: field + normals)
+* World-space to texture-space coordinate mapping
+* Dynamic metaballs with colors and clustering
+* Offscreen rendering for flexible compositing
 
 **Use when:** You need smooth, organic blob rendering.
 
@@ -113,10 +172,10 @@ game (top-level integration)
 
 **Game entity visuals** - Sprite-based rendering for walls, targets, paddles, hazards, and spawn points.
 
-- Automatic visual spawning when game components added
-- Animations: hit flashes, destruction effects, pulsing
-- Health visualization through opacity
-- Integration with multi-layer pipeline (RenderLayers::layer(1))
+* Automatic visual spawning when game components added
+* Animations: hit flashes, destruction effects, pulsing
+* Health visualization through opacity
+* Integration with multi-layer pipeline (RenderLayers::layer(1))
 
 **Use when:** You need visual representations of game entities.
 
@@ -126,10 +185,10 @@ game (top-level integration)
 
 **Background rendering system** - Configurable backgrounds with multiple visual modes.
 
-- Modes: Solid, Linear Gradient, Radial Gradient, Animated
-- Runtime-configurable colors, angles, and animation
-- Material2D-based shader rendering
-- Custom WGSL shader support
+* Modes: Solid, Linear Gradient, Radial Gradient, Animated
+* Runtime-configurable colors, angles, and animation
+* Material2D-based shader rendering
+* Custom WGSL shader support
 
 **Use when:** You need customizable game backgrounds.
 
@@ -141,10 +200,10 @@ game (top-level integration)
 
 **Top-level integration crate** - Assembles all subsystems into a complete game.
 
-- Coordinates between game_core, physics, rendering
-- Implements high-level game logic (win/lose conditions)
-- Serves as reference implementation
-- Currently minimal, expanding with gameplay features
+* Coordinates between game_core, physics, rendering
+* Implements high-level game logic (win/lose conditions)
+* Serves as reference implementation
+* Currently minimal, expanding with gameplay features
 
 **Use when:** You want a complete, integrated game setup.
 
@@ -214,9 +273,9 @@ Each crate has a single, well-defined responsibility. Functionality is pushed do
 
 Crates depend on abstractions (components, events) rather than implementations. This enables:
 
-- Independent development and testing
-- Flexible composition
-- System substitution (e.g., swap physics engines)
+* Independent development and testing
+* Flexible composition
+* System substitution (e.g., swap physics engines)
 
 ### Clean APIs
 
@@ -285,9 +344,9 @@ cargo clippy --all -- -D warnings
 
 **Legend:**
 
-- ✅ Stable: API unlikely to change significantly
-- ⚠️ Active Dev: Functional but evolving
-- 🚧 Early: Minimal implementation, expect changes
+* ✅ Stable: API unlikely to change significantly
+* ⚠️ Active Dev: Functional but evolving
+* 🚧 Early: Minimal implementation, expect changes
 
 ## Common Patterns
 
@@ -400,10 +459,10 @@ commands.spawn((
 
 ## Performance Tips
 
-- **Clustering**: Disable for >100 balls (`PhysicsConfig.clustering_strength = 0.0`)
-- **Metaballs**: Lower texture resolution for mobile (`MetaballRenderSettings.with_resolution(854, 480)`)
-- **Render Layers**: Use targeted layers to reduce overdraw
-- **Event Pipeline**: Keep handlers lightweight, defer heavy work to regular systems
+* **Clustering**: Disable for >100 balls (`PhysicsConfig.clustering_strength = 0.0`)
+* **Metaballs**: Lower texture resolution for mobile (`MetaballRenderSettings.with_resolution(854, 480)`)
+* **Render Layers**: Use targeted layers to reduce overdraw
+* **Event Pipeline**: Keep handlers lightweight, defer heavy work to regular systems
 
 ## Questions?
 

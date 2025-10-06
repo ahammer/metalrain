@@ -2,6 +2,8 @@ use super::types::GpuMetaballBindGroup; // ensure compute pass ran
 use crate::compute::MetaballPassLabel;
 use crate::internal::{FieldTexture, NormalTexture, ParamsUniform};
 use bevy::prelude::*;
+#[cfg(feature = "embed_shaders")]
+use bevy::asset::Assets;
 use bevy::render::{
     render_asset::RenderAssets,
     render_graph::{self, RenderGraph, RenderLabel},
@@ -11,6 +13,12 @@ use bevy::render::{
     Render, RenderApp,
 };
 use std::borrow::Cow;
+
+#[cfg(feature = "embed_shaders")]
+const COMPUTE_NORMALS_WGSL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/shaders/compute_3d_normals.wgsl"
+));
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct NormalsPassLabel;
@@ -92,8 +100,19 @@ impl FromWorld for GpuNormalsPipeline {
         // Always load from centralized assets directory.
         // Load shader directly (created before centralized GameAssets startup load completes)
         let shader: Handle<Shader> = {
-            let asset_server = world.resource::<AssetServer>();
-            asset_server.load("shaders/compute_3d_normals.wgsl")
+            #[cfg(feature = "embed_shaders")]
+            {
+                let mut shaders = world.resource_mut::<Assets<Shader>>();
+                shaders.add(Shader::from_wgsl(
+                    COMPUTE_NORMALS_WGSL,
+                    "embedded://compute_3d_normals.wgsl",
+                ))
+            }
+            #[cfg(not(feature = "embed_shaders"))]
+            {
+                let asset_server = world.resource::<AssetServer>();
+                asset_server.load("shaders/compute_3d_normals.wgsl")
+            }
         };
 
         let cache = world.resource::<PipelineCache>();

@@ -26,7 +26,7 @@ pub fn run_metaballs_test() {
         .add_systems(Startup, spawn_camera)
         .add_plugins(BouncySimulationPlugin)
         .add_plugins(DebugVisPlugin)
-        .run();
+    .run();
 }
 
 fn spawn_camera(mut commands: Commands) {

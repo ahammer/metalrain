@@ -38,11 +38,12 @@ resolver = "2"
 # The Bevy `file_watcher` feature triggers a compile_error! on wasm32 targets.
 # If native hot-reload is desired, we can re-introduce it behind an optional
 # workspace feature (e.g. `native_dev`) that is only used on desktop builds.
-bevy = { version = "0.16.1", features = ["bevy_winit", "bevy_sprite", "bevy_ui", "bevy_text"] }
+bevy = { version = "0.16.1", features = ["bevy_winit", "bevy_sprite", "bevy_ui", "bevy_text", "webgpu"] }
 serde = { version = "1.0", features = ["derive"] }
 # Added parallel feature to match demo usage and ensure future multi-threaded physics.
 bevy_rapier2d = { version = "0.30", features = ["simd-stable", "parallel"] }
 
 [workspace.package]
 edition = "2021"
+
 

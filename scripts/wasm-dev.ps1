@@ -27,7 +27,9 @@
 [CmdletBinding()]
 param(
   [switch]$Release,
-  [switch]$Install
+  [switch]$Install,
+  # Enable embedded shader feature for deterministic loads (no network fetch of WGSL)
+  [switch]$Embed
 )
 
 $ErrorActionPreference = 'Stop'
@@ -98,7 +100,8 @@ function Initialize-Tooling {
 function Invoke-WasmRun {
   param(
     [switch]$ReleaseBuild,
-    [switch]$UseWatch
+    [switch]$UseWatch,
+    [string]$FeaturesFlag
   )
   # Ensure cargo uses wasm-server-runner to serve and execute the produced .wasm instead of
   # trying to run the raw wasm file (which fails on Windows with os error 193).
@@ -116,14 +119,14 @@ function Invoke-WasmRun {
       -w crates/metaball_renderer/src `
       -w assets `
       -w web `
-      -x "run --package $package --target $target $profileFlag" `
+      -x "run --package $package --target $target $profileFlag $FeaturesFlag" `
       --why
   } else {
     if ($UseWatch -and -not (Test-CommandAvailable cargo-watch)) {
       Write-Warn "Watch requested but cargo-watch missing; performing single run."
     }
     Write-Section "Running (single invocation)"
-    cargo run --package $package --target $target $profileFlag
+    cargo run --package $package --target $target $profileFlag $FeaturesFlag
   }
 }
 
@@ -157,4 +160,16 @@ if ($Release) {
   $watch = $false
 }
 
-Invoke-WasmRun -ReleaseBuild:$Release -UseWatch:$watch
+$featuresFlag = ""
+if ($Embed) { $featuresFlag = "--features metaball_renderer/embed_shaders" }
+
+# Simple asset sync (skipped when embedding) ensures shader files exist under served root if relative paths are used.
+if (-not $Embed) {
+  Write-Section "Syncing assets (non-embedded mode)"
+  $dest = Join-Path $root "demos/metaballs_test/embedded_assets" # staging inside demo crate (served by wasm-server-runner)
+  if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+  Copy-Item (Join-Path $root 'assets') $dest -Recurse
+  # NOTE: The demo currently sets AssetPlugin file_path to ../../assets; consider standardizing to a local path later.
+}
+
+Invoke-WasmRun -ReleaseBuild:$Release -UseWatch:$watch -FeaturesFlag:$featuresFlag

@@ -5,6 +5,7 @@ use crate::internal::{
 };
 use crate::settings::MetaballRenderSettings;
 use bevy::prelude::*;
+use bevy::asset::Assets;
 use bevy::render::{
     extract_resource::ExtractResourcePlugin,
     render_asset::RenderAssets,
@@ -15,6 +16,12 @@ use bevy::render::{
     Render, RenderApp, RenderSet,
 };
 use std::borrow::Cow;
+
+#[cfg(feature = "embed_shaders")]
+const COMPUTE_METABALLS_WGSL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/shaders/compute_metaballs.wgsl"
+));
 
 pub struct ComputeMetaballsPlugin;
 
@@ -195,8 +202,20 @@ impl FromWorld for GpuMetaballPipeline {
         // Always load from centralized assets directory (hot reload on native, standard load on wasm).
         // Load shader directly (pipeline created before Startup systems run, so centralized GameAssets handles not yet available).
         let shader: Handle<Shader> = {
-            let asset_server = world.resource::<AssetServer>();
-            asset_server.load("shaders/compute_metaballs.wgsl")
+            #[cfg(feature = "embed_shaders")]
+            {
+                // Create shader asset directly from embedded source (no network fetch / AssetServer path needed).
+                let mut shaders = world.resource_mut::<Assets<Shader>>();
+                shaders.add(Shader::from_wgsl(
+                    COMPUTE_METABALLS_WGSL,
+                    "embedded://compute_metaballs.wgsl",
+                ))
+            }
+            #[cfg(not(feature = "embed_shaders"))]
+            {
+                let asset_server = world.resource::<AssetServer>();
+                asset_server.load("shaders/compute_metaballs.wgsl")
+            }
         };
         let cache = world.resource::<PipelineCache>();
         let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
