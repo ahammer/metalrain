@@ -13,11 +13,46 @@ This sprint refactors the asset management system to follow Bevy best practices 
 
 ---
 
+## High & Medium Priority Architectural Constraints (Added)
+
+These constraints codify architectural guardrails aligned with the philosophy of the `game_assets` crate (single authoritative asset lifecycle, path abstraction, future-proof embedding/hot-reload). All implementation tasks must respect them.
+
+### High Priority
+
+1. Centralized Embedding Logic
+   - All shader (and future font) embedding resides inside `game_assets` (via `GameAssetsPlugin`), not scattered across renderer or demo crates.
+   - Renderer crates must only consume typed handles from `GameAssets` and never call `embedded_asset!` directly.
+2. Feature Flags & Policy Enum Established Early
+   - Introduce feature flags controlling embedding breadth, hot-reload, and preload state integration before other phases proceed.
+   - Provide a `ShaderEmbeddingPolicy` (or equivalent) applied uniformly during plugin build.
+
+### Medium Priority
+
+1. Asset Root Auto-Detection
+   - Preserve `AssetRootMode` but add an `auto` detection path so demos/games can call a single configure function without manually specifying relative paths.
+   - Do NOT remove existing mode variants; maintain explicit override capability.
+2. Readiness Signaling (Not UI)
+   - `game_assets` exposes a readiness resource/event (e.g., `GameAssetsReady` or state enum) instead of directly owning any loading screen visuals.
+   - UI/UX layers decide how to render loading feedback.
+
+### Additional Supporting Practices
+
+1. Hot-Reload Encapsulation
+   - `hot_reload` feature flag enables Bevy `file_watcher` only on non-wasm targets inside the crate.
+2. Validation Hooks
+   - Provide optional internal test / helper to assert shader path existence; CI can invoke it.
+3. Hybrid Embedding Policy
+   - Support policies: `None`, `CoreOnly` (compute shaders), `All`. Selection is compile-time (features) or plugin parameter—not ad hoc logic in downstream crates.
+
+---
+
+---
+
 ## Current State Analysis
 
 ### Assets Structure
 
-```
+```text
 assets/
 ├── fonts/           # Currently empty or minimal
 └── shaders/         # Core render pipeline shaders
@@ -82,9 +117,9 @@ assets/
 #### Tasks
 
 1. **Workspace Asset Path Resolution**
-   - Use `CARGO_MANIFEST_DIR` or workspace root detection
-   - Remove manual `AssetPlugin` overrides from all demos
-   - Test: `cargo run -p metaballs_test` finds shaders without modification
+   - Implement `configure_auto()` in `game_assets` (will later be used in Phase 1)
+   - Replace per-demo manual `AssetPlugin` path logic with `configure_auto()`; retain explicit functions for overrides
+   - Test: `cargo run -p metaballs_test` finds shaders without manual overrides
 
 2. **WASM Asset Serving**
    - Configure `Trunk.toml` to copy `assets/` to `dist/`
@@ -104,32 +139,44 @@ assets/
 ### Strategy 2: Embedded Shaders (Optional Build)
 
 **For**: Single-file WASM, guaranteed deployment, no HTTP fetches  
-**Approach**: Use `bevy_embedded_assets` or `embedded_asset!` macro
+**Approach**: Centralize embedding inside `game_assets` plugin; downstream crates remain agnostic.
 
-#### Tasks
+#### Task List
 
-1. **Workspace Feature Flag**
+1. **Feature Flags (Centralized in `game_assets`)**
+
+   Proposed additions to `crates/game_assets/Cargo.toml` (names may adjust during implementation):
 
    ```toml
-   # Cargo.toml
    [features]
-   embedded_shaders = ["bevy/embedded_watcher"]
+   # Embed only critical compute shaders
+   embedded_core_shaders = []
+   # Embed all shaders (implies core)
+   embedded_all_shaders = ["embedded_core_shaders"]
+   # Enable file watching for desktop hot-reload
+   hot_reload = []
+   # Integrate preload state machine (bevy_asset_loader)
+   preload_states = []
    ```
 
-2. **Embed Critical Shaders**
-   - Use `embedded_asset!(app, "shaders/compute_metaballs.wgsl")` in plugin init
-   - Update `Material2d::fragment_shader()` to return `embedded://` path
-   - Keep compute shaders embedded; render shaders optional
+   Mutually exclusive at run-time: logic will prefer `embedded_all_shaders` > `embedded_core_shaders` > none.
 
-3. **Hybrid Approach**
-   - Embed: `compute_metaballs.wgsl`, `compute_3d_normals.wgsl` (core logic)
-   - External: `background.wgsl`, `compositor.wgsl`, `present_fullscreen.wgsl` (tweakable)
-   - Rationale: Balance binary size vs. iteration speed
+2. **Embed Critical Shaders (Inside Plugin)**
+   - In `GameAssetsPlugin::build`, conditionally invoke `embedded_asset!` for compute shaders when `embedded_core_shaders` or `embedded_all_shaders` is active.
+   - Fragment/material shaders embedded only if `embedded_all_shaders`.
+   - Downstream materials should continue using `ShaderRef::Path("shaders/...".into())`; Bevy resolves embedded overrides transparently.
 
-4. **Build Configurations**
-   - Desktop Dev: External shaders + hot-reload
-   - Desktop Release: External shaders (smaller binary)
-   - WASM: Embedded shaders (deployment simplicity)
+3. **Hybrid Approach Encoded as Policy**
+   - `None`: All external (dev iteration speed & hot-reload)
+   - `CoreOnly`: Embed `compute_metaballs.wgsl`, `compute_3d_normals.wgsl`
+   - `All`: Embed all five shaders
+   - Policy selected via feature flags or explicit `GameAssetsPlugin { embedding: ShaderEmbeddingPolicy::CoreOnly, .. }` initialization.
+
+4. **Recommended Build Configurations**
+   - Desktop Dev: `hot_reload` + no embedding features
+   - Desktop Release: No embedding OR `embedded_core_shaders` if startup perf critical
+   - WASM Debug: External for iteration (faster rebuilds)
+   - WASM Release: `embedded_core_shaders` or `embedded_all_shaders` depending on reliability vs size
 
 ### Strategy 3: Hot-Reload for Desktop
 
@@ -138,17 +185,17 @@ assets/
 
 #### Tasks
 
-1. **Conditional Feature**
+1. **Conditional Feature (Revised)**
 
-   ```toml
-   [features]
-   dev = ["bevy/file_watcher"]
-   
-   [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-   bevy = { workspace = true, features = ["file_watcher"] }
-   ```
+```toml
+[features]
+hot_reload = []
 
-2. **Document Workflow**
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { workspace = true, features = ["file_watcher"] }
+```
+
+1. **Document Workflow**
    - `cargo run -p metaballs_test --features dev` for hot-reload
    - Edit `present_fullscreen.wgsl` → auto-recompile on save
    - No hot-reload on WASM (browser limitation)
@@ -157,23 +204,23 @@ assets/
 
 ## Implementation Plan
 
-### Phase 1: Path Standardization (Week 1)
+### Phase 1: Path Standardization & Auto-Detection (Week 1)
 
-**Sub-Sprint 1.1: Workspace Asset Resolution**
+#### Sub-Sprint 1.1: Asset Root Auto-Detection
 
-- [ ] Remove `AssetPlugin { file_path: "../../assets" }` from all demos
-- [ ] Test default Bevy asset discovery (should find workspace `assets/`)
-- [ ] If broken, implement custom asset path resolver using workspace detection
-- [ ] Document: "Run demos from workspace root for asset discovery"
+- [ ] Add `configure_auto(app)` in `game_assets` that detects `AssetRootMode` (heuristic: probe relative paths for `assets/shaders`)
+- [ ] Retain existing explicit `configure_demo/game_crate/workspace_root` APIs (no breaking change)
+- [ ] Refactor demos to call `configure_auto()` (remove local manual `AssetPlugin` usage in demos if present)
+- [ ] Document: Auto-detection fallback precedence & how to override explicitly
 
-**Sub-Sprint 1.2: WASM Asset Serving**
+#### Sub-Sprint 1.2: WASM Asset Serving
 
 - [ ] Create `Trunk.toml` with `[[copy]]` directive for `assets/`
 - [ ] Run `trunk serve --open` and verify shaders load via DevTools Network tab
 - [ ] Fix any CORS/path issues (unlikely with relative paths)
 - [ ] Add deployment guide: "Upload `dist/` folder; keep `assets/` structure"
 
-**Validation**
+#### Validation
 
 ```bash
 # Desktop
@@ -185,50 +232,29 @@ trunk serve --port 8080
 # Open http://localhost:8080, check console for shader load errors
 ```
 
-### Phase 2: Shader Embedding (Week 2)
+### Phase 2: Centralized Shader Embedding (Week 2)
 
-**Sub-Sprint 2.1: Compute Shader Embedding**
+#### Sub-Sprint 2.1: Implement Feature Flags & Policy
 
-- [ ] Add `bevy_embedded_assets = "0.11"` to workspace deps (or use `embedded_asset!`)
-- [ ] In `metaball_renderer/src/lib.rs`:
+- [ ] Add feature flags (`embedded_core_shaders`, `embedded_all_shaders`, `hot_reload`, `preload_states`) to `game_assets`.
+- [ ] Introduce `ShaderEmbeddingPolicy` enum & add to `GameAssetsPlugin` (with default resolution logic from active features).
+- [ ] Unit test: feature precedence (`all` overrides `core`).
 
-  ```rust
-  use bevy::asset::embedded_asset;
-  
-  impl Plugin for MetaballRendererPlugin {
-      fn build(&self, app: &mut App) {
-          embedded_asset!(app, "../../assets/shaders/compute_metaballs.wgsl");
-          embedded_asset!(app, "../../assets/shaders/compute_3d_normals.wgsl");
-          // ... rest of plugin
-      }
-  }
-  ```
+#### Sub-Sprint 2.2: Embed via GameAssetsPlugin
 
-- [ ] Update compute pipeline to use `embedded://ball_matcher/shaders/compute_metaballs.wgsl`
-- [ ] Test: Build WASM, verify no HTTP requests for compute shaders
+- [ ] Add conditional `embedded_asset!` calls in `GameAssetsPlugin::build` based on resolved policy.
+- [ ] Remove / prevent any embedding calls from renderer crates (audit & adjust if necessary).
+- [ ] Confirm downstream shader loads still use plain `AssetServer.load("shaders/...")` or `ShaderRef::Path`.
 
-**Sub-Sprint 2.2: Material Shader Embedding**
+#### Sub-Sprint 2.3: Policy-Based Build Matrix
 
-- [ ] Embed `background.wgsl` in `background_renderer`:
+- [ ] Add documentation table mapping build targets to recommended feature flags.
+- [ ] WASM Release build test: ensure compute shaders do not trigger network requests when embedded.
+- [ ] Collect binary size deltas for `core` vs `all` embedding (record in doc).
 
-  ```rust
-  impl Material2d for BackgroundMaterial {
-      fn fragment_shader() -> ShaderRef {
-          ShaderRef::Path("embedded://ball_matcher/shaders/background.wgsl".into())
-      }
-  }
-  ```
+Note: Old per-crate embedding subtasks removed; superseded by centralized plugin policy.
 
-- [ ] Same for `compositor.wgsl` in `game_rendering`
-- [ ] Test: `wasm-pack build --target web`, inspect binary size increase
-
-**Sub-Sprint 2.3: Presentation Shader Handling**
-
-- [ ] Decision: Keep `present_fullscreen.wgsl` external (large, tweakable)
-- [ ] OR: Embed for production, external for dev (feature-gated)
-- [ ] Implement hybrid loading (fallback to embedded if external fails)
-
-**Validation**
+#### Validation (Phase 2)
 
 ```bash
 # Build and inspect
@@ -241,40 +267,25 @@ python3 -m http.server 8080 --directory target/wasm-bindgen
 # No shader 404s in browser console
 ```
 
-### Phase 3: Loading Infrastructure (Week 3)
+### Phase 3: Loading Infrastructure & Readiness Signaling (Week 3)
 
-**Sub-Sprint 3.1: Shader Asset Collection**
+#### Sub-Sprint 3.1: Optional Preload State (Feature-Gated)
 
-- [ ] Add `bevy_asset_loader = "0.19"` to workspace deps
-- [ ] Create `ShaderAssets` resource:
+- [ ] If `preload_states` feature enabled: integrate `bevy_asset_loader` internally in `game_assets` to populate `GameAssets` after load barrier.
+- [ ] Provide `GameAssetsState` (enum: `Loading`, `Ready`) or fire `GameAssetsReady` event.
+- [ ] Export helper: `fn all_shaders_loaded(&Assets<Shader>, &ShaderAssets) -> bool` for consumers.
 
-  ```rust
-  #[derive(AssetCollection, Resource)]
-  struct ShaderAssets {
-      #[asset(path = "shaders/background.wgsl")]
-      background: Handle<Shader>,
-      #[asset(path = "shaders/compositor.wgsl")]
-      compositor: Handle<Shader>,
-      // ... all 5 shaders
-  }
-  ```
+#### Sub-Sprint 3.2: External UI Integration Guidance
 
-- [ ] Register loading state: `LoadingState → Ready`
+- [ ] Document how downstream crates observe readiness (no UI code inside `game_assets`).
+- [ ] Provide example snippet in docs demonstrating a loading screen system living outside the asset crate.
 
-**Sub-Sprint 3.2: Loading Screen**
+#### Sub-Sprint 3.3: Error Handling Facilities
 
-- [ ] Create minimal loading screen (logo + progress bar)
-- [ ] Show during shader compilation (if non-embedded)
-- [ ] Transition to game when all shaders ready
-- [ ] WASM: Show "Downloading assets..." if HTTP fetch in progress
+- [ ] Add optional debug assertion / log if any shader handle is still `Weak` after timeout.
+- [ ] Document recommended fallback strategies (kept outside asset crate to preserve separation of concerns).
 
-**Sub-Sprint 3.3: Error Handling**
-
-- [ ] Detect shader load failures (404, compile errors)
-- [ ] Display user-friendly error: "Failed to load rendering shaders"
-- [ ] Fallback: Solid color rendering if shaders missing (graceful degradation)
-
-**Validation**
+#### Validation (Phase 3)
 
 ```bash
 # Simulate slow network
@@ -284,19 +295,19 @@ chrome --user-data-dir=/tmp/chrome --throttling.downloadThroughputKbps=50
 
 ### Phase 4: Hot-Reload & Dev Experience (Week 4)
 
-**Sub-Sprint 4.1: Desktop Hot-Reload**
+#### Sub-Sprint 4.1: Desktop Hot-Reload (Centralized)
 
-- [ ] Add `dev` feature flag (enables `file_watcher`)
-- [ ] Test: Edit `present_fullscreen.wgsl`, save, see live update
-- [ ] Document in `README.md`: "Run with `--features dev` for hot-reload"
+- [ ] Implement `hot_reload` feature inside `game_assets` enabling Bevy `file_watcher` only for non-wasm.
+- [ ] Document usage: `cargo run -p metaballs_test --features game_assets/hot_reload` (example pattern).
+- [ ] Validate shader edits propagate without restart.
 
-**Sub-Sprint 4.2: Shader Validation**
+#### Sub-Sprint 4.2: Shader Validation
 
 - [ ] Pre-commit hook: Validate WGSL syntax with `naga` CLI
 - [ ] CI: Compile all shaders, catch errors before merge
 - [ ] Linting: Check for common WGSL mistakes (uninitialized vars, etc.)
 
-**Sub-Sprint 4.3: Documentation**
+#### Sub-Sprint 4.3: Documentation
 
 - [ ] Write `docs/SHADERS.md`:
   - Shader descriptions (what each does)
@@ -305,7 +316,7 @@ chrome --user-data-dir=/tmp/chrome --throttling.downloadThroughputKbps=50
   - Editing guidelines (precision, WASM constraints)
 - [ ] Update `README.md` with asset deployment instructions
 
-**Validation**
+#### Validation (Phase 4)
 
 ```bash
 # Hot-reload test
@@ -423,10 +434,12 @@ naga assets/shaders/background.wgsl
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
 | WASM WebGPU unavailable | Critical (no compute shaders) | Feature detection + error message |
-| Embedded shaders bloat WASM | Medium (larger download) | Hybrid approach: embed only critical |
-| Hot-reload conflicts with WASM | Low (dev-only feature) | Feature-gate `file_watcher` for native |
-| Shader compile errors on WASM | High (black screen) | Pre-validation with `naga` in CI |
-| Path resolution breaks demos | Medium (dev friction) | Extensive testing + fallback to `../../assets` |
+| Embedded shaders bloat WASM | Medium (larger download) | Policy enum + size measurement docs |
+| Hot-reload conflicts with WASM | Low (dev-only feature) | `hot_reload` feature disabled on wasm |
+| Shader compile errors on WASM | High (black screen) | Pre-validation with `naga` + readiness gating |
+| Path resolution breaks demos | Medium (dev friction) | Auto-detect with explicit override retention |
+| Fragmented embedding across crates | High (inconsistent behavior) | Centralize embedding in `game_assets` |
+| Loading UI logic coupled to asset crate | Medium (reduced reuse) | Expose readiness only, delegate UI |
 
 ---
 
@@ -478,9 +491,9 @@ naga assets/shaders/background.wgsl
 
 - [ ] All demos run on desktop without manual asset path config
 - [ ] `trunk serve` displays game with all shaders loading via HTTP
-- [ ] WASM release build option with all shaders embedded (<500KB binary)
-- [ ] Loading screen shown during shader compilation
-- [ ] Hot-reload works on desktop with `--features dev`
+- [ ] WASM release build option with core or all shaders embedded (target binary size tracked & documented)
+- [ ] Readiness signaling resource/event consumed by external loading screen (example provided)
+- [ ] Hot-reload works on desktop with `game_assets` `hot_reload` feature
 - [ ] CI validates all shader syntax with `naga`
 - [ ] Documentation: `SHADERS.md` describes all 5 shaders + editing workflow
 - [ ] Zero shader-related errors in browser console (Chrome/Firefox/Safari)
@@ -497,6 +510,8 @@ naga assets/shaders/background.wgsl
 5. **Asset Bundles**: Pack shaders into compressed archives for faster HTTP fetch
 6. **Progressive Loading**: Load non-critical shaders after initial render (e.g., effects layer)
 7. **Shader Debugging**: Integrate RenderDoc or browser shader inspectors
+8. **Dynamic Policy Override**: Runtime selection of embedding policy for dev profiling
+9. **Centralized Path Integrity Test**: `cargo test -p game_assets -- --include-asset-audit`
 
 ---
 
