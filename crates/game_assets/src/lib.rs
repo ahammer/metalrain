@@ -87,7 +87,6 @@ fn load_assets(
     mut game_assets: ResMut<GameAssets>,
     asset_server: Res<AssetServer>,
 ) {
-    // NOTE: For now we only support filesystem loading; embedded feature would swap to include_bytes! loaders.
     let ui_regular: Handle<Font> = asset_server.load("fonts/FiraSans-Regular.ttf");
     let ui_bold: Handle<Font> = asset_server.load("fonts/FiraSans-Bold.ttf");
     let compositor: Handle<Shader> = asset_server.load("shaders/compositor.wgsl");
