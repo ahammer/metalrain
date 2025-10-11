@@ -66,7 +66,6 @@ fn startup_summary(
     if let Some(mapper) = mapper {
         info!(target: "metaballs::diag", "Mapper: world_min=({:.2},{:.2}) world_max=({:.2},{:.2}) tex_size={:?}", mapper.world_min.x, mapper.world_min.y, mapper.world_max.x, mapper.world_max.y, mapper.texture_size);
     }
-    warn!(target: "metaballs::diag", "NOTE: Sprint 2.1 renderer supplies offscreen textures only; add a presentation/compositing pass to see metaballs on screen.");
 }
 
 fn periodic_diagnostics(

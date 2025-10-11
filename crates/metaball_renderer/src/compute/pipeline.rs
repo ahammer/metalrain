@@ -16,7 +16,7 @@ use bevy::render::{
     Render, RenderApp, RenderSet,
 };
 use std::borrow::Cow;
-use game_assets::GameAssets; // centralized shader handles
+use game_assets::GameAssets; // centralized shader handles (readiness inferred via load state)
 
 #[cfg(feature = "embed_shaders")]
 const COMPUTE_METABALLS_WGSL: &str = include_str!(concat!(
@@ -45,17 +45,25 @@ impl Plugin for ComputeMetaballsPlugin {
             ExtractResourcePlugin::<ParamsUniform>::default(),
             ExtractResourcePlugin::<AlbedoTexture>::default(),
             ExtractResourcePlugin::<NormalTexture>::default(),
-            // Option A: extract GameAssets so FromWorld in render app can access shader handle
             ExtractResourcePlugin::<GameAssets>::default(),
         ));
 
         app.add_systems(Startup, setup_textures_and_uniforms);
 
         let render_app = app.sub_app_mut(RenderApp);
-        // Simpler ordering: let buffers prepare; a lightweight system creates pipeline if missing; bind group tolerates absence.
+
+        // Gate pipeline creation strictly on AssetsReady so shader is fully loaded (avoids transient compile Err on WASM).
+        render_app.add_systems(Render, create_pipeline_when_ready.in_set(RenderSet::Prepare));
+
+        // Buffers + bind group prep (tolerant if pipeline missing).
         render_app.add_systems(
             Render,
-            (prepare_buffers, create_metaball_pipeline_if_needed, prepare_bind_group.after(prepare_buffers))
+            prepare_buffers.in_set(RenderSet::PrepareBindGroups),
+        );
+        render_app.add_systems(
+            Render,
+            prepare_bind_group
+                .after(prepare_buffers)
                 .in_set(RenderSet::PrepareBindGroups),
         );
         render_app.add_systems(
@@ -64,6 +72,7 @@ impl Plugin for ComputeMetaballsPlugin {
                 .in_set(RenderSet::Prepare)
                 .after(RenderSet::PrepareBindGroups),
         );
+
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(MetaballPassLabel, MetaballComputeNode::default());
     }
@@ -133,115 +142,114 @@ fn setup_textures_and_uniforms(
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 
-impl FromWorld for GpuMetaballPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let device = world.resource::<RenderDevice>();
-        let layout = device.create_bind_group_layout(
-            Some("metaballs.bind_group_layout"),
-            &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::StorageTexture {
-                            access: StorageTextureAccess::WriteOnly,
-                            format: TextureFormat::Rgba16Float,
-                            view_dimension: TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: BufferSize::new(
-                                std::mem::size_of::<ParamsUniform>() as u64
-                            ),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: BufferSize::new(
-                                std::mem::size_of::<TimeUniform>() as u64
-                            ),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::StorageTexture {
-                            access: StorageTextureAccess::WriteOnly,
-                            format: TextureFormat::Rgba8Unorm,
-                            view_dimension: TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-            ],
-        );
-        #[cfg(feature = "embed_shaders")]
-        let shader_handle: Handle<Shader> = {
-            let mut shaders = world.resource_mut::<Assets<Shader>>();
-            shaders.add(Shader::from_wgsl(
-                COMPUTE_METABALLS_WGSL,
-                "embedded://compute_metaballs.wgsl",
-            ))
-        };
-        #[cfg(not(feature = "embed_shaders"))]
-        let shader_handle: Handle<Shader> = {
-            let ga = world.get_resource::<GameAssets>().expect("GameAssets missing: ensure configure_demo() ran before MetaballRendererPlugin");
-            ga.shaders.compute_metaballs.clone()
-        };
-        let cache = world.resource::<PipelineCache>();
-        let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some(Cow::Borrowed("metaballs.compute")),
-            layout: vec![layout.clone()],
-            push_constant_ranges: vec![],
-            shader: shader_handle.clone(),
-            shader_defs: vec![],
-            entry_point: Cow::Borrowed("metaballs"),
-            zero_initialize_workgroup_memory: false,
-        });
-        Self { bind_group_layout: layout, pipeline_id, shader_handle }
-    }
+// Build the pipeline only after AssetsReady is extracted and shader is fully loaded (or embedded).
+fn build_metaball_pipeline(world: &mut World) {
+    let device = world.resource::<RenderDevice>();
+    let layout = device.create_bind_group_layout(
+        Some("metaballs.bind_group_layout"),
+        &[
+            BindGroupLayoutEntry { // field texture
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::WriteOnly,
+                    format: TextureFormat::Rgba16Float,
+                    view_dimension: TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry { // params uniform
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(std::mem::size_of::<ParamsUniform>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry { // time uniform
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(std::mem::size_of::<TimeUniform>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry { // balls storage
+                binding: 3,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry { // albedo texture
+                binding: 4,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::WriteOnly,
+                    format: TextureFormat::Rgba8Unorm,
+                    view_dimension: TextureViewDimension::D2,
+                },
+                count: None,
+            },
+        ],
+    );
+
+    #[cfg(feature = "embed_shaders")]
+    let shader_handle: Handle<Shader> = {
+        let mut shaders = world.resource_mut::<Assets<Shader>>();
+        shaders.add(Shader::from_wgsl(
+            COMPUTE_METABALLS_WGSL,
+            "embedded://compute_metaballs.wgsl",
+        ))
+    };
+    #[cfg(not(feature = "embed_shaders"))]
+    let shader_handle: Handle<Shader> = {
+        let ga = world.resource::<GameAssets>();
+        ga.shaders.compute_metaballs.clone()
+    };
+
+    let cache = world.resource::<PipelineCache>();
+    let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
+        label: Some(Cow::Borrowed("metaballs.compute")),
+        layout: vec![layout.clone()],
+        push_constant_ranges: vec![],
+        shader: shader_handle.clone(),
+        shader_defs: vec![],
+        entry_point: Cow::Borrowed("metaballs"),
+        zero_initialize_workgroup_memory: false,
+    });
+    world.insert_resource(GpuMetaballPipeline { bind_group_layout: layout, pipeline_id, shader_handle });
+    info!(target="metaballs", "Metaball compute pipeline created (assets ready).");
 }
 
-// System: create pipeline resource once GameAssets is present in render world (idempotent & silent until ready).
-fn create_metaball_pipeline_if_needed(world: &mut World) {
+fn create_pipeline_when_ready(world: &mut World) {
+    // already built
     if world.get_resource::<GpuMetaballPipeline>().is_some() { return; }
-    let Some(ga) = world.get_resource::<GameAssets>() else { return; };
-    // For embed_shaders path FromWorld logic still works; here we mirror it manually.
-    #[cfg(feature = "embed_shaders")]
-    {
-        world.init_resource::<GpuMetaballPipeline>();
-        return;
-    }
+    // need extracted assets & readiness marker
+    if !world.contains_resource::<GameAssets>() { return; }
+
     #[cfg(not(feature = "embed_shaders"))]
     {
+        use bevy::asset::LoadState;
+        let ga = world.resource::<GameAssets>();
         let asset_server = world.resource::<AssetServer>();
-        if matches!(asset_server.get_load_state(ga.shaders.compute_metaballs.id()), Some(bevy::asset::LoadState::Failed(_))) {
-            error!(target="metaballs", "compute_metaballs.wgsl failed to load; pipeline will not be created");
-            return;
+        match asset_server.get_load_state(ga.shaders.compute_metaballs.id()) {
+            Some(LoadState::Loaded) => {},
+            Some(LoadState::Failed(_)) => {
+                error!(target="metaballs", "compute_metaballs.wgsl failed to load; cannot build pipeline");
+                return;
+            }
+            _ => { return; } // still loading
         }
-        // Create pipeline as soon as handle exists (even if still Loading); compilation will resolve later.
-        world.init_resource::<GpuMetaballPipeline>();
     }
+    build_metaball_pipeline(world);
 }
 
 fn prepare_buffers(
@@ -416,15 +424,8 @@ impl render_graph::Node for MetaballComputeNode {
             match cache.get_compute_pipeline_state(pipeline.pipeline_id) {
                 CachedPipelineState::Ok(_) => self.state = NodeState::Ready,
                 CachedPipelineState::Err(err) => {
-                    // Enhanced diagnostics: report shader load state & whether GameAssets were available.
-                    let asset_server = world.resource::<AssetServer>();
-                    let load_state = asset_server.get_load_state(pipeline.shader_handle.id());
-                    if let Some(ga) = world.get_resource::<GameAssets>() {
-                        error!(target="metaballs", "Metaballs compute shader error. GameAssets present. LoadState={load_state:?} handle={:?}", ga.shaders.compute_metaballs.id());
-                    } else {
-                        error!(target="metaballs", "Metaballs compute shader error. GameAssets MISSING in render world. LoadState={load_state:?} handle={:?}", pipeline.shader_handle.id());
-                    }
-                    panic!("Failed to compile metaballs compute:\n{err}")
+                    // Because we only queue after shader fully Loaded, any Err now is a real compile failure.
+                    panic!("Metaballs compute pipeline failed after assets ready:\n{err}");
                 }
                 _ => {}
             }
