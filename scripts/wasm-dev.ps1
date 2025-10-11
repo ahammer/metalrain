@@ -163,13 +163,5 @@ if ($Release) {
 $featuresFlag = ""
 if ($Embed) { $featuresFlag = "--features metaball_renderer/embed_shaders" }
 
-# Simple asset sync (skipped when embedding) ensures shader files exist under served root if relative paths are used.
-if (-not $Embed) {
-  Write-Section "Syncing assets (non-embedded mode)"
-  $dest = Join-Path $root "demos/metaballs_test/embedded_assets" # staging inside demo crate (served by wasm-server-runner)
-  if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-  Copy-Item (Join-Path $root 'assets') $dest -Recurse
-  # NOTE: The demo currently sets AssetPlugin file_path to ../../assets; consider standardizing to a local path later.
-}
 
 Invoke-WasmRun -ReleaseBuild:$Release -UseWatch:$watch -FeaturesFlag:$featuresFlag
