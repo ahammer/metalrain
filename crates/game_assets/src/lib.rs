@@ -1,6 +1,6 @@
 //! Centralized game asset management (fonts, shaders, configs)
 //! Provides a single plugin that loads and exposes asset handles so other crates
-//! don't hardcode paths. Future: embedded + hot-reload abstraction.
+//! don't hardcode paths.
 
 use bevy::prelude::*;
 use bevy::asset::LoadState;
@@ -42,9 +42,7 @@ pub struct AssetsReady;
 struct PendingAssetGroup(Vec<UntypedAssetId>);
 
 #[derive(Default)]
-pub struct GameAssetsPlugin {
-    pub use_embedded: bool, // placeholder for future embedding toggle
-}
+pub struct GameAssetsPlugin;
 
 impl Plugin for GameAssetsPlugin {
     fn build(&self, app: &mut App) {
