@@ -26,11 +26,19 @@ members = [
     "demos/demo_launcher",
     # Focused input integration + diagnostics demo
     "demos/input_demo",
+    # New standardized assets demonstration demo
+    "demos/asset_test",
 ]
 exclude = [
     "external/bevy"
 ]
 resolver = "2"
+
+[workspace.features]
+# Process raw assets at build/load time (future pipeline placeholder). Currently a no-op toggle.
+processed_assets = []
+# Embed assets directly into the binary / wasm (wired through game_assets crate).
+embedded_assets = ["game_assets/embedded_assets"]
 
 # Centralized dependency versions (Sprint 1 workspace-level dependencies)
 [workspace.dependencies]

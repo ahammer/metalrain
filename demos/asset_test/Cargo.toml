@@ -1,0 +1,10 @@
+[package]
+name = "asset_test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+# Only need core asset infrastructure
+game_assets = { path = "../../crates/game_assets" }

@@ -3,6 +3,8 @@
 //! don't hardcode paths. Future: embedded + hot-reload abstraction.
 
 use bevy::prelude::*;
+use bevy::asset::LoadState;
+use bevy::asset::UntypedAssetId;
 
 #[derive(Resource, Debug, Clone, Default)]
 pub struct FontAssets {
@@ -31,15 +33,24 @@ impl bevy::render::extract_resource::ExtractResource for GameAssets {
     fn extract_resource(source: &Self::Source) -> Self { source.clone() }
 }
 
+/// Marker resource inserted once all startup assets have finished loading successfully.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct AssetsReady;
+
+/// Internal resource tracking the untyped handles we still expect to finish loading.
+#[derive(Resource, Debug, Default)]
+struct PendingAssetGroup(Vec<UntypedAssetId>);
+
 #[derive(Default)]
 pub struct GameAssetsPlugin {
-    pub use_embedded: bool,
+    pub use_embedded: bool, // placeholder for future embedding toggle
 }
 
 impl Plugin for GameAssetsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameAssets>()
-            .add_systems(Startup, load_assets);
+            .add_systems(Startup, load_assets)
+            .add_systems(Update, poll_startup_assets);
     }
 }
 
@@ -84,6 +95,7 @@ pub fn configure_game_crate(app: &mut App) { configure_standard_assets(app, Asse
 pub fn configure_workspace_root(app: &mut App) { configure_standard_assets(app, AssetRootMode::WorkspaceRoot); }
 
 fn load_assets(
+    mut commands: Commands,
     mut game_assets: ResMut<GameAssets>,
     asset_server: Res<AssetServer>,
 ) {
@@ -102,4 +114,50 @@ fn load_assets(
     game_assets.shaders.compute_3d_normals = compute_3d_normals;
     game_assets.shaders.present_fullscreen = present_fullscreen;
     game_assets.shaders.background = background;
+
+    // Record untyped ids for polling.
+    let pending: Vec<UntypedAssetId> = [
+        game_assets.fonts.ui_regular.id().untyped(),
+        game_assets.fonts.ui_bold.id().untyped(),
+        game_assets.shaders.compositor.id().untyped(),
+        game_assets.shaders.compute_metaballs.id().untyped(),
+        game_assets.shaders.compute_3d_normals.id().untyped(),
+        game_assets.shaders.present_fullscreen.id().untyped(),
+        game_assets.shaders.background.id().untyped(),
+    ].into_iter().collect();
+    commands.insert_resource(PendingAssetGroup(pending));
 }
+
+fn poll_startup_assets(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    pending: Option<Res<PendingAssetGroup>>,
+) {
+    let Some(pending) = pending else { return; };
+    if pending.0.is_empty() {
+        // Already processed; nothing to do.
+        return;
+    }
+    let mut all_loaded = true;
+    for id in &pending.0 {
+        match asset_server.get_load_state(*id) {
+            Some(LoadState::Loaded) => {}
+            Some(LoadState::Failed(_)) => {
+                // Fail fast: surface details for debugging.
+                error!("Startup asset failed to load: {:?}", id);
+                all_loaded = false; // keep polling; could choose to panic depending on policy.
+            }
+            Some(_) | None => {
+                all_loaded = false;
+            }
+        }
+    }
+    if all_loaded {
+        info!("All startup assets loaded.");
+        commands.remove_resource::<PendingAssetGroup>();
+        commands.insert_resource(AssetsReady);
+    }
+}
+
+/// Helper to query readiness inside external code without directly checking the resource type.
+pub fn assets_ready(world: &World) -> bool { world.contains_resource::<AssetsReady>() }

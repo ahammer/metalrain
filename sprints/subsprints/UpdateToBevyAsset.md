@@ -29,6 +29,10 @@ We currently:
    - Default unprocessed, optionally embedded disabled for hot iteration (fast reload by re-run; file watcher not enabled).
 8. Documentation updated (crate README + this plan) describing modes & usage.
 9. No layering violations: only `game_assets` manipulates asset mode decisions; other crates depend solely on handles or readiness marker.
+10. New `Asset_Test` demo:
+    - Native: uses `configure_demo` (unprocessed, non-embedded) and prints all asset handles + a readiness log line.
+    - WASM: automatically uses embedded assets (no network fetch 404s).
+    - Absolutely no build-time copying into a staging directory (e.g., no `embedded_assets/` folder).
 
 Stretch (not required for acceptance but desirable):
 
@@ -40,6 +44,7 @@ Stretch (not required for acceptance but desirable):
 - Introduce third-party asset loader frameworks (`bevy_asset_loader`).
 - Hot reload with file watcher on WASM (not feasible).
 - Complex caching invalidation metrics reporting.
+- Introducing any asset build step that copies or stages assets into a synthetic directory (e.g. `embedded_assets/`). Embedding = compile-time inclusion only.
 
 ## 4. Current State Summary
 
@@ -97,6 +102,23 @@ Exit Criteria:
 
 - Demos compile & run; `info!("All startup assets loaded.")` log appears; no panics.
 
+### Phase 1.5 – Asset_Test Demo Scaffold (Day 1)
+
+Tasks:
+
+- Create `demos/asset_test` crate.
+- Use `configure_demo(&mut app)` to standardize asset root.
+- Add a system that:
+  - Logs each handle path and its `LoadState` each frame until all are `Loaded`.
+  - Inserts a marker `AllAssetsLogged` (local or resource) after first full-ready transition to avoid spam.
+- For wasm builds: rely on future `embedded_assets` feature (when enabled) with zero code changes in the demo.
+
+Exit Criteria:
+
+- `cargo run -p asset_test` prints a summary:
+  "Asset group loaded: fonts=Loaded shaders=Loaded"
+- When compiled for wasm with embedding, no network fetch failures appear.
+
 ### Phase 2 – Mode Configuration (Day 2)
 
 Tasks:
@@ -129,6 +151,7 @@ Tasks:
 - Gate initialization systems that depend on assets using:
   - `run_if(resource_exists::<game_assets::AssetsReady>())`
   - or state transition added inside `game_assets` (document approach).
+- Update `Asset_Test` to switch from ad-hoc polling to the new `AssetsReady` resource once implemented, replacing manual load-state logging with a single readiness confirmation log line.
 
 ### Phase 5 – CI Pipeline (Day 3–4)
 
@@ -183,6 +206,7 @@ Processed mode overhead slows dev iteration | Dev friction | Default to unproces
 Unexpected asset load order issues | Runtime panic | Use group load gating with single readiness marker.
 WASM fallback mismatch | Load failure | Conditionally compile; warn and fallback to unprocessed+embedded.
 Future shader transform invalidates assumptions | Silent break | Unit test placeholder: ensures processed & unprocessed produce same WGSL text initially.
+Accidental asset copy workflow introduced | Violates no-copy invariant | Add CI check to assert absence of `embedded_assets/` output directory
 
 ## 9. Rollback Strategy
 
@@ -214,6 +238,7 @@ fn assets_ready_eventually() {
 - Keep `meta_check: AssetMetaCheck::Full` initially for safety; consider `Quick` in tight-loop dev.
 - Consider adding `warn!` if both features disabled in CI environment variable (e.g., `CI=true`).
 - Avoid adding file watcher feature back in; maintain WASM compatibility.
+- Invariants: (1) No build-time asset copying step. (2) Only `game_assets` decides asset mode. (3) Demos never hardcode relative paths outside of helper calls.
 
 ## 12. Commands Cheat Sheet
 
@@ -262,6 +287,8 @@ Asset Version Pinning Tool | Compare committed hash manifest vs current | Low
 - [ ] WASM build success with embedded
 - [ ] At least one unit test or harness verifying readiness (optional but preferred)
 - [ ] Plan file (this) committed
+- [ ] `Asset_Test` demo logs readiness (native) and runs under wasm with embedded assets (no 404s)
+- [ ] No `embedded_assets/` or similar staging directory produced during builds
 
 ---
 
