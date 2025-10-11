@@ -16,6 +16,7 @@ use bevy::render::{
     Render, RenderApp, RenderSet,
 };
 use std::borrow::Cow;
+use game_assets::GameAssets; // centralized shader handles
 
 #[cfg(feature = "embed_shaders")]
 const COMPUTE_METABALLS_WGSL: &str = include_str!(concat!(
@@ -29,6 +30,7 @@ pub struct ComputeMetaballsPlugin;
 pub struct GpuMetaballPipeline {
     pub bind_group_layout: BindGroupLayout,
     pub pipeline_id: CachedComputePipelineId,
+    pub shader_handle: Handle<Shader>, // retained for diagnostics
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
@@ -36,7 +38,7 @@ pub struct MetaballPassLabel;
 
 impl Plugin for ComputeMetaballsPlugin {
     fn build(&self, app: &mut App) {
-    // (Embedded shaders removed) – all shaders now loaded via AssetServer from centralized workspace assets.
+        // (Embedded shaders removed) – all shaders now loaded via AssetServer from centralized workspace assets.
         app.add_plugins((
             ExtractResourcePlugin::<FieldTexture>::default(),
             ExtractResourcePlugin::<BallBuffer>::default(),
@@ -49,7 +51,7 @@ impl Plugin for ComputeMetaballsPlugin {
         app.add_systems(Startup, (setup_textures_and_uniforms,));
 
         let render_app = app.sub_app_mut(RenderApp);
-    // (No embedded shader preload required.)
+        // (No embedded shader preload required.)
         render_app.add_systems(
             Render,
             (prepare_buffers, prepare_bind_group.after(prepare_buffers))
@@ -62,13 +64,14 @@ impl Plugin for ComputeMetaballsPlugin {
                 .in_set(RenderSet::Prepare)
                 .after(RenderSet::PrepareBindGroups),
         );
+        // Deferred pipeline creation + instrumentation
+        render_app.add_systems(
+            Render,
+            (try_create_metaball_pipeline, log_waiting_for_assets)
+                .in_set(RenderSet::Prepare)
+        );
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(MetaballPassLabel, MetaballComputeNode::default());
-        // Edge to camera driver is now added by normals pass (if enabled) so that normals can depend on this pass.
-    }
-    fn finish(&self, app: &mut App) {
-        app.sub_app_mut(RenderApp)
-            .init_resource::<GpuMetaballPipeline>();
     }
 }
 
@@ -136,13 +139,11 @@ fn setup_textures_and_uniforms(
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
 
-impl FromWorld for GpuMetaballPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let device = world.resource::<RenderDevice>();
-        let layout =
-            device.create_bind_group_layout(
-                Some("metaballs.bind_group_layout"),
-                &[
+fn build_metaball_pipeline(world: &mut World, shader_handle: Handle<Shader>) -> GpuMetaballPipeline {
+    let device = world.resource::<RenderDevice>();
+    let layout = device.create_bind_group_layout(
+        Some("metaballs.bind_group_layout"),
+        &[
                     BindGroupLayoutEntry {
                         binding: 0,
                         visibility: ShaderStages::COMPUTE,
@@ -197,40 +198,73 @@ impl FromWorld for GpuMetaballPipeline {
                         },
                         count: None,
                     },
-                ],
-            );
-        // Always load from centralized assets directory (hot reload on native, standard load on wasm).
-        // Load shader directly (pipeline created before Startup systems run, so centralized GameAssets handles not yet available).
-        let shader: Handle<Shader> = {
-            #[cfg(feature = "embed_shaders")]
-            {
-                // Create shader asset directly from embedded source (no network fetch / AssetServer path needed).
-                let mut shaders = world.resource_mut::<Assets<Shader>>();
-                shaders.add(Shader::from_wgsl(
-                    COMPUTE_METABALLS_WGSL,
-                    "embedded://compute_metaballs.wgsl",
-                ))
+        ],
+    );
+    let cache = world.resource::<PipelineCache>();
+    let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
+        label: Some(Cow::Borrowed("metaballs.compute")),
+        layout: vec![layout.clone()],
+        push_constant_ranges: vec![],
+        shader: shader_handle.clone(),
+        shader_defs: vec![],
+        entry_point: Cow::Borrowed("metaballs"),
+        zero_initialize_workgroup_memory: false,
+    });
+    GpuMetaballPipeline { bind_group_layout: layout, pipeline_id, shader_handle }
+}
+
+#[derive(Resource, Default)]
+struct MetaballPipelineWaitCounter(u32);
+
+fn try_create_metaball_pipeline(world: &mut World) {
+    #[cfg(feature = "embed_shaders")]
+    let shader_handle: Handle<Shader> = {
+        if world.get_resource::<GpuMetaballPipeline>().is_some() { return; }
+        if !world.contains_resource::<MetaballPipelineWaitCounter>() { world.insert_resource(MetaballPipelineWaitCounter::default()); }
+        let mut shaders = world.resource_mut::<Assets<Shader>>();
+        shaders.add(Shader::from_wgsl(
+            COMPUTE_METABALLS_WGSL,
+            "embedded://compute_metaballs.wgsl",
+        ))
+    };
+    #[cfg(not(feature = "embed_shaders"))]
+    let shader_handle: Handle<Shader> = {
+        if world.get_resource::<GpuMetaballPipeline>().is_some() { return; }
+        if !world.contains_resource::<MetaballPipelineWaitCounter>() { world.insert_resource(MetaballPipelineWaitCounter::default()); }
+        let Some(ga) = world.get_resource::<GameAssets>() else { return; };
+        let asset_server = world.resource::<AssetServer>();
+        match asset_server.get_load_state(ga.shaders.compute_metaballs.id()) {
+            Some(bevy::asset::LoadState::Loaded) => ga.shaders.compute_metaballs.clone(),
+            Some(bevy::asset::LoadState::Failed(_)) => {
+                error!(target="metaballs", "compute_metaballs.wgsl failed to load; aborting pipeline creation");
+                return;
             }
-            #[cfg(not(feature = "embed_shaders"))]
-            {
-                let asset_server = world.resource::<AssetServer>();
-                asset_server.load("shaders/compute_metaballs.wgsl")
-            }
-        };
-        let cache = world.resource::<PipelineCache>();
-        let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some(Cow::Borrowed("metaballs.compute")),
-            layout: vec![layout.clone()],
-            push_constant_ranges: vec![],
-            shader,
-            shader_defs: vec![],
-            entry_point: Cow::Borrowed("metaballs"),
-            zero_initialize_workgroup_memory: false,
-        });
-        Self {
-            bind_group_layout: layout,
-            pipeline_id,
+            _ => { return; } // Still loading
         }
+    };
+    let pipeline = build_metaball_pipeline(world, shader_handle);
+    info!(target="metaballs", "Metaball compute pipeline created after assets ready");
+    world.insert_resource(pipeline);
+}
+
+fn log_waiting_for_assets(world: &mut World) {
+    // First check if pipeline already exists before taking a mutable borrow.
+    if world.get_resource::<GpuMetaballPipeline>().is_some() { return; }
+    let Some(mut counter) = world.get_resource_mut::<MetaballPipelineWaitCounter>() else { return; };
+    counter.0 = counter.0.wrapping_add(1);
+    if counter.0 % 120 == 0 {
+        #[cfg(not(feature = "embed_shaders"))]
+        {
+            if let Some(ga) = world.get_resource::<GameAssets>() {
+                let asset_server = world.resource::<AssetServer>();
+                let state = asset_server.get_load_state(ga.shaders.compute_metaballs.id());
+                info!(target="metaballs", "Waiting for compute_metaballs.wgsl to load (state={state:?})");
+            } else {
+                info!(target="metaballs", "Waiting for GameAssets extraction into render world");
+            }
+        }
+        #[cfg(feature = "embed_shaders")]
+        info!(target="metaballs", "Embedded shader variant: should create pipeline imminently");
     }
 }
 
@@ -275,13 +309,13 @@ fn prepare_bind_group(
     field: Res<FieldTexture>,
     albedo: Res<AlbedoTexture>,
     gpu_images: Res<RenderAssets<GpuImage>>,
-    pipeline: Res<GpuMetaballPipeline>,
+    pipeline: Option<Res<GpuMetaballPipeline>>,
     gpu_buffers: Option<Res<GpuBuffers>>,
     render_device: Res<RenderDevice>,
 ) {
-    let Some(gpu_buffers) = gpu_buffers else {
-        return;
-    };
+    // Tolerate absence of pipeline or buffers until they are created.
+    let Some(pipeline) = pipeline else { return; };
+    let Some(gpu_buffers) = gpu_buffers else { return; };
     let Some(gpu_field) = gpu_images.get(&field.0) else {
         return;
     };
@@ -401,12 +435,20 @@ enum NodeState {
 }
 impl render_graph::Node for MetaballComputeNode {
     fn update(&mut self, world: &mut World) {
-        let pipeline = world.resource::<GpuMetaballPipeline>();
+        let Some(pipeline) = world.get_resource::<GpuMetaballPipeline>() else { return; };
         let cache = world.resource::<PipelineCache>();
         if matches!(self.state, NodeState::Loading) {
             match cache.get_compute_pipeline_state(pipeline.pipeline_id) {
                 CachedPipelineState::Ok(_) => self.state = NodeState::Ready,
                 CachedPipelineState::Err(err) => {
+                    // Enhanced diagnostics: report shader load state & whether GameAssets were available.
+                    let asset_server = world.resource::<AssetServer>();
+                    let load_state = asset_server.get_load_state(pipeline.shader_handle.id());
+                    if let Some(ga) = world.get_resource::<GameAssets>() {
+                        error!(target="metaballs", "Metaballs compute shader error. GameAssets present. LoadState={load_state:?} handle={:?}", ga.shaders.compute_metaballs.id());
+                    } else {
+                        error!(target="metaballs", "Metaballs compute shader error. GameAssets MISSING in render world. LoadState={load_state:?} handle={:?}", pipeline.shader_handle.id());
+                    }
                     panic!("Failed to compile metaballs compute:\n{err}")
                 }
                 _ => {}
@@ -423,7 +465,7 @@ impl render_graph::Node for MetaballComputeNode {
             return Ok(());
         }
         let pipeline_cache = world.resource::<PipelineCache>();
-        let pipeline = world.resource::<GpuMetaballPipeline>();
+    let pipeline = world.resource::<GpuMetaballPipeline>();
         let bind_group = &world.resource::<GpuMetaballBindGroup>().0;
         let gpu_pipeline = pipeline_cache
             .get_compute_pipeline(pipeline.pipeline_id)

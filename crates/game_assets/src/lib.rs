@@ -11,7 +11,6 @@ pub struct FontAssets {
     pub ui_regular: Handle<Font>,
     pub ui_bold: Handle<Font>,
 }
-
 #[derive(Resource, Debug, Clone, Default)]
 pub struct ShaderAssets {
     pub compositor: Handle<Shader>,
@@ -66,8 +65,20 @@ pub enum AssetRootMode {
 impl AssetRootMode {
     pub fn path(self) -> &'static str {
         match self {
-            AssetRootMode::DemoCrate => "../../assets",
-            AssetRootMode::GameCrate => "../assets",
+            AssetRootMode::DemoCrate => {
+                // On wasm the HTTP server usually serves the demo crate directory; parent traversal (../../) is sanitized.
+                // Provide a flat path so assets resolve (expect a server that mounts workspace root or copies assets/ next to demo binary).
+                #[cfg(target_arch = "wasm32")]
+                { "assets" }
+                #[cfg(not(target_arch = "wasm32"))]
+                { "../../assets" }
+            }
+            AssetRootMode::GameCrate => {
+                #[cfg(target_arch = "wasm32")]
+                { "assets" }
+                #[cfg(not(target_arch = "wasm32"))]
+                { "../assets" }
+            }
             AssetRootMode::WorkspaceRoot => "assets",
         }
     }
