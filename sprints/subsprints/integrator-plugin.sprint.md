@@ -1,18 +1,18 @@
-# Subsprint: Core Integration Plugin ("core_integration" crate)
+# Subsprint: Scaffold Integration Plugin ("crates/scaffold" crate)
 
 ## Intent
 
-Create a minimal, opinionated `core_integration` crate that demos (and later the main `game` crate) can depend on to instantly wire up the full rendering + physics + assets + input + diagnostics stack with sensible defaults. Demos should typically only call:
+Create a minimal, opinionated `scaffold` crate that demos (and later the main `game` crate) can depend on to instantly wire up the full rendering + physics + assets + input + diagnostics stack with sensible defaults. Demos should typically only call:
 
 ```rust
-app.add_plugins(CoreIntegrationPlugin::default())
+app.add_plugins(ScaffoldIntegrationPlugin::default())
     // + demo specific systems/resources
 ```
 
 ## Outcomes / Definition of Done
 
-- New crate `crates/core_integration` added to workspace members.
-- Provides `CoreIntegrationPlugin` (default-config, zero required params) that:
+- New crate `crates/scaffold_integration` added to workspace members.
+- Provides `ScaffoldIntegrationPlugin` (default-config, zero required params) that:
   - Configures demo asset root via `game_assets::configure_demo`.
   - Adds: `DefaultPlugins` (with appropriate asset folder settings), `GameAssetsPlugin`, `GameCorePlugin`, `GamePhysicsPlugin`, `GameRenderingPlugin`, `BackgroundRendererPlugin`, `MetaballRendererPlugin` (with hardcoded world bounds -256..256), `WidgetRendererPlugin`, `EventCorePlugin`, diagnostics (frame time), optional Rapier debug (behind a feature flag or togglable resource if needed later — initial version may always enable or leave off; choose simplest now).
   - Inserts baseline resources (render surface base resolution 1280x720, metaball texture 512x512, world bounds centered at 0 sized 512, zero or mild gravity, default background config).
@@ -45,7 +45,7 @@ app.add_plugins(CoreIntegrationPlugin::default())
    - [ ] Create `src/lib.rs` plus minimal module files: `systems/` (camera, arena, input, hud), `resources.rs` (HUD visibility, demo state), `mod.rs` for systems if needed.
 
 2. Core Plugin Implementation
-   - [ ] Implement `CoreIntegrationPlugin` (derive `Default` with `demo_name: "Unnamed Demo"`).
+   - [ ] Implement `ScaffoldIntegrationPlugin` (derive `Default` with `demo_name: "Unnamed Demo"`).
    - [ ] In `build`, call `configure_demo` (assets) before adding project plugins.
    - [ ] Insert render + metaball + background + physics + diagnostics resources (hardcoded defaults).
    - [ ] Add plugin bundle.
@@ -61,7 +61,7 @@ app.add_plugins(CoreIntegrationPlugin::default())
    - [ ] `exit_on_escape` (reuse or reimplement lightweight version if not centrally exposed).
 
 4. Demo Refactor (Compositor Test)
-   - [ ] Replace manual plugin assembly with `CoreIntegrationPlugin::default()`.
+   - [ ] Replace manual plugin assembly with `ScaffoldIntegrationPlugin::default()`.
    - [ ] Keep only unique resource inits + systems (burst forces, wall pulses, effect animation, spawning patterns).
    - [ ] Verify functionality parity: layers toggle, metaballs visible, physics arena intact.
 
@@ -90,7 +90,7 @@ app.add_plugins(CoreIntegrationPlugin::default())
 | Gravity | (0.0, 0.0) (adjustable via arrow keys) |
 | Background | `BackgroundConfig::default()` |
 | HUD Visible | true |
-| Rapier Debug | (Decide: off initially) |
+| Rapier Debug | Enabled by default (no feature flags in initial version) |
 
 ## Input Map (Document in README)
 
@@ -101,6 +101,12 @@ app.add_plugins(CoreIntegrationPlugin::default())
 - Risk: Over-including unneeded plugins → Slower startup. Mitigation: Start lean; add toggles only when real need appears.
 - Risk: Demos needing variant configs soon. Mitigation: Add simple opt-in config builder in follow-up subsprint.
 - Risk: Input collisions with demo-specific keys. Mitigation: Namespace future demo keys; allow disabling universal input system (future feature).
+
+## Additional Notes (New Decisions)
+
+- Chosen name: `crates/scaffold` to emphasize immediate wiring of subsystems; avoids implying ownership of core domain model.
+- Rapier debug will be included by default in initial scaffold (no feature flag) to maximize observability; can be follow-up toggled once first abstraction pressure appears.
+- No feature flags introduced in the initial version per request.
 
 ## Future Enhancements (Backlog)
 
