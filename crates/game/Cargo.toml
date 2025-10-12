@@ -1,0 +1,12 @@
+[package]
+name = "game"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Integration crate assembling core plugins and rendering for the game"
+repository = "https://github.com/ahammer/metalrain"
+
+[dependencies]
+bevy = { workspace = true }
+game_core = { path = "../game_core" }
+metaball_renderer = { path = "../metaball_renderer" }

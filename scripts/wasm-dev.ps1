@@ -27,7 +27,9 @@
 [CmdletBinding()]
 param(
   [switch]$Release,
-  [switch]$Install
+  [switch]$Install,
+  # Enable embedded shader feature for deterministic loads (no network fetch of WGSL)
+  [switch]$Embed
 )
 
 $ErrorActionPreference = 'Stop'
@@ -98,25 +100,33 @@ function Initialize-Tooling {
 function Invoke-WasmRun {
   param(
     [switch]$ReleaseBuild,
-    [switch]$UseWatch
+    [switch]$UseWatch,
+    [string]$FeaturesFlag
   )
+  # Ensure cargo uses wasm-server-runner to serve and execute the produced .wasm instead of
+  # trying to run the raw wasm file (which fails on Windows with os error 193).
+  if (-not $env:CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER) {
+    $env:CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER = 'wasm-server-runner'
+  }
   $profileFlag = $ReleaseBuild.IsPresent ? "--release" : ""
   $target = "wasm32-unknown-unknown"
+  $package = "metaballs_test"
 
   if ($UseWatch -and (Test-CommandAvailable cargo-watch)) {
     Write-Section "Starting watch mode (src, assets, web)"
     cargo watch `
-      -w src `
+      -w demos/metaballs_test/src `
+      -w crates/metaball_renderer/src `
       -w assets `
       -w web `
-      -x "run --target $target $profileFlag" `
+      -x "run --package $package --target $target $profileFlag $FeaturesFlag" `
       --why
   } else {
     if ($UseWatch -and -not (Test-CommandAvailable cargo-watch)) {
       Write-Warn "Watch requested but cargo-watch missing; performing single run."
     }
     Write-Section "Running (single invocation)"
-    cargo run --target $target $profileFlag
+    cargo run --package $package --target $target $profileFlag $FeaturesFlag
   }
 }
 
@@ -150,4 +160,8 @@ if ($Release) {
   $watch = $false
 }
 
-Invoke-WasmRun -ReleaseBuild:$Release -UseWatch:$watch
+$featuresFlag = ""
+if ($Embed) { $featuresFlag = "--features metaball_renderer/embed_shaders" }
+
+
+Invoke-WasmRun -ReleaseBuild:$Release -UseWatch:$watch -FeaturesFlag:$featuresFlag

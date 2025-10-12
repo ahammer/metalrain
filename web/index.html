@@ -22,6 +22,14 @@ canvas { outline:0; width:100vw !important; height:100vh !important; display:blo
 </div>
 <canvas id="bevy-canvas"></canvas>
 <script type="module">
+if (!('gpu' in navigator)) {
+  const errEl = document.getElementById('err');
+  const loading = document.getElementById('loading');
+  errEl.textContent = 'WebGPU not supported in this browser. Use a recent Chrome, Edge, Firefox Nightly (with dom.webgpu.enabled), or Safari Technology Preview.';
+  errEl.style.display = 'block';
+  if (loading) loading.style.display = 'none';
+  throw new Error('WebGPU not supported');
+}
 const statusEl = document.getElementById('status');
 const pb = document.getElementById('pb');
 const loading = document.getElementById('loading');

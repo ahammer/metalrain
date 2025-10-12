@@ -1,0 +1,19 @@
+[package]
+name = "game_assets"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+processed_assets = [] # placeholder: will switch AssetMode in future
+
+[dependencies]
+bevy = { workspace = true }
+game_core = { path = "../game_core" }
+serde = { workspace = true, optional = true }
+
+[package.metadata.release]
+# placeholder for future release automation

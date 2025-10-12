@@ -1,0 +1,11 @@
+[package]
+name = "background_renderer"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[dependencies]
+bevy = { workspace = true }
+game_assets = { path = "../game_assets" }
+
+## Inherit lints once workspace.lints is defined (not present yet)

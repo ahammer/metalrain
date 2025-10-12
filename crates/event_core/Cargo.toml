@@ -1,0 +1,21 @@
+[package]
+name = "event_core"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+readme = "README.md"
+description = "Centralized event & input reduction system for the metalrain project."
+
+[dependencies]
+bevy = { workspace = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+
+[features]
+# Use this to enable serde on public enums for tooling / serialization experiments.
+serde = ["dep:serde"]
+
+[dev-dependencies]
+# For deterministic time mocking we can rely on std only; bevy already included.
+
+[package.metadata.docs]
+# Reduce default features for faster doc builds later if needed.

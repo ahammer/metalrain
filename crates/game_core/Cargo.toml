@@ -1,0 +1,11 @@
+[package]
+name = "game_core"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Core shared components, resources, events, and bundles for the modular game architecture"
+repository = "https://github.com/ahammer/metalrain"
+
+[dependencies]
+bevy = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

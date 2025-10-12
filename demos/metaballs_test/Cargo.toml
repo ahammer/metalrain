@@ -1,0 +1,12 @@
+[package]
+name = "metaballs_test"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[dependencies]
+bevy = { workspace = true }
+rand = "0.8"
+metaball_renderer = { path = "../../crates/metaball_renderer" }
+game_assets = { path = "../../crates/game_assets" }
+game_core = { path = "../../crates/game_core" }
