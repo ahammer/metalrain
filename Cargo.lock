@@ -4058,7 +4058,6 @@ dependencies = [
  "ordered-float 5.0.0",
  "parry2d",
  "profiling",
- "rayon",
  "rustc-hash 2.1.1",
  "simba",
  "thiserror 2.0.16",
