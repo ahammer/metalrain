@@ -28,7 +28,6 @@ pub fn run_input_demo() {
         .init_resource::<CursorState>()
         .init_resource::<InputStats>()
         .add_systems(Startup, (spawn_camera, spawn_overlay))
-        // Register systems in standardized flow sets from event_core
         .add_systems(Update, (
             track_cursor.in_set(EventFlowSet::InputCollect),
             collect_keys.in_set(EventFlowSet::InputCollect),
@@ -55,7 +54,6 @@ fn track_cursor(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     mut cursor: ResMut<CursorState>,
 ) {
-    // Silently ignore if prerequisites not yet ready (avoid log spam for early frames)
     let Ok(window) = windows.single() else { return; };
     let Ok((camera, cam_transform)) = camera_q.single() else { return; };
     if let Some(pos) = window.cursor_position() {

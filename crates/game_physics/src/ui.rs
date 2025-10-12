@@ -1,4 +1,3 @@
-//! UI systems for adjusting `PhysicsConfig` at runtime (feature `ui`).
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use crate::PhysicsConfig;

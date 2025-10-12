@@ -1,8 +1,5 @@
 use bevy::prelude::*;
 
-/// Defines the mapping between authoritative world space (XY plane on Z=0) and the
-/// offscreen metaball texture pixel space. World space is a continuous Rect while the
-/// texture is a discrete pixel grid (0..texture_size.x, 0..texture_size.y).
 #[derive(Resource, Clone, Debug)]
 pub struct MetaballCoordinateMapper {
     pub texture_size: UVec2,
@@ -25,21 +22,17 @@ impl MetaballCoordinateMapper {
             world_size,
         }
     }
-    /// Map a world position (Vec3, using XY) to continuous texture pixel coordinates.
     pub fn world_to_metaball(&self, world: Vec3) -> Vec2 {
         let p = world.truncate();
-        let norm = (p - self.world_min) / self.world_size; // 0..1 (not clamped)
+        let norm = (p - self.world_min) / self.world_size;
         norm * self.texture_size.as_vec2()
     }
-    /// Map a world radius (in world units along X) to texture pixel radius.
     pub fn world_radius_to_tex(&self, r: f32) -> f32 {
         r * (self.texture_size.x as f32) / self.world_size.x
     }
-    /// Map metaball texture pixel coordinates to UV (0..1) range (continuous).
     pub fn metaball_to_uv(&self, tex: Vec2) -> Vec2 {
         tex / self.texture_size.as_vec2()
     }
-    /// Clamp a world position inside the configured world bounds (helpful for physics keeping inside field).
     pub fn clamp_world(&self, mut p: Vec2) -> Vec2 {
         p.x = p.x.clamp(self.world_min.x, self.world_max.x);
         p.y = p.y.clamp(self.world_min.y, self.world_max.y);
@@ -47,9 +40,6 @@ impl MetaballCoordinateMapper {
     }
 }
 
-// --- Projection helpers (simple wrappers relying on Bevy camera APIs) ---
-
-/// Project a world position onto viewport pixel coordinates using the given camera.
 pub fn project_world_to_screen(
     world: Vec3,
     camera: &Camera,
@@ -58,7 +48,6 @@ pub fn project_world_to_screen(
     camera.world_to_viewport(cam_transform, world).ok()
 }
 
-/// Unproject a viewport pixel coordinate into world space on the Z=0 plane.
 pub fn screen_to_world(
     screen: Vec2,
     camera: &Camera,
@@ -70,7 +59,6 @@ pub fn screen_to_world(
         .map(|v| v.extend(0.0))
 }
 
-/// Convenience: screen -> metaball UV
 pub fn screen_to_metaball_uv(
     screen: Vec2,
     camera: &Camera,
@@ -112,7 +100,6 @@ mod tests {
             Vec2::new(0.0, 0.0),
             Vec2::new(100.0, 50.0),
         );
-        // 100 world units span -> 1000 tex pixels => 1 world unit == 10 px
         assert_eq!(mapper.world_radius_to_tex(1.0), 10.0);
     }
     #[test]

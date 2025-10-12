@@ -1,6 +1,5 @@
 use clap::Parser;
 
-/// Entry describing a demo.
 struct DemoEntry {
     name: &'static str,
     run: fn(),
@@ -24,9 +23,7 @@ static DEMOS: &[DemoEntry] = &[
 #[derive(Parser, Debug)]
 #[command(name = "demo-launcher", version, about = "Unified launcher for all demos")]
 struct Cli {
-    /// Demo name to run (see --list)
     demo: Option<String>,
-    /// List available demos and exit
     #[arg(long, short)]
     list: bool,
 }

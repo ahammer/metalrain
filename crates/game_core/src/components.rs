@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 
-/// Basic color enum for high‑level game logic (separate from Bevy `Color`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum GameColor {
     Red,

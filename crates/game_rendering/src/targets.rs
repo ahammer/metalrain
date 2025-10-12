@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use crate::camera::GameCamera;
 use crate::layers::{LayerConfig, LayerToggleState, RenderLayer};
 
-/// Settings describing how the render surfaces should be sized and managed.
 #[derive(Resource, Debug, Clone)]
 pub struct RenderSurfaceSettings {
     pub base_resolution: UVec2,
@@ -31,7 +30,6 @@ impl Default for RenderSurfaceSettings {
     }
 }
 
-/// Handle bundle surface consumers can use without exposing camera entities.
 #[derive(Resource, Debug, Clone)]
 pub struct RenderTargetHandles {
     pub layers: HashMap<RenderLayer, Handle<Image>>,
@@ -47,7 +45,6 @@ impl Default for RenderTargetHandles {
     }
 }
 
-/// Runtime resource storing full render target metadata used by the pipeline.
 #[derive(Resource, Debug)]
 pub struct RenderTargets {
     pub resolution: UVec2,
@@ -73,7 +70,6 @@ impl RenderTargets {
     }
 }
 
-/// Render target metadata associated with a single layer.
 #[derive(Debug, Clone)]
 pub struct LayerRenderTarget {
     pub layer: RenderLayer,
@@ -162,7 +158,6 @@ fn spawn_layer_camera(
             Vec2::new(resolution.x as f32, resolution.y as f32),
         ),
     };
-    // Ensure initial area matches expected scale before camera system updates it.
     projection.update(resolution.x as f32, resolution.y as f32);
 
     let camera_entity = commands

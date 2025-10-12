@@ -82,7 +82,7 @@ impl Default for PerformanceOverlayState { fn default() -> Self { Self { visible
 struct PerformanceStats {
     frames: u64,
     last_sample_time: f32,
-    recent: VecDeque<(f32, f32)>, // (timestamp, dt)
+    recent: VecDeque<(f32, f32)>,
 }
 
 #[derive(Resource, Debug, Default, Clone)]

@@ -2,7 +2,6 @@ use crate::{EventEnvelope, EventResult, EventSourceTag, EventPayload, GameEvent}
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
-/// Ring buffer journal entry.
 #[derive(Debug, Clone)]
 pub struct JournalEntry {
     pub event: EventEnvelope,
@@ -39,7 +38,6 @@ impl EventQueue {
     pub fn journal(&self) -> impl DoubleEndedIterator<Item=&JournalEntry> { self.journal.iter() }
 }
 
-/// Convenience API for tests to inject raw GameEvent.
 impl EventQueue {
     pub fn enqueue_game(&mut self, game: GameEvent, source: EventSourceTag, frame: u64) {
         self.enqueue(EventEnvelope::new(EventPayload::Game(game), source, frame), frame);

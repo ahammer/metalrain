@@ -6,27 +6,23 @@ use rand::prelude::*;
 use game_core::{Ball, BallBundle, GameColor, GameCorePlugin, Wall};
 use game_physics::{GamePhysicsPlugin, PhysicsConfig};
 use bevy_rapier2d::prelude::{Ccd, RigidBody as RapierRigidBody, Collider as RapierCollider};
-use bevy_rapier2d::prelude::RapierDebugRenderPlugin; // debug draw for physics
+use bevy_rapier2d::prelude::RapierDebugRenderPlugin;
 use metaball_renderer::{MetaBall, MetaballRenderSettings, MetaballRendererPlugin};
 use game_rendering::{GameCamera, GameRenderingPlugin, RenderLayer};
 use event_core::EventCorePlugin;
 use widget_renderer::WidgetRendererPlugin;
 use background_renderer::{BackgroundRendererPlugin, BackgroundConfig, BackgroundMode};
-// (no direct use import for GameAssetsPlugin; referenced with full path to avoid unused warning)
 
 pub const DEMO_NAME: &str = "physics_playground";
 
-// Arena configuration constants
 const ARENA_HALF_EXTENT: f32 = 400.0;
 const WALL_THICKNESS: f32 = 20.0;
 
-// Local game state resource for pause tracking
 #[derive(Resource, Default)]
 struct PlaygroundState {
     balls_spawned: u32,
 }
 
-// UI marker components
 #[derive(Component)]
 struct StatsText;
 
@@ -48,13 +44,9 @@ pub fn run_physics_playground() {
             ..Default::default()
         }))
         .add_plugins(game_assets::GameAssetsPlugin::default())
-        // Core game components (MUST BE FIRST)
         .add_plugins(GameCorePlugin)
-    // Physics (includes RapierPhysicsPlugin internally)
     .add_plugins(GamePhysicsPlugin)
-    // Debug render (colliders, contacts, AABBs)
     .add_plugins(RapierDebugRenderPlugin::default())
-        // Metaball rendering with proper world bounds
         .add_plugins(MetaballRendererPlugin::with(MetaballRenderSettings {
             texture_size: bevy::math::UVec2::new(1024, 1024),
             world_bounds: bevy::math::Rect::from_center_size(
@@ -65,9 +57,7 @@ pub fn run_physics_playground() {
             present_via_quad: true,
             presentation_layer: Some(RenderLayer::Metaballs.order() as u8),
         }))
-        // Multi-layer compositor
         .add_plugins(GameRenderingPlugin)
-        // Background
         .add_plugins(BackgroundRendererPlugin)
         .insert_resource(BackgroundConfig {
             mode: BackgroundMode::LinearGradient,
@@ -78,11 +68,8 @@ pub fn run_physics_playground() {
             radial_center: Vec2::new(0.5, 0.5),
             radial_radius: 0.75,
         })
-        // Widget rendering (walls, targets, etc.)
         .add_plugins(WidgetRendererPlugin)
-        // Event system
         .add_plugins(EventCorePlugin::default())
-        // Local state
         .init_resource::<PlaygroundState>()
     .add_systems(Startup, (setup_camera, setup_arena, setup_ui, spawn_test_balls))
         .add_systems(Update, (
@@ -99,7 +86,6 @@ pub fn run_physics_playground() {
 }
 
 fn spawn_test_balls(mut commands: Commands) {
-    // Spawn a few test balls so there's something to see immediately
     let test_positions = [
         Vec2::new(-150.0, 220.0),
         Vec2::new(0.0, 260.0),
@@ -112,8 +98,6 @@ fn spawn_test_balls(mut commands: Commands) {
         let color = test_colors[i];
         let radius = 20.0;
 
-        // Just spawn with BallBundle and MetaBall
-        // GamePhysicsPlugin will automatically add RigidBody, Collider, Velocity
         commands.spawn((
             BallBundle::new(pos, radius, color),
             MetaBall { radius_world: radius },
@@ -131,23 +115,18 @@ fn exit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut exit: EventWriter<AppExit
 }
 
 fn setup_camera(mut commands: Commands) {
-    // Spawn 2D camera; underlying `Camera` provided; tag with GameCamera so queries filter reliably
     commands.spawn((Camera2d, GameCamera::default()));
 }
 
 fn setup_arena(mut commands: Commands) {
     let half = ARENA_HALF_EXTENT;
-    // Slight physics padding to reduce tunneling; kept internal.
     let phys_pad = 8.0_f32;
 
-    // New simplified helper: only start, end, thickness.
-    // Computes center, orientation, and collider extents from the segment.
     fn spawn_wall(commands: &mut Commands, start: Vec2, end: Vec2, thickness: f32, phys_pad: f32) {
         let delta = end - start;
         let length = delta.length().max(1.0);
         let center = (start + end) * 0.5;
-        let angle = delta.y.atan2(delta.x); // rotation around Z
-        // Half extents for collider: (along, across)
+        let angle = delta.y.atan2(delta.x);
         let half_along = length * 0.5;
         let half_across = thickness * 0.5 + phys_pad;
         commands.spawn((
@@ -164,13 +143,9 @@ fn setup_arena(mut commands: Commands) {
         ));
     }
 
-    // Bottom
     spawn_wall(&mut commands, Vec2::new(-half, -half), Vec2::new(half, -half), WALL_THICKNESS, phys_pad);
-    // Top
     spawn_wall(&mut commands, Vec2::new(-half, half), Vec2::new(half, half), WALL_THICKNESS, phys_pad);
-    // Left
     spawn_wall(&mut commands, Vec2::new(-half, -half), Vec2::new(-half, half), WALL_THICKNESS, phys_pad);
-    // Right
     spawn_wall(&mut commands, Vec2::new(half, -half), Vec2::new(half, half), WALL_THICKNESS, phys_pad);
 
     info!("Arena setup complete");
@@ -204,7 +179,6 @@ fn spawn_ball_on_click(
         return;
     };
 
-    // Convert screen position to world position with fallback
     let world_pos = match camera.viewport_to_world_2d(camera_transform, cursor_pos) {
         Ok(p) => p,
         Err(_) => match camera.viewport_to_world(camera_transform, cursor_pos) {
@@ -218,13 +192,11 @@ fn spawn_ball_on_click(
 
     trace!("World click pos = ({:.1},{:.1})", world_pos.x, world_pos.y);
 
-    // Random parameters
     let mut rng = rand::thread_rng();
     let colors = [GameColor::Red, GameColor::Blue, GameColor::Green, GameColor::Yellow, GameColor::White];
     let color = *colors.choose(&mut rng).unwrap();
     let radius = rng.gen_range(15.0..30.0);
 
-    // Spawn ball - GamePhysicsPlugin will add RigidBody, Collider, Velocity automatically
     commands.spawn((
         BallBundle::new(world_pos, radius, color),
         MetaBall { radius_world: radius },
@@ -243,12 +215,10 @@ fn reset_on_key(
     mut playground_state: ResMut<PlaygroundState>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
-        // Despawn all balls
         for entity in &balls {
             commands.entity(entity).despawn();
         }
 
-        // Reset playground state
         playground_state.balls_spawned = 0;
 
         info!("Reset simulation - despawned {} balls", balls.iter().count());
@@ -277,7 +247,6 @@ fn setup_ui(mut commands: Commands) {
             ..default()
         })
         .with_children(|root| {
-            // Top bar (stats left, mouse pos right)
             root
                 .spawn((
                     Node {
@@ -305,7 +274,6 @@ fn setup_ui(mut commands: Commands) {
                     ));
                 });
 
-            // Bottom controls bar
             root
                 .spawn((
                     Node {
@@ -325,9 +293,6 @@ fn setup_ui(mut commands: Commands) {
         });
 }
 
-// (Removed configure_rapier: direct gravity field not available in current RapierConfiguration version; using built-in gravity only.)
-
-// System: enable CCD on all dynamic ball bodies (prevents tunneling through thin walls)
 fn enable_ccd_for_balls(mut commands: Commands, q: Query<(Entity, &RapierRigidBody), (With<Ball>, Without<Ccd>)>) {
     for (e, body) in &q {
         if matches!(body, RapierRigidBody::Dynamic) { commands.entity(e).insert(Ccd::enabled()); }
@@ -344,7 +309,6 @@ fn adjust_physics_with_keys(
 
     let mut changed = false;
 
-    // Gravity adjustments
     if keys.pressed(KeyCode::ArrowUp) {
         physics_config.gravity.y += speed * delta;
         changed = true;
@@ -362,7 +326,6 @@ fn adjust_physics_with_keys(
         changed = true;
     }
 
-    // Clustering strength
     if keys.pressed(KeyCode::Equal) || keys.pressed(KeyCode::NumpadAdd) {
         physics_config.clustering_strength = (physics_config.clustering_strength + 100.0 * delta).min(500.0);
         changed = true;

@@ -1,6 +1,3 @@
-//! game_core: foundational ECS types (components, resources, events) used across game crates.
-//! Minimal initial implementation created in Sprint 1.
-
 use bevy::prelude::*;
 
 pub mod app_state;

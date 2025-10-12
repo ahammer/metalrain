@@ -16,5 +16,5 @@ pub struct GameLost;
 #[derive(Event, Debug)]
 pub struct SpawnBallEvent {
 	pub spawn_entity: Entity,
-	pub override_position: Option<Vec2>, // manual position override (e.g. cursor)
+	pub override_position: Option<Vec2>,
 }

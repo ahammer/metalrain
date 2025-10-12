@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use crate::{EventQueue, HandlerRegistry, MiddlewareChain, EventPayload, GameEvent, EventResult, EventSourceTag, FrameCounter, EventEnvelope};
 
-/// Exclusive system: drains current frame's queue, applies middleware sequentially, dispatches to handlers.
 pub fn reducer_system(world: &mut World) {
     let frame_idx = world.resource::<FrameCounter>().0;
     let events: Vec<EventEnvelope> = {
@@ -34,7 +33,6 @@ pub fn reducer_system(world: &mut World) {
     world.resource_mut::<EventQueue>().promote_next_frame();
 }
 
-/// Helper for handlers to emit new events (which will be deferred to next frame).
 pub fn emit_game_event(world: &mut World, game_event: GameEvent) {
     let frame = world.resource::<FrameCounter>().0;
     world.resource_mut::<EventQueue>().enqueue_game(game_event, EventSourceTag::Handler, frame + 1);

@@ -33,9 +33,7 @@ pub struct BouncySimulationPlugin;
 impl Plugin for BouncySimulationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BouncyParams>()
-            // Defer spawning until Playing state (assets ready)
             .add_systems(OnEnter(AppState::Playing), spawn_balls)
-            // Gate simulation updates to only run in Playing state
             .add_systems(Update, (update_balls, input_toggles).chain().run_if(in_state(AppState::Playing)));
     }
 }

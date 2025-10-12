@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use std::fmt::{Display, Formatter};
 
-/// Ordered render layers used by the compositor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component, Reflect)]
 #[reflect(Component)]
 pub enum RenderLayer {
@@ -42,7 +41,6 @@ impl Display for RenderLayer {
     }
 }
 
-/// Blend operation applied when compositing a layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
 pub enum BlendMode {
     #[default]
@@ -51,7 +49,6 @@ pub enum BlendMode {
     Multiply,
 }
 
-/// Global configuration per render layer.
 #[derive(Debug, Clone, Reflect)]
 pub struct LayerConfig {
     pub layer: RenderLayer,
@@ -71,7 +68,6 @@ impl LayerConfig {
     }
 }
 
-/// Runtime state for layer toggles and blend overrides (driven by input).
 #[derive(Resource, Debug, Clone, Reflect)]
 #[reflect(Resource)]
 pub struct LayerToggleState {

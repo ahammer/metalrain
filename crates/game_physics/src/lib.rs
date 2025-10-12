@@ -1,12 +1,3 @@
-//! game_physics: Rapier2D integration + foundational physics systems for balls.
-//!
-//! Responsibilities:
-//! * Provide `PhysicsConfig` tunable at runtime.
-//! * Install Rapier physics + gravity config.
-//! * Clustering forces (naive implementation; optimize later with spatial partitioning).
-//! * Velocity clamping to keep motion readable.
-//! * Sync Rapier velocity -> `Ball` component for other systems.
-
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 

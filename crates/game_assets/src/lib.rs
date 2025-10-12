@@ -1,7 +1,3 @@
-//! Centralized game asset management (fonts, shaders, configs)
-//! Provides a single plugin that loads and exposes asset handles so other crates
-//! don't hardcode paths.
-
 use bevy::prelude::*;
 use bevy::asset::LoadState;
 use bevy::asset::UntypedAssetId;
@@ -26,17 +22,14 @@ pub struct GameAssets {
     pub shaders: ShaderAssets,
 }
 
-// Allow automatic extraction into the render world so render graph pipeline creation can access shader handles.
 impl bevy::render::extract_resource::ExtractResource for GameAssets {
-    type Source = GameAssets; // same type between main & render worlds
+    type Source = GameAssets;
     fn extract_resource(source: &Self::Source) -> Self { source.clone() }
 }
 
-/// Marker resource inserted once all startup assets have finished loading successfully.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct AssetsReady;
 
-/// Internal resource tracking the untyped handles we still expect to finish loading.
 #[derive(Resource, Debug, Default)]
 struct PendingAssetGroup(Vec<UntypedAssetId>);
 
@@ -52,14 +45,10 @@ impl Plugin for GameAssetsPlugin {
     }
 }
 
-/// Standardized asset root modes for different crate execution contexts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetRootMode {
-    /// For binaries under `demos/<demo_name>` (cwd = that demo directory)
     DemoCrate,
-    /// For binaries under `crates/<game_crate>` (cwd = that crate directory)
     GameCrate,
-    /// Executed from workspace root (e.g. `cargo test` aggregating)
     WorkspaceRoot,
 }
 
@@ -67,8 +56,6 @@ impl AssetRootMode {
     pub fn path(self) -> &'static str {
         match self {
             AssetRootMode::DemoCrate => {
-                // On wasm the HTTP server usually serves the demo crate directory; parent traversal (../../) is sanitized.
-                // Provide a flat path so assets resolve (expect a server that mounts workspace root or copies assets/ next to demo binary).
                 #[cfg(target_arch = "wasm32")]
                 { "assets" }
                 #[cfg(not(target_arch = "wasm32"))]
@@ -85,13 +72,8 @@ impl AssetRootMode {
     }
 }
 
-/// Configure an app with the standardized AssetPlugin root path and GameAssetsPlugin.
-/// Call this BEFORE adding other plugins that may perform asset loading.
 pub fn configure_standard_assets(app: &mut App, mode: AssetRootMode) {
     use bevy::asset::AssetPlugin;
-    // Remove any pre-existing default AssetPlugin to avoid duplicate warnings.
-    // (If DefaultPlugins not added yet, this is a no-op.)
-    // (No-op placeholder; previously used to ensure mutable borrow ordering.)
     app.add_plugins(bevy::DefaultPlugins.set(AssetPlugin {
         file_path: mode.path().into(),
         ..Default::default()
@@ -99,7 +81,6 @@ pub fn configure_standard_assets(app: &mut App, mode: AssetRootMode) {
     app.add_plugins(GameAssetsPlugin::default());
 }
 
-/// Convenience wrappers for the common use cases.
 pub fn configure_demo(app: &mut App) { configure_standard_assets(app, AssetRootMode::DemoCrate); }
 pub fn configure_game_crate(app: &mut App) { configure_standard_assets(app, AssetRootMode::GameCrate); }
 pub fn configure_workspace_root(app: &mut App) { configure_standard_assets(app, AssetRootMode::WorkspaceRoot); }
@@ -125,7 +106,6 @@ fn load_assets(
     game_assets.shaders.present_fullscreen = present_fullscreen;
     game_assets.shaders.background = background;
 
-    // Record untyped ids for polling.
     let pending: Vec<UntypedAssetId> = [
         game_assets.fonts.ui_regular.id().untyped(),
         game_assets.fonts.ui_bold.id().untyped(),
@@ -145,7 +125,6 @@ fn poll_startup_assets(
 ) {
     let Some(pending) = pending else { return; };
     if pending.0.is_empty() {
-        // Already processed; nothing to do.
         return;
     }
     let mut all_loaded = true;
@@ -153,9 +132,8 @@ fn poll_startup_assets(
         match asset_server.get_load_state(*id) {
             Some(LoadState::Loaded) => {}
             Some(LoadState::Failed(_)) => {
-                // Fail fast: surface details for debugging.
                 error!("Startup asset failed to load: {:?}", id);
-                all_loaded = false; // keep polling; could choose to panic depending on policy.
+                all_loaded = false;
             }
             Some(_) | None => {
                 all_loaded = false;
@@ -169,10 +147,8 @@ fn poll_startup_assets(
     }
 }
 
-/// Helper to query readiness inside external code without directly checking the resource type.
 pub fn assets_ready(world: &World) -> bool { world.contains_resource::<AssetsReady>() }
 
-/// System that transitions from Loading to Playing state once all assets are ready.
 fn check_assets_ready_transition(
     assets_ready: Option<Res<AssetsReady>>,
     mut next_state: ResMut<NextState<game_core::AppState>>,

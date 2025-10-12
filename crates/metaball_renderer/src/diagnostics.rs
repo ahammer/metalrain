@@ -3,23 +3,20 @@ use crate::coordinates::MetaballCoordinateMapper;
 use crate::internal::{AlbedoTexture, BallBuffer, FieldTexture, NormalTexture, ParamsUniform};
 use bevy::prelude::*;
 
-/// User‑tunable diagnostics configuration.
 #[derive(Resource, Debug, Clone)]
 pub struct MetaballDiagnosticsConfig {
     pub enabled: bool,
-    /// How many frames between periodic logs.
     pub log_every_n_frames: u32,
     pub log_coordinates: bool,
     pub log_gpu_buffers: bool,
     pub log_textures: bool,
-    /// Stop all periodic logging after this frame (inclusive). 0 = unlimited.
     pub max_frames_logging: u64,
 }
 impl Default for MetaballDiagnosticsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            log_every_n_frames: 60, // ~1s at 60 FPS
+            log_every_n_frames: 60,
             log_coordinates: true,
             log_gpu_buffers: true,
             log_textures: true,

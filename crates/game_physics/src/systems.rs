@@ -5,7 +5,6 @@ use game_core::{Ball, Paddle, PaddleControl, ArenaConfig};
 use crate::PhysicsConfig;
 use std::collections::HashMap;
 
-/// Apply clustering / attraction forces between balls (naive O(n^2) implementation).
 pub fn apply_clustering_forces(
     mut query: Query<(&Transform, &mut ExternalForce), With<Ball>>,
     config: Res<PhysicsConfig>,
@@ -88,7 +87,6 @@ pub fn apply_clustering_forces(
     }
 }
 
-/// Clamp linear velocities to keep simulation visually legible.
 pub fn clamp_velocities(
     mut vel_query: Query<&mut Velocity, With<Ball>>,
     config: Res<PhysicsConfig>,
@@ -104,14 +102,12 @@ pub fn clamp_velocities(
     }
 }
 
-/// Sync Rapier velocities back into the `Ball` component for other gameplay systems.
 pub fn sync_physics_to_balls(mut query: Query<(&Velocity, &mut Ball)>) {
     for (vel, mut ball) in query.iter_mut() {
         ball.velocity = vel.linvel;
     }
 }
 
-/// Apply gravity from PhysicsConfig manually as an external force (workaround for direct gravity config access changes in rapier version).
 pub fn apply_config_gravity(
     mut query: Query<&mut ExternalForce, With<Ball>>,
     config: Res<PhysicsConfig>,
@@ -121,9 +117,6 @@ pub fn apply_config_gravity(
     }
 }
 
-/// Basic collision event handling (foundation for later gameplay hooks).
-/// Logs collision start events involving two `Ball` entities. Future extension could
-/// emit higher‑level game events or apply effects.
 pub fn handle_collision_events(
     mut collisions: EventReader<CollisionEvent>,
     _balls: Query<(), With<Ball>>,
@@ -133,8 +126,6 @@ pub fn handle_collision_events(
     }
 }
 
-/// Attach physics components to any newly spawned `Ball` entities that do not yet have a `RigidBody`.
-/// This enables generic spawning (e.g. via `SpawnBallEvent`) to remain decoupled from physics specifics.
 pub fn spawn_physics_for_new_balls(
     mut commands: Commands,
     config: Res<PhysicsConfig>,
@@ -160,7 +151,6 @@ pub fn spawn_physics_for_new_balls(
         let _ = transform;
     }
 }
-/// Attach kinematic physics to newly added paddles (if not already physics-enabled).
 pub fn attach_paddle_kinematic_physics(
     mut commands: Commands,
     paddles: Query<(Entity, &Paddle), Added<Paddle>>,
@@ -177,7 +167,6 @@ pub fn attach_paddle_kinematic_physics(
     }
 }
 
-/// Drive paddle velocity from input (runs before physics step). Ignores non-player paddles.
 pub fn drive_paddle_velocity(
     keys: Res<ButtonInput<KeyCode>>,
     mut paddles: Query<(&Paddle, &mut Velocity), With<RigidBody>>,
@@ -194,7 +183,6 @@ pub fn drive_paddle_velocity(
     }
 }
 
-/// Clamp kinematic paddle positions within arena bounds after physics integration; zero velocity on blocked axis.
 pub fn clamp_paddle_positions(
     arena: Option<Res<ArenaConfig>>,
     mut q: Query<(&Paddle, &mut Transform, &mut Velocity)>,

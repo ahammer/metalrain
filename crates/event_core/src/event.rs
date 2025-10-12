@@ -29,7 +29,6 @@ pub enum GameEvent {
     ResumeGame,
     PlayerAction(PlayerAction),
 
-    // Playground events
     SpawnBallAtCursor { position: Vec2 },
     PlaceWidget { widget_type: WidgetType, position: Vec2 },
     SelectEntity { entity: Option<Entity> },
@@ -77,7 +76,6 @@ pub enum DebugEvent {
     ResetLevelFast,
 }
 
-/// Unified payload type wrapping game + debug events.
 #[derive(Clone)]
 pub enum EventPayload {
     Game(GameEvent),
@@ -104,7 +102,6 @@ pub enum EventSourceTag {
     Test,
 }
 
-/// Envelope adds metadata required for middleware and journaling.
 #[derive(Debug, Clone)]
 pub struct EventEnvelope {
     pub payload: EventPayload,
@@ -127,7 +124,6 @@ pub trait EventHandler: Send + Sync {
     fn name(&self) -> &'static str;
 }
 
-/// Registry storing boxed handler trait objects.
 #[derive(Resource, Default)]
 pub struct HandlerRegistry { handlers: Vec<Box<dyn EventHandler>> }
 impl HandlerRegistry {

@@ -24,7 +24,6 @@ impl Plugin for WidgetRendererPlugin {
     }
 }
 
-// --- Walls ---
 fn spawn_wall_visuals(mut commands: Commands, walls: Query<(Entity, &Wall), Added<Wall>>) {
     for (entity, wall) in &walls {
         let direction = (wall.end - wall.start).normalize_or_zero();
@@ -41,7 +40,6 @@ fn spawn_wall_visuals(mut commands: Commands, walls: Query<(Entity, &Wall), Adde
     }
 }
 
-// --- Targets ---
 fn spawn_target_visuals(mut commands: Commands, targets: Query<(Entity, &Target), Added<Target>>) {
     for (entity, target) in &targets {
         let size = Vec2::splat(target.radius * 2.0);
@@ -55,7 +53,6 @@ fn spawn_target_visuals(mut commands: Commands, targets: Query<(Entity, &Target)
     }
 }
 
-// --- Hazards ---
 fn spawn_hazard_visuals(mut commands: Commands, hazards: Query<(Entity, &Hazard), Added<Hazard>>) {
     for (entity, hazard) in &hazards {
         let size = hazard.size();
@@ -70,7 +67,6 @@ fn spawn_hazard_visuals(mut commands: Commands, hazards: Query<(Entity, &Hazard)
     }
 }
 
-// --- Target Animations & Health Visualization ---
 fn update_target_animations(time: Res<Time>, mut query: Query<(&mut Target, &mut Transform, &mut Sprite)>) {
     let dt = time.delta_secs();
     for (mut target, mut transform, mut sprite) in &mut query {
@@ -125,7 +121,6 @@ fn update_hazard_pulse(time: Res<Time>, mut hazards: Query<&mut Sprite, With<Haz
     }
 }
 
-// --- Paddles ---
 fn spawn_paddle_visuals(mut commands: Commands, paddles: Query<(Entity, &Paddle), Added<Paddle>>) {
     for (entity, paddle) in &paddles {
         let size = paddle.half_extents * 2.0;
@@ -139,7 +134,6 @@ fn spawn_paddle_visuals(mut commands: Commands, paddles: Query<(Entity, &Paddle)
     }
 }
 
-// --- Spawn Points ---
 fn spawn_spawnpoint_visuals(mut commands: Commands, spawns: Query<(Entity, &SpawnPoint), Added<SpawnPoint>>) {
     for (entity, sp) in &spawns {
         let r = sp.radius;
@@ -186,7 +180,6 @@ fn update_selected_highlight(mut q: Query<&mut Sprite, Added<Selected>>) {
     }
 }
 
-// --- Tests ---
 #[cfg(test)]
 mod tests {
     use super::*;

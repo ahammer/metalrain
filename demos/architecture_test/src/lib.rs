@@ -59,7 +59,7 @@ fn emit_events_once(
     }
 }
 
-use game_core::Ball; // keep after functions that reference to satisfy ordering
+use game_core::Ball;
 
 fn observe_events(
     mut spawned: EventReader<BallSpawned>,

@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use crate::{EventHandler, GameEvent, EventResult};
 
-/// Simple counters used by minimal handlers for tests.
 #[derive(Resource, Default, Debug)]
 pub struct BallCounter { pub balls: u32 }
 #[derive(Resource, Default, Debug)]

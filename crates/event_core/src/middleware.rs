@@ -20,7 +20,6 @@ impl MiddlewareChain {
     }
 }
 
-/// Simple filter middleware using predicate closure (boxed) mainly for tests / examples.
 pub struct FilterMiddleware { predicate: Box<dyn Fn(&EventEnvelope) -> bool + Send + Sync>, name: &'static str }
 impl FilterMiddleware { pub fn new(name: &'static str, pred: impl Fn(&EventEnvelope)->bool + Send + Sync + 'static) -> Self { Self { predicate: Box::new(pred), name } } }
 impl Middleware for FilterMiddleware {
@@ -28,20 +27,16 @@ impl Middleware for FilterMiddleware {
     fn process(&mut self, ev: EventEnvelope) -> Option<EventEnvelope> { if (self.predicate)(&ev) { Some(ev) } else { None } }
 }
 
-/// Output of a key mapping: either a direct GameEvent or a PlayerAction wrapped into a GameEvent.
 #[derive(Clone)]
 pub enum KeyMappingOutput { Game(GameEvent), Action(PlayerAction) }
 
-/// Configurable key mapping middleware: transforms raw Input(KeyDown) into higher level events/actions.
 pub struct KeyMappingMiddleware {
     mappings: HashMap<KeyCode, KeyMappingOutput>,
     name: &'static str,
 }
 
 impl KeyMappingMiddleware {
-    /// Create an empty mapping set. No keys transformed until `map` is called.
     pub fn empty() -> Self { Self { mappings: HashMap::new(), name: "KeyMapping" } }
-    /// Convenience constructor replicating previous hardcoded default gameplay mapping.
     pub fn with_default_gameplay() -> Self {
         let mut km = Self::empty();
         km.map(KeyCode::KeyR, KeyMappingOutput::Game(GameEvent::ResetLevel))
@@ -53,12 +48,9 @@ impl KeyMappingMiddleware {
           .map(KeyCode::Space, KeyMappingOutput::Action(PlayerAction::PrimaryAction));
         km
     }
-    /// Map a single key to an output (overwrites existing mapping).
     pub fn map(&mut self, key: KeyCode, out: KeyMappingOutput) -> &mut Self { self.mappings.insert(key, out); self }
-    /// Map multiple keys to the same output.
-    pub fn map_many(&mut self, keys: &[KeyCode], out: KeyMappingOutput) -> &mut Self { for k in keys { self.mappings.insert(*k, out.clone()); } self }
-    /// Replace entire mapping (builder-style chaining support).
-    pub fn set_mappings(&mut self, map: HashMap<KeyCode, KeyMappingOutput>) -> &mut Self { self.mappings = map; self }
+    pub fn map_many(&mut self, keys: &[KeyCode], out: KeyMappingOutput) -> &mut Self { for k in keys { self.map(*k, out.clone()); } self }
+    pub fn with_mappings(&mut self, m: HashMap<KeyCode, KeyMappingOutput>) -> &mut Self { self.mappings = m; self }
 }
 
 impl Middleware for KeyMappingMiddleware {
@@ -103,7 +95,6 @@ fn event_kind_key(env: &EventEnvelope) -> &'static str {
     }
 }
 
-/// Debounce duplicate events of same kind within a frame window.
 pub struct DebounceMiddleware { window_frames: u64, last_seen: HashMap<&'static str, u64> }
 impl DebounceMiddleware { pub fn new(window_frames: u64) -> Self { Self { window_frames, last_seen: HashMap::new() } } }
 impl Middleware for DebounceMiddleware {
@@ -117,7 +108,6 @@ impl Middleware for DebounceMiddleware {
     }
 }
 
-/// Cooldown middleware enforcing minimum frame separation per event kind.
 pub struct CooldownMiddleware { cooldown: u64, last_processed: HashMap<&'static str, u64> }
 impl CooldownMiddleware { pub fn new(cooldown_frames: u64) -> Self { Self { cooldown: cooldown_frames, last_processed: HashMap::new() } } }
 impl Middleware for CooldownMiddleware {
