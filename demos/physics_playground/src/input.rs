@@ -7,24 +7,18 @@ use rand::prelude::*;
 use bevy_rapier2d::prelude::{Ccd, RigidBody as RapierRigidBody};
 use game_core::{Ball, BallBundle, GameColor};
 use game_physics::PhysicsConfig;
-use game_rendering::GameCamera;
+use game_rendering::{RenderLayer, RenderTargets};
 use metaball_renderer::MetaBall;
 
 use crate::resources::PlaygroundState;
-
-/// Exits the application when Escape is pressed.
-pub fn exit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut exit: EventWriter<AppExit>) {
-    if keys.just_pressed(KeyCode::Escape) {
-        exit.write(AppExit::Success);
-    }
-}
 
 /// Spawns a ball at the mouse cursor position when left-clicked.
 pub fn spawn_ball_on_click(
     mut commands: Commands,
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    camera_q: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    targets: Res<RenderTargets>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
     mut playground_state: ResMut<PlaygroundState>,
 ) {
     if !mouse_button.just_pressed(MouseButton::Left) {
@@ -47,8 +41,13 @@ pub fn spawn_ball_on_click(
         cursor_pos.y
     );
 
-    let Ok((camera, camera_transform)) = camera_q.single() else {
-        warn!("No GameCamera found (spawn_ball_on_click)");
+    let Some(layer) = targets.layers.get(&RenderLayer::GameWorld) else {
+        warn!("GameWorld layer camera missing (spawn_ball_on_click)");
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = cameras.get(layer.camera) else {
+        warn!("Failed to access GameWorld camera (spawn_ball_on_click)");
         return;
     };
 

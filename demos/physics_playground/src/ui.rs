@@ -6,7 +6,7 @@ use bevy::window::PrimaryWindow;
 
 use game_core::Ball;
 use game_physics::PhysicsConfig;
-use game_rendering::GameCamera;
+use game_rendering::{RenderLayer, RenderTargets};
 
 use crate::components::{MousePositionText, StatsText};
 use crate::resources::PlaygroundState;
@@ -44,7 +44,8 @@ pub fn update_stats_text(
 pub fn update_mouse_position_text(
     mut text_query: Query<&mut Text, With<MousePositionText>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    camera_q: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    targets: Res<RenderTargets>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
 ) {
     let Ok(mut text) = text_query.single_mut() else {
         return;
@@ -58,7 +59,11 @@ pub fn update_mouse_position_text(
         **text = "Mouse: ---, ---".to_string();
         return;
     };
-    let Ok((camera, camera_transform)) = camera_q.single() else {
+    let Some(layer) = targets.layers.get(&RenderLayer::GameWorld) else {
+        **text = "Mouse: ---, ---".to_string();
+        return;
+    };
+    let Ok((camera, camera_transform)) = cameras.get(layer.camera) else {
         **text = "Mouse: ---, ---".to_string();
         return;
     };

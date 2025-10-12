@@ -36,10 +36,6 @@ exclude = [
 ]
 resolver = "2"
 
-[workspace.features]
-# Process raw assets at build/load time (future pipeline placeholder). Currently a no-op toggle.
-processed_assets = []
-
 # Centralized dependency versions (Sprint 1 workspace-level dependencies)
 [workspace.dependencies]
 # NOTE: Removed the `file_watcher` feature from Bevy for WASM compatibility.

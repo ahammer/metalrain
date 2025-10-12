@@ -3063,6 +3063,7 @@ dependencies = [
  "game_core",
  "metaball_renderer",
  "rand",
+ "scaffold",
 ]
 
 [[package]]
@@ -3762,14 +3763,12 @@ dependencies = [
  "background_renderer",
  "bevy",
  "bevy_rapier2d",
- "event_core",
- "game_assets",
  "game_core",
  "game_physics",
  "game_rendering",
  "metaball_renderer",
  "rand",
- "widget_renderer",
+ "scaffold",
 ]
 
 [[package]]
