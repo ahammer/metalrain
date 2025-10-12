@@ -46,13 +46,6 @@ jobs:
           wasm-bindgen target/wasm32-unknown-unknown/release/metaballs_test.wasm \
             --out-dir web --target web --no-typescript
 
-      - name: Optimize wasm (binaryen)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binaryen
-          wasm-opt -O3 web/metaballs_test_bg.wasm -o web/metaballs_test_bg.wasm
-        continue-on-error: true
-
       - name: Copy assets
         run: |
           rsync -a assets/ web/assets/
