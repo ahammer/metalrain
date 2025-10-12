@@ -10,7 +10,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: '-C target-feature=+simd128 --cfg=getrandom_backend="wasm_js"'
 
 jobs:
   build-deploy:
@@ -35,11 +34,13 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Build (wasm release)
-        run: cargo build --release --target wasm32-unknown-unknown --package physics_playground
-
-      - name: Install wasm-bindgen-cli
+      - name: Install wasm-bindgen-cli (before wasm build)
         run: cargo install wasm-bindgen-cli --locked
+
+      - name: Build (wasm release)
+        env:
+          RUSTFLAGS: '-C target-feature=+simd128 --cfg=getrandom_backend="wasm_js"'
+        run: cargo build --release --target wasm32-unknown-unknown --package physics_playground
 
       - name: Generate wasm-bindgen JS glue
         run: |
