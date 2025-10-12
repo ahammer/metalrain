@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Physics Playground (Web)</title>
+<title>Metaballs Test (Web)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Physics Playground WebAssembly build">
+<meta name="description" content="Metaballs Test WebAssembly build">
 <style>
 html,body { margin:0; padding:0; width:100%; height:100%; background:#0d1117; color:#eee; font-family:system-ui,Arial,sans-serif; overflow:hidden; }
 #loading { position:fixed; inset:0; display:flex; flex-direction:column; gap:12px; align-items:center; justify-content:center; background:#0d1117; font-size:14px; letter-spacing:.5px; }
@@ -16,7 +16,7 @@ canvas { outline:0; width:100vw !important; height:100vh !important; display:blo
 <body>
 <div id="err"></div>
 <div id="loading">
-  <div>Loading Physics Playground...</div>
+  <div>Loading Metaballs Test...</div>
   <progress id="pb" max="100" value="0"></progress>
   <div id="status">Initializing</div>
 </div>
@@ -54,7 +54,7 @@ async function initWasm() {
       }
       return resp;
     };
-    const init = (await import('./physics_playground.js')).default;
+    const init = (await import('./metaballs_test.js')).default;
     statusEl.textContent = 'Starting engine';
     await init();
     loading.style.display = 'none';

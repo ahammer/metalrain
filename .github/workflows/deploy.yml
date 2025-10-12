@@ -37,22 +37,22 @@ jobs:
       - name: Install wasm-bindgen-cli (before wasm build)
         run: cargo install wasm-bindgen-cli --locked
 
-      - name: Build (wasm release)
+      - name: Build (wasm release with embedded shaders)
         env:
           RUSTFLAGS: '-C target-feature=+simd128 --cfg=getrandom_backend="wasm_js"'
-        run: cargo build --release --target wasm32-unknown-unknown --package physics_playground
+        run: cargo build --release --target wasm32-unknown-unknown --package metaballs_test --features metaball_renderer/embed_shaders
 
       - name: Generate wasm-bindgen JS glue
         run: |
-          rm -rf web/physics_playground.js web/physics_playground_bg.wasm
-          wasm-bindgen target/wasm32-unknown-unknown/release/physics_playground.wasm \
+          rm -rf web/metaballs_test.js web/metaballs_test_bg.wasm
+          wasm-bindgen target/wasm32-unknown-unknown/release/metaballs_test.wasm \
             --out-dir web --target web --no-typescript
 
       - name: Optimize wasm (binaryen)
         run: |
           sudo apt-get update
           sudo apt-get install -y binaryen
-          wasm-opt -Oz web/physics_playground_bg.wasm -o web/physics_playground_bg.wasm
+          wasm-opt -Oz web/metaballs_test_bg.wasm -o web/metaballs_test_bg.wasm
         continue-on-error: true
 
       - name: Copy assets
