@@ -11,6 +11,7 @@ processed_assets = [] # placeholder: will switch AssetMode in future
 
 [dependencies]
 bevy = { workspace = true }
+game_core = { path = "../game_core" }
 serde = { workspace = true, optional = true }
 
 [package.metadata.release]

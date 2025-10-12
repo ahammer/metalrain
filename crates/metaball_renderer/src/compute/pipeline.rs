@@ -232,7 +232,7 @@ fn build_metaball_pipeline(world: &mut World) {
 fn create_pipeline_when_ready(world: &mut World) {
     // already built
     if world.get_resource::<GpuMetaballPipeline>().is_some() { return; }
-    // need extracted assets & readiness marker
+    // need extracted assets (state machine in main world guarantees assets ready by time we reach here)
     if !world.contains_resource::<GameAssets>() { return; }
 
     #[cfg(not(feature = "embed_shaders"))]
@@ -246,7 +246,7 @@ fn create_pipeline_when_ready(world: &mut World) {
                 error!(target="metaballs", "compute_metaballs.wgsl failed to load; cannot build pipeline");
                 return;
             }
-            _ => { return; } // still loading
+            _ => { return; } // still loading (rare since state enforces readiness, but network timing on WASM may lag extraction)
         }
     }
     build_metaball_pipeline(world);

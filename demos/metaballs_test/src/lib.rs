@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use metaball_renderer::{MetaballRenderSettings, MetaballRendererPlugin};
 use game_assets::configure_demo; // standardized asset root + GameAssets loading
+use game_core::AppState;
 
 mod debug_vis;
 mod simulation;
@@ -14,8 +15,11 @@ pub fn run_metaballs_test() {
     let mut app = App::new();
     app.insert_resource(ClearColor(Color::BLACK));
 
-    // Standardized asset root (Demo mode) + GameAssets plugin.
+    // Standardized asset root (Demo mode) + GameAssets plugin (includes DefaultPlugins).
     configure_demo(&mut app);
+
+    // Initialize state machine AFTER DefaultPlugins (Loading is default)
+    app.init_state::<AppState>();
 
     // Metaball renderer configured after assets so shader handle is available early.
     app.add_plugins(MetaballRendererPlugin::with(
@@ -29,7 +33,8 @@ pub fn run_metaballs_test() {
             .with_presentation(true),
     ));
 
-    app.add_systems(Startup, spawn_camera)
+    // Defer camera spawn to Playing state (after assets loaded)
+    app.add_systems(OnEnter(AppState::Playing), spawn_camera)
         .add_plugins(BouncySimulationPlugin)
         .add_plugins(DebugVisPlugin)
         .run();

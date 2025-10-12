@@ -2396,6 +2396,7 @@ name = "game_assets"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "game_core",
  "serde",
 ]
 
@@ -3060,6 +3061,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "game_assets",
+ "game_core",
  "metaball_renderer",
  "rand",
 ]

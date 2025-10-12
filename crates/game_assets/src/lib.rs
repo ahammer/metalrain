@@ -47,7 +47,8 @@ impl Plugin for GameAssetsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameAssets>()
             .add_systems(Startup, load_assets)
-            .add_systems(Update, poll_startup_assets);
+            .add_systems(Update, poll_startup_assets)
+            .add_systems(Update, check_assets_ready_transition.run_if(in_state(game_core::AppState::Loading)));
     }
 }
 
@@ -170,3 +171,14 @@ fn poll_startup_assets(
 
 /// Helper to query readiness inside external code without directly checking the resource type.
 pub fn assets_ready(world: &World) -> bool { world.contains_resource::<AssetsReady>() }
+
+/// System that transitions from Loading to Playing state once all assets are ready.
+fn check_assets_ready_transition(
+    assets_ready: Option<Res<AssetsReady>>,
+    mut next_state: ResMut<NextState<game_core::AppState>>,
+) {
+    if assets_ready.is_some() {
+        info!("All startup assets loaded; transitioning to Playing state.");
+        next_state.set(game_core::AppState::Playing);
+    }
+}

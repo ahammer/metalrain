@@ -1,6 +1,7 @@
 use crate::simulation::HALF_EXTENT;
 use bevy::prelude::*;
 use bevy::sprite::MeshMaterial2d;
+use game_core::AppState;
 use metaball_renderer::{MetaBall, MetaBallColor};
 
 #[derive(Resource, Default)]
@@ -10,8 +11,10 @@ pub struct DebugVisPlugin;
 impl Plugin for DebugVisPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DebugVisToggle>()
-            .add_systems(Startup, setup_lines)
-            .add_systems(Update, (toggle_debug, apply_visibility, draw_ball_circles));
+            // Defer debug line setup until Playing state
+            .add_systems(OnEnter(AppState::Playing), setup_lines)
+            // Gate debug vis systems to only run in Playing state
+            .add_systems(Update, (toggle_debug, apply_visibility, draw_ball_circles).run_if(in_state(AppState::Playing)));
     }
 }
 

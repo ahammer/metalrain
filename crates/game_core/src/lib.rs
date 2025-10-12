@@ -3,12 +3,14 @@
 
 use bevy::prelude::*;
 
+pub mod app_state;
 pub mod bundles;
 pub mod components;
 pub mod events;
 pub mod resources;
 mod spawning;
 
+pub use app_state::AppState;
 pub use bundles::*;
 pub use components::*;
 pub use events::*;

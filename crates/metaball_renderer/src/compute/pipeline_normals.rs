@@ -10,8 +10,9 @@ use bevy::render::{
     render_resource::*,
     renderer::{RenderContext, RenderDevice},
     texture::GpuImage,
-    Render, RenderApp,
+    Render, RenderApp, RenderSet,
 };
+use game_assets::GameAssets;
 use std::borrow::Cow;
 
 #[cfg(feature = "embed_shaders")]
@@ -35,106 +36,127 @@ pub struct GpuNormalsBindGroup(pub BindGroup);
 
 impl Plugin for NormalComputePlugin {
     fn build(&self, app: &mut App) {
-        // (Embedded shaders removed) – all shaders now loaded via AssetServer.
         let render_app = app.sub_app_mut(RenderApp);
+
+        // Deferred pipeline creation (waits for shader load)
         render_app.add_systems(
             Render,
-            prepare_normals_bind_group.in_set(bevy::render::RenderSet::PrepareBindGroups),
+            create_normals_pipeline_when_ready.in_set(RenderSet::Prepare),
         );
+
+        render_app.add_systems(
+            Render,
+            prepare_normals_bind_group.in_set(RenderSet::PrepareBindGroups),
+        );
+
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(NormalsPassLabel, NormalsComputeNode::default());
         // Order: metaballs -> normals -> camera driver
         graph.add_node_edge(MetaballPassLabel, NormalsPassLabel);
         graph.add_node_edge(NormalsPassLabel, bevy::render::graph::CameraDriverLabel);
     }
-    fn finish(&self, app: &mut App) {
-        app.sub_app_mut(RenderApp)
-            .init_resource::<GpuNormalsPipeline>();
-    }
 }
 
-impl FromWorld for GpuNormalsPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let device = world.resource::<RenderDevice>();
-        let layout = device.create_bind_group_layout(
-            Some("metaballs.normals.layout"),
-            &[
-                // field texture (read-only storage)
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::ReadOnly,
-                        format: TextureFormat::Rgba16Float,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
+// Build normals pipeline only after assets are ready (state machine guarantees)
+fn build_normals_pipeline(world: &mut World) {
+    let device = world.resource::<RenderDevice>();
+    let layout = device.create_bind_group_layout(
+        Some("metaballs.normals.layout"),
+        &[
+            // field texture (read-only storage)
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::ReadOnly,
+                    format: TextureFormat::Rgba16Float,
+                    view_dimension: TextureViewDimension::D2,
                 },
-                // params uniform (reuse to get screen_size)
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: BufferSize::new(
-                            std::mem::size_of::<ParamsUniform>() as u64
-                        ),
-                    },
-                    count: None,
+                count: None,
+            },
+            // params uniform (reuse to get screen_size)
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(
+                        std::mem::size_of::<ParamsUniform>() as u64
+                    ),
                 },
-                // normals output
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::WriteOnly,
-                        format: TextureFormat::Rgba16Float,
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
+                count: None,
+            },
+            // normals output
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::WriteOnly,
+                    format: TextureFormat::Rgba16Float,
+                    view_dimension: TextureViewDimension::D2,
                 },
-            ],
-        );
+                count: None,
+            },
+        ],
+    );
 
-        // Always load from centralized assets directory.
-        // Load shader directly (created before centralized GameAssets startup load completes)
-        let shader: Handle<Shader> = {
-            #[cfg(feature = "embed_shaders")]
-            {
-                let mut shaders = world.resource_mut::<Assets<Shader>>();
-                shaders.add(Shader::from_wgsl(
-                    COMPUTE_NORMALS_WGSL,
-                    "embedded://compute_3d_normals.wgsl",
-                ))
-            }
-            #[cfg(not(feature = "embed_shaders"))]
-            {
-                let asset_server = world.resource::<AssetServer>();
-                asset_server.load("shaders/compute_3d_normals.wgsl")
-            }
-        };
+    let shader: Handle<Shader> = {
+        #[cfg(feature = "embed_shaders")]
+        {
+            let mut shaders = world.resource_mut::<Assets<Shader>>();
+            shaders.add(Shader::from_wgsl(
+                COMPUTE_NORMALS_WGSL,
+                "embedded://compute_3d_normals.wgsl",
+            ))
+        }
+        #[cfg(not(feature = "embed_shaders"))]
+        {
+            let ga = world.resource::<GameAssets>();
+            ga.shaders.compute_3d_normals.clone()
+        }
+    };
 
-        let cache = world.resource::<PipelineCache>();
-        let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some(Cow::Borrowed("metaballs.compute_normals")),
-            layout: vec![layout.clone()],
-            push_constant_ranges: vec![],
-            shader,
-            shader_defs: vec![],
-            entry_point: Cow::Borrowed("compute_normals"),
-            zero_initialize_workgroup_memory: false,
-        });
-        Self {
-            layout,
-            pipeline_id,
+    let cache = world.resource::<PipelineCache>();
+    let pipeline_id = cache.queue_compute_pipeline(ComputePipelineDescriptor {
+        label: Some(Cow::Borrowed("metaballs.compute_normals")),
+        layout: vec![layout.clone()],
+        push_constant_ranges: vec![],
+        shader,
+        shader_defs: vec![],
+        entry_point: Cow::Borrowed("compute_normals"),
+        zero_initialize_workgroup_memory: false,
+    });
+
+    world.insert_resource(GpuNormalsPipeline { layout, pipeline_id });
+    info!(target="metaballs", "Normals compute pipeline created (assets ready).");
+}
+
+fn create_normals_pipeline_when_ready(world: &mut World) {
+    if world.get_resource::<GpuNormalsPipeline>().is_some() { return; }
+    // Wait for GameAssets extraction (state machine guarantees readiness in main world)
+    if !world.contains_resource::<GameAssets>() { return; }
+
+    #[cfg(not(feature = "embed_shaders"))]
+    {
+        use bevy::asset::LoadState;
+        let ga = world.resource::<GameAssets>();
+        let asset_server = world.resource::<AssetServer>();
+        match asset_server.get_load_state(ga.shaders.compute_3d_normals.id()) {
+            Some(LoadState::Loaded) => {},
+            Some(LoadState::Failed(_)) => {
+                error!(target="metaballs", "compute_3d_normals.wgsl failed to load; cannot build normals pipeline");
+                return;
+            }
+            _ => { return; } // still loading
         }
     }
+    build_normals_pipeline(world);
 }
 
 fn prepare_normals_bind_group(
     mut commands: Commands,
-    pipeline: Res<GpuNormalsPipeline>,
+    pipeline: Option<Res<GpuNormalsPipeline>>,
     field: Option<Res<FieldTexture>>,
     normals: Option<Res<NormalTexture>>,
     gpu_images: Res<RenderAssets<GpuImage>>,
@@ -142,9 +164,9 @@ fn prepare_normals_bind_group(
     gpu_metaball: Option<Res<GpuMetaballBindGroup>>, // ensure first pass prepared
     gpu_buffers: Option<Res<super::types::GpuBuffers>>,
 ) {
-    let (_first_pass_ready, field, normals, gpu_buffers) =
-        match (gpu_metaball, field, normals, gpu_buffers) {
-            (Some(_), Some(f), Some(n), Some(bufs)) => (true, f, n, bufs),
+    let (pipeline, _first_pass_ready, field, normals, gpu_buffers) =
+        match (pipeline, gpu_metaball, field, normals, gpu_buffers) {
+            (Some(p), Some(_), Some(f), Some(n), Some(bufs)) => (p, true, f, n, bufs),
             _ => return,
         };
     let Some(field_img) = gpu_images.get(&field.0) else {
@@ -187,12 +209,15 @@ enum NodeState {
 
 impl render_graph::Node for NormalsComputeNode {
     fn update(&mut self, world: &mut World) {
-        let pipeline = world.resource::<GpuNormalsPipeline>();
+        let Some(pipeline) = world.get_resource::<GpuNormalsPipeline>() else { return; };
         let cache = world.resource::<PipelineCache>();
         if matches!(self.state, NodeState::Loading) {
             match cache.get_compute_pipeline_state(pipeline.pipeline_id) {
                 CachedPipelineState::Ok(_) => self.state = NodeState::Ready,
-                CachedPipelineState::Err(err) => panic!("Failed to compile normals compute: {err}"),
+                CachedPipelineState::Err(err) => {
+                    // State machine guarantees shader loaded, so this is a genuine compile failure
+                    panic!("Normals compute pipeline failed after assets ready:\n{err}");
+                }
                 _ => {}
             }
         }
