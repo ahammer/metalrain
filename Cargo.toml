@@ -16,6 +16,8 @@ members = [
     "crates/game_assets",
     # Background renderer crate (Sprint: Background Renderer)
     "crates/background_renderer",
+    # Integration scaffold plugin (Sprint: Scaffold Integration)
+    "crates/scaffold",
     # Demos
     "demos/metaballs_test",
     "demos/compositor_test",

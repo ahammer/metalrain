@@ -1,13 +1,9 @@
 //! Constants for the compositor test demo.
 
-use bevy::prelude::*;
-
 pub const DEMO_NAME: &str = "compositor_test";
 
 // World dimensions
 pub const HALF_EXTENT: f32 = 256.0;
-pub const TEX_SIZE: UVec2 = UVec2::new(512, 512);
-pub const WALL_THICKNESS: f32 = 10.0;
 
 // Ball settings
 pub const NUM_BALLS: usize = 400;

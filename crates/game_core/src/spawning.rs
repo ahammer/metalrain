@@ -1,8 +1,8 @@
-use bevy::prelude::*;
 use crate::{
-    Paddle, PaddleControl, SpawnPoint, ActiveSpawnRotation, BallSpawnPolicy, BallSpawnPolicyMode,
-    SpawnBallEvent, SpawnMetrics, ArenaConfig,
+    ActiveSpawnRotation, ArenaConfig, BallSpawnPolicy, BallSpawnPolicyMode, Paddle, PaddleControl,
+    SpawnBallEvent, SpawnMetrics, SpawnPoint,
 };
+use bevy::prelude::*;
 pub fn paddle_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -11,13 +11,25 @@ pub fn paddle_input_system(
 ) {
     let dt = time.delta_secs();
     for (mut transform, paddle) in &mut q {
-        if !matches!(paddle.control, PaddleControl::Player) { continue; }
+        if !matches!(paddle.control, PaddleControl::Player) {
+            continue;
+        }
         let mut dir = Vec2::ZERO;
-        if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) { dir.x -= 1.0; }
-        if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) { dir.x += 1.0; }
-        if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) { dir.y += 1.0; }
-        if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) { dir.y -= 1.0; }
-        if dir != Vec2::ZERO { dir = dir.normalize(); }
+        if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+            dir.x -= 1.0;
+        }
+        if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
+            dir.x += 1.0;
+        }
+        if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+            dir.y += 1.0;
+        }
+        if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+            dir.y -= 1.0;
+        }
+        if dir != Vec2::ZERO {
+            dir = dir.normalize();
+        }
         let delta = dir * paddle.move_speed * dt;
         transform.translation.x += delta.x;
         transform.translation.y += delta.y;
@@ -35,14 +47,21 @@ pub fn process_spawn_points(
     mut q: Query<(Entity, &mut SpawnPoint)>,
     mut writer: EventWriter<SpawnBallEvent>,
 ) {
-    let BallSpawnPolicyMode::Auto(interval) = policy.mode else { return; };
+    let BallSpawnPolicyMode::Auto(interval) = policy.mode else {
+        return;
+    };
     let dt = time.delta_secs();
     for (entity, mut sp) in &mut q {
-        if !sp.active { continue; }
+        if !sp.active {
+            continue;
+        }
         sp.timer += dt;
         if sp.timer >= interval && sp.cooldown <= 0.0 {
             sp.timer = 0.0;
-            writer.write(SpawnBallEvent { spawn_entity: entity, override_position: None });
+            writer.write(SpawnBallEvent {
+                spawn_entity: entity,
+                override_position: None,
+            });
         }
     }
 }
@@ -63,7 +82,9 @@ pub fn maintain_spawn_rotation(
         }
     }
     rotation.indices.retain(|e| all.get(*e).is_ok());
-    if dirty && rotation.current >= rotation.indices.len() { rotation.current = 0; }
+    if dirty && rotation.current >= rotation.indices.len() {
+        rotation.current = 0;
+    }
 }
 
 pub struct PaddlePlugin;
@@ -76,15 +97,11 @@ impl Plugin for PaddlePlugin {
 pub struct SpawningPlugin;
 impl Plugin for SpawningPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_event::<SpawnBallEvent>()
+        app.add_event::<SpawnBallEvent>()
             .init_resource::<BallSpawnPolicy>()
             .init_resource::<ActiveSpawnRotation>()
             .init_resource::<SpawnMetrics>()
-            .add_systems(Update, (
-                process_spawn_points,
-                maintain_spawn_rotation,
-            ));
+            .add_systems(Update, (process_spawn_points, maintain_spawn_rotation));
     }
 }
 
@@ -95,12 +112,11 @@ mod tests {
     #[test]
     fn rotation_wraps() {
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .add_plugins(SpawningPlugin);
-    let e1 = app.world_mut().spawn(SpawnPoint::default()).id();
-    let e2 = app.world_mut().spawn(SpawnPoint::default()).id();
-    app.update();
-    let mut rot = app.world_mut().resource_mut::<ActiveSpawnRotation>();
+        app.add_plugins(MinimalPlugins).add_plugins(SpawningPlugin);
+        let e1 = app.world_mut().spawn(SpawnPoint::default()).id();
+        let e2 = app.world_mut().spawn(SpawnPoint::default()).id();
+        app.update();
+        let mut rot = app.world_mut().resource_mut::<ActiveSpawnRotation>();
         assert_eq!(rot.indices.len(), 2);
         assert_eq!(rot.current_entity(), Some(e1));
         rot.advance();

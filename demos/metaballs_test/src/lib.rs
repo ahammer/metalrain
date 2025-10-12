@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use metaball_renderer::{MetaballRenderSettings, MetaballRendererPlugin};
 use game_assets::configure_demo;
 use game_core::AppState;
+use metaball_renderer::{MetaballRenderSettings, MetaballRendererPlugin};
 
 mod debug_vis;
 mod simulation;

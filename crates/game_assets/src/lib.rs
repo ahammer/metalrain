@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use bevy::asset::LoadState;
 use bevy::asset::UntypedAssetId;
+use bevy::prelude::*;
 
 #[derive(Resource, Debug, Clone, Default)]
 pub struct FontAssets {
@@ -24,7 +24,9 @@ pub struct GameAssets {
 
 impl bevy::render::extract_resource::ExtractResource for GameAssets {
     type Source = GameAssets;
-    fn extract_resource(source: &Self::Source) -> Self { source.clone() }
+    fn extract_resource(source: &Self::Source) -> Self {
+        source.clone()
+    }
 }
 
 #[derive(Resource, Debug, Clone, Copy)]
@@ -41,7 +43,10 @@ impl Plugin for GameAssetsPlugin {
         app.init_resource::<GameAssets>()
             .add_systems(Startup, load_assets)
             .add_systems(Update, poll_startup_assets)
-            .add_systems(Update, check_assets_ready_transition.run_if(in_state(game_core::AppState::Loading)));
+            .add_systems(
+                Update,
+                check_assets_ready_transition.run_if(in_state(game_core::AppState::Loading)),
+            );
     }
 }
 
@@ -57,15 +62,23 @@ impl AssetRootMode {
         match self {
             AssetRootMode::DemoCrate => {
                 #[cfg(target_arch = "wasm32")]
-                { "assets" }
+                {
+                    "assets"
+                }
                 #[cfg(not(target_arch = "wasm32"))]
-                { "../../assets" }
+                {
+                    "../../assets"
+                }
             }
             AssetRootMode::GameCrate => {
                 #[cfg(target_arch = "wasm32")]
-                { "assets" }
+                {
+                    "assets"
+                }
                 #[cfg(not(target_arch = "wasm32"))]
-                { "../assets" }
+                {
+                    "../assets"
+                }
             }
             AssetRootMode::WorkspaceRoot => "assets",
         }
@@ -78,12 +91,18 @@ pub fn configure_standard_assets(app: &mut App, mode: AssetRootMode) {
         file_path: mode.path().into(),
         ..Default::default()
     }));
-    app.add_plugins(GameAssetsPlugin::default());
+    app.add_plugins(GameAssetsPlugin);
 }
 
-pub fn configure_demo(app: &mut App) { configure_standard_assets(app, AssetRootMode::DemoCrate); }
-pub fn configure_game_crate(app: &mut App) { configure_standard_assets(app, AssetRootMode::GameCrate); }
-pub fn configure_workspace_root(app: &mut App) { configure_standard_assets(app, AssetRootMode::WorkspaceRoot); }
+pub fn configure_demo(app: &mut App) {
+    configure_standard_assets(app, AssetRootMode::DemoCrate);
+}
+pub fn configure_game_crate(app: &mut App) {
+    configure_standard_assets(app, AssetRootMode::GameCrate);
+}
+pub fn configure_workspace_root(app: &mut App) {
+    configure_standard_assets(app, AssetRootMode::WorkspaceRoot);
+}
 
 fn load_assets(
     mut commands: Commands,
@@ -114,7 +133,9 @@ fn load_assets(
         game_assets.shaders.compute_3d_normals.id().untyped(),
         game_assets.shaders.present_fullscreen.id().untyped(),
         game_assets.shaders.background.id().untyped(),
-    ].into_iter().collect();
+    ]
+    .into_iter()
+    .collect();
     commands.insert_resource(PendingAssetGroup(pending));
 }
 
@@ -123,7 +144,9 @@ fn poll_startup_assets(
     asset_server: Res<AssetServer>,
     pending: Option<Res<PendingAssetGroup>>,
 ) {
-    let Some(pending) = pending else { return; };
+    let Some(pending) = pending else {
+        return;
+    };
     if pending.0.is_empty() {
         return;
     }
@@ -147,7 +170,9 @@ fn poll_startup_assets(
     }
 }
 
-pub fn assets_ready(world: &World) -> bool { world.contains_resource::<AssetsReady>() }
+pub fn assets_ready(world: &World) -> bool {
+    world.contains_resource::<AssetsReady>()
+}
 
 fn check_assets_ready_transition(
     assets_ready: Option<Res<AssetsReady>>,

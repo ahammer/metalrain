@@ -5,11 +5,10 @@ use bevy::render::view::RenderLayers;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
-use game_assets::GameAssets;
 use game_rendering::RenderLayer;
 use metaball_renderer::{MetaBall, MetaBallCluster, MetaBallColor};
 
-use crate::components::{EffectsPulse, HudText};
+use crate::components::EffectsPulse;
 use crate::constants::*;
 
 /// Sets up the initial scene with backdrop and overlay sprites.
@@ -49,24 +48,6 @@ pub fn setup_scene(mut commands: Commands) {
     ));
 }
 
-/// Spawns the HUD text entity.
-pub fn spawn_hud(mut commands: Commands, assets: Res<GameAssets>) {
-    let font = assets.fonts.ui_bold.clone();
-    commands.spawn((
-        Text2d::new("HUD initializing..."),
-        TextFont {
-            font,
-            font_size: 16.0,
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Transform::from_xyz(-600.0, 360.0, 500.0),
-        RenderLayers::layer(RenderLayer::Ui.order()),
-        Name::new("Ui::Hud"),
-        HudText,
-    ));
-}
-
 /// Configures the metaball presentation quad to render on the Metaballs layer.
 pub fn configure_metaball_presentation(
     mut commands: Commands,
@@ -87,96 +68,6 @@ pub fn configure_metaball_presentation(
             break;
         }
     }
-}
-
-/// Spawns boundary walls with physics colliders.
-pub fn spawn_walls(mut commands: Commands) {
-    let hx = HALF_EXTENT;
-    let hy = HALF_EXTENT;
-    let t = WALL_THICKNESS;
-
-    let horizontal_size = Vec2::new((hx + t) * 2.0, t * 2.0);
-    let vertical_size = Vec2::new(t * 2.0, (hy + t) * 2.0);
-
-    commands
-        .spawn((
-            Name::new("WallBottom"),
-            RigidBody::Fixed,
-            Collider::cuboid(hx + t, t),
-            Transform::from_translation(Vec3::new(0.0, -hy - t, 0.0)),
-            GlobalTransform::default(),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Sprite {
-                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
-                    custom_size: Some(horizontal_size),
-                    ..Default::default()
-                },
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                RenderLayers::layer(RenderLayer::GameWorld.order()),
-            ));
-        });
-
-    commands
-        .spawn((
-            Name::new("WallTop"),
-            RigidBody::Fixed,
-            Collider::cuboid(hx + t, t),
-            Transform::from_translation(Vec3::new(0.0, hy + t, 0.0)),
-            GlobalTransform::default(),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Sprite {
-                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
-                    custom_size: Some(horizontal_size),
-                    ..Default::default()
-                },
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                RenderLayers::layer(RenderLayer::GameWorld.order()),
-            ));
-        });
-
-    commands
-        .spawn((
-            Name::new("WallLeft"),
-            RigidBody::Fixed,
-            Collider::cuboid(t, hy + t),
-            Transform::from_translation(Vec3::new(-hx - t, 0.0, 0.0)),
-            GlobalTransform::default(),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Sprite {
-                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
-                    custom_size: Some(vertical_size),
-                    ..Default::default()
-                },
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                RenderLayers::layer(RenderLayer::GameWorld.order()),
-            ));
-        });
-
-    commands
-        .spawn((
-            Name::new("WallRight"),
-            RigidBody::Fixed,
-            Collider::cuboid(t, hy + t),
-            Transform::from_translation(Vec3::new(hx + t, 0.0, 0.0)),
-            GlobalTransform::default(),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Sprite {
-                    color: Color::srgba(0.25, 0.45, 0.7, 0.45),
-                    custom_size: Some(vertical_size),
-                    ..Default::default()
-                },
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                RenderLayers::layer(RenderLayer::GameWorld.order()),
-            ));
-        });
 }
 
 /// Spawns physics-enabled balls with metaball rendering.

@@ -49,11 +49,18 @@ mod tests {
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
             .init_resource::<PhysicsConfig>()
             .add_systems(Update, spawn_physics_for_new_balls);
-        let e = app.world_mut().spawn((
-            Ball { velocity: Vec2::ZERO, radius: 10.0, color: game_core::GameColor::Red },
-            Transform::from_translation(Vec3::ZERO),
-            GlobalTransform::IDENTITY,
-        )).id();
+        let e = app
+            .world_mut()
+            .spawn((
+                Ball {
+                    velocity: Vec2::ZERO,
+                    radius: 10.0,
+                    color: game_core::GameColor::Red,
+                },
+                Transform::from_translation(Vec3::ZERO),
+                GlobalTransform::IDENTITY,
+            ))
+            .id();
         app.update();
         assert!(app.world().get::<RigidBody>(e).is_some());
         assert!(app.world().get::<Collider>(e).is_some());
@@ -66,12 +73,18 @@ mod tests {
         app.add_plugins(MinimalPlugins)
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(50.0))
             .init_resource::<PhysicsConfig>()
-            .add_systems(Update, (attach_paddle_kinematic_physics, drive_paddle_velocity));
-        let paddle_e = app.world_mut().spawn((
-            Paddle::default(),
-            Transform::from_translation(Vec3::ZERO),
-            GlobalTransform::IDENTITY,
-        )).id();
+            .add_systems(
+                Update,
+                (attach_paddle_kinematic_physics, drive_paddle_velocity),
+            );
+        let paddle_e = app
+            .world_mut()
+            .spawn((
+                Paddle::default(),
+                Transform::from_translation(Vec3::ZERO),
+                GlobalTransform::IDENTITY,
+            ))
+            .id();
         {
             app.world_mut().init_resource::<ButtonInput<KeyCode>>();
             let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
@@ -81,6 +94,10 @@ mod tests {
         app.update();
         assert!(app.world().get::<RigidBody>(paddle_e).is_some());
         let vel = app.world().get::<Velocity>(paddle_e).unwrap();
-        assert!(vel.linvel.x < 0.0, "expected negative x velocity, got {:?}", vel.linvel);
+        assert!(
+            vel.linvel.x < 0.0,
+            "expected negative x velocity, got {:?}",
+            vel.linvel
+        );
     }
 }

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use game_assets::{configure_demo, GameAssets, AssetsReady};
+use game_assets::{configure_demo, AssetsReady, GameAssets};
 
 #[derive(Resource, Default)]
 struct PrintedOnce(bool);
@@ -9,7 +9,10 @@ fn main() {
     configure_demo(&mut app);
     app.insert_resource(PrintedOnce::default())
         .add_systems(Startup, log_startup_banner)
-        .add_systems(Update, log_when_ready.run_if(resource_exists::<AssetsReady>))
+        .add_systems(
+            Update,
+            log_when_ready.run_if(resource_exists::<AssetsReady>),
+        )
         .run();
 }
 
@@ -18,7 +21,9 @@ fn log_startup_banner() {
 }
 
 fn log_when_ready(assets: Res<GameAssets>, mut printed: ResMut<PrintedOnce>) {
-    if printed.0 { return; }
+    if printed.0 {
+        return;
+    }
     info!("Asset_Test: All startup assets loaded (7 assets).");
     debug!("Fonts: regular={:?} bold={:?}; Shaders: comp={:?} metaballs={:?} normals={:?} present={:?} bg={:?}",
         assets.fonts.ui_regular,

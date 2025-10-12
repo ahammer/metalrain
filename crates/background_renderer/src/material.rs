@@ -50,5 +50,7 @@ impl BackgroundMaterial {
 }
 
 impl Material2d for BackgroundMaterial {
-    fn fragment_shader() -> ShaderRef { ShaderRef::Path("shaders/background.wgsl".into()) }
+    fn fragment_shader() -> ShaderRef {
+        ShaderRef::Path("shaders/background.wgsl".into())
+    }
 }

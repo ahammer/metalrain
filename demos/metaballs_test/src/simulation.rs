@@ -34,7 +34,12 @@ impl Plugin for BouncySimulationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BouncyParams>()
             .add_systems(OnEnter(AppState::Playing), spawn_balls)
-            .add_systems(Update, (update_balls, input_toggles).chain().run_if(in_state(AppState::Playing)));
+            .add_systems(
+                Update,
+                (update_balls, input_toggles)
+                    .chain()
+                    .run_if(in_state(AppState::Playing)),
+            );
     }
 }
 
@@ -131,4 +136,3 @@ fn input_toggles(
         }
     }
 }
-

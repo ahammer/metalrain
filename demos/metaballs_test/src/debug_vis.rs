@@ -12,7 +12,11 @@ impl Plugin for DebugVisPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DebugVisToggle>()
             .add_systems(OnEnter(AppState::Playing), setup_lines)
-            .add_systems(Update, (toggle_debug, apply_visibility, draw_ball_circles).run_if(in_state(AppState::Playing)));
+            .add_systems(
+                Update,
+                (toggle_debug, apply_visibility, draw_ball_circles)
+                    .run_if(in_state(AppState::Playing)),
+            );
     }
 }
 
