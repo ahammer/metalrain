@@ -9,6 +9,7 @@ mod pack;
 #[cfg(feature = "present")]
 mod present;
 mod settings;
+mod spatial;
 
 pub use components::{MetaBall, MetaBallCluster, MetaBallColor};
 pub use coordinates::{

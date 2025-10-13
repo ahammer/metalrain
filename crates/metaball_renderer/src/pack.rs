@@ -1,5 +1,6 @@
 use crate::coordinates::MetaballCoordinateMapper;
-use crate::internal::{BallBuffer, BallGpu, ParamsUniform, TimeUniform};
+use crate::internal::{BallBuffer, BallGpu, ParamsUniform, SpatialGrid, TimeUniform};
+use crate::spatial::build_spatial_grid;
 use crate::RuntimeSettings;
 use crate::{MetaBall, MetaBallCluster, MetaBallColor};
 use bevy::prelude::*;
@@ -14,12 +15,15 @@ pub(crate) struct PackingPlugin;
 impl Plugin for PackingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NeedsRepack>();
+        app.init_resource::<SpatialGrid>();
         app.add_systems(
             Update,
             (
                 advance_time,
                 mark_repack,
                 gather_metaballs,
+                build_spatial_grid_system,
+                update_grid_dimensions,
                 sync_runtime_settings,
             )
                 .chain(),
@@ -72,8 +76,18 @@ fn gather_metaballs(
     if !**flag {
         return;
     }
+
+    // Clear only the active count, not the actual buffer (fixed capacity)
+    buffer.free_indices.clear();
+    let ball_count = query.iter().len();
+
+    // Rebuild the buffer with new data
+    // For now, simple approach: clear and rebuild
+    // Future optimization: track entity IDs and update in-place
     buffer.balls.clear();
-    buffer.balls.reserve(query.iter().len());
+    buffer.balls.reserve(ball_count);
+    buffer.active_count = 0;
+
     for (tr, mb, color_opt, cluster_opt) in query.iter() {
         let world = tr.translation;
         let tex = mapper.world_to_metaball(world);
@@ -87,12 +101,38 @@ fn gather_metaballs(
             cluster_id: cluster_opt.map(|c| c.0).unwrap_or(0),
             color: [c.red, c.green, c.blue, c.alpha],
         });
+        buffer.active_count += 1;
     }
+
     params.num_balls = buffer.balls.len() as u32;
+    params.active_ball_count = buffer.active_count;
     **flag = false;
+
     if !logged.0 {
         info!(target: "metaballs", "initial pack: {} balls", buffer.balls.len());
         logged.0 = true;
+    }
+}
+
+/// Build spatial grid from current ball data
+fn build_spatial_grid_system(
+    buffer: Res<BallBuffer>,
+    params: Res<ParamsUniform>,
+    mut grid: ResMut<SpatialGrid>,
+) {
+    if buffer.is_changed() || params.is_changed() {
+        let screen_size = Vec2::new(params.screen_size[0], params.screen_size[1]);
+        *grid = build_spatial_grid(&buffer.balls, screen_size);
+
+        // Update params with grid dimensions
+        // Note: This is done in a separate system to avoid mutation issues
+    }
+}
+
+/// Update params with grid dimensions (runs after grid build)
+fn update_grid_dimensions(grid: Res<SpatialGrid>, mut params: ResMut<ParamsUniform>) {
+    if grid.is_changed() {
+        params.grid_dimensions = [grid.dimensions.x, grid.dimensions.y];
     }
 }
 
@@ -119,20 +159,33 @@ mod tests {
     fn setup_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.insert_resource(BallBuffer { balls: Vec::new() });
+        app.insert_resource(BallBuffer::default());
         app.insert_resource(ParamsUniform {
             screen_size: [1024.0, 1024.0],
             num_balls: 0,
             clustering_enabled: 1,
+            grid_dimensions: [16, 16],
+            active_ball_count: 0,
+            _pad: 0,
         });
         app.insert_resource(TimeUniform::default());
         app.init_resource::<NeedsRepack>();
+        app.init_resource::<SpatialGrid>();
         app.insert_resource(crate::coordinates::MetaballCoordinateMapper::new(
             UVec2::new(1024, 1024),
             Vec2::new(-512.0, -512.0),
             Vec2::new(512.0, 512.0),
         ));
-        app.add_systems(Update, (mark_repack, gather_metaballs).chain());
+        app.add_systems(
+            Update,
+            (
+                mark_repack,
+                gather_metaballs,
+                build_spatial_grid_system,
+                update_grid_dimensions,
+            )
+                .chain(),
+        );
         app
     }
 
@@ -143,12 +196,14 @@ mod tests {
             app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(i as f32, i as f32, 0.0)),
                 MetaBall { radius_world: 5.0 },
+                #[allow(deprecated)]
                 MetaBallColor(LinearRgba::new(1.0, 1.0, 1.0, 1.0)),
             ));
         }
         app.update();
         let params = app.world().resource::<ParamsUniform>();
         assert_eq!(params.num_balls, 10);
+        assert_eq!(params.active_ball_count, 10);
     }
 
     #[test]

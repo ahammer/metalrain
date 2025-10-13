@@ -1,7 +1,7 @@
 use super::types::*;
 use crate::internal::{
-    AlbedoTexture, BallBuffer, BallGpu, FieldTexture, NormalTexture, ParamsUniform, TimeUniform,
-    WORKGROUP_SIZE,
+    AlbedoTexture, BallBuffer, BallGpu, FieldTexture, GridCell, NormalTexture, ParamsUniform,
+    SpatialGrid, TimeUniform, MAX_BALLS, WORKGROUP_SIZE,
 };
 use crate::settings::MetaballRenderSettings;
 use bevy::asset::Assets;
@@ -41,6 +41,7 @@ impl Plugin for ComputeMetaballsPlugin {
         app.add_plugins((
             ExtractResourcePlugin::<FieldTexture>::default(),
             ExtractResourcePlugin::<BallBuffer>::default(),
+            ExtractResourcePlugin::<SpatialGrid>::default(),
             ExtractResourcePlugin::<TimeUniform>::default(),
             ExtractResourcePlugin::<ParamsUniform>::default(),
             ExtractResourcePlugin::<AlbedoTexture>::default(),
@@ -127,17 +128,14 @@ fn setup_textures_and_uniforms(
     normal_img.texture_descriptor.usage =
         TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
     let normal_h = images.add(normal_img);
-    // Empty CPU buffer (Phase 2 placeholder)
-    let balls = Vec::new();
     commands.insert_resource(FieldTexture(field_h));
     commands.insert_resource(AlbedoTexture(albedo_h));
-    commands.insert_resource(BallBuffer { balls });
+    commands.insert_resource(BallBuffer::default());
     commands.insert_resource(TimeUniform::default());
-    commands.insert_resource(ParamsUniform {
-        screen_size: [w as f32, h as f32],
-        num_balls: 0,
-        clustering_enabled: if settings.enable_clustering { 1 } else { 0 },
-    });
+    commands.insert_resource(ParamsUniform::new(
+        [w as f32, h as f32],
+        settings.enable_clustering,
+    ));
     commands.insert_resource(NormalTexture(normal_h));
     info!(target: "metaballs", "created field/albedo textures {}x{}", w, h);
 }
@@ -200,6 +198,28 @@ fn build_metaball_pipeline(world: &mut World) {
                     access: StorageTextureAccess::WriteOnly,
                     format: TextureFormat::Rgba8Unorm,
                     view_dimension: TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                // grid cells
+                binding: 5,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                // ball indices
+                binding: 6,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
                 count: None,
             },
@@ -279,6 +299,7 @@ fn prepare_buffers(
     params: Res<ParamsUniform>,
     time_u: Res<TimeUniform>,
     _balls: Res<BallBuffer>,
+    _grid: Res<SpatialGrid>,
     existing: Option<Res<GpuBuffers>>,
 ) {
     // Allocate once; subsequent frames just update via queue writes.
@@ -295,18 +316,41 @@ fn prepare_buffers(
         contents: bytemuck::bytes_of(&*time_u),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    // Create zero-sized (valid) buffer; will be resized on first upload if needed.
+
+    // Fixed-capacity balls buffer (never reallocated)
+    let max_balls_size = (MAX_BALLS as usize * std::mem::size_of::<BallGpu>()) as u64;
     let balls_buf = render_device.create_buffer(&BufferDescriptor {
         label: Some("metaballs.balls"),
-        size: 16,
+        size: max_balls_size,
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
+
+    // Spatial grid buffers (will be resized dynamically as grid size is not fixed)
+    // Start with small initial size
+    let grid_cells_buf = render_device.create_buffer(&BufferDescriptor {
+        label: Some("metaballs.grid_cells"),
+        size: 1024 * std::mem::size_of::<GridCell>() as u64,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let ball_indices_buf = render_device.create_buffer(&BufferDescriptor {
+        label: Some("metaballs.ball_indices"),
+        size: 4096 * std::mem::size_of::<u32>() as u64,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
     commands.insert_resource(GpuBuffers {
         params: params_buf,
         time: time_buf,
         balls: balls_buf,
+        grid_cells: grid_cells_buf,
+        ball_indices: ball_indices_buf,
     });
+
+    info!(target: "metaballs", "Allocated fixed-capacity GPU buffers: {} balls max", MAX_BALLS);
 }
 
 fn prepare_bind_group(
@@ -354,6 +398,14 @@ fn prepare_bind_group(
                 binding: 4,
                 resource: BindingResource::TextureView(&gpu_albedo.texture_view),
             },
+            BindGroupEntry {
+                binding: 5,
+                resource: gpu_buffers.grid_cells.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 6,
+                resource: gpu_buffers.ball_indices.as_entire_binding(),
+            },
         ],
     );
     commands.insert_resource(GpuMetaballBindGroup(bind_group));
@@ -361,9 +413,10 @@ fn prepare_bind_group(
 
 fn upload_metaball_buffers(
     balls: Res<BallBuffer>,
+    grid: Res<SpatialGrid>,
     mut params: ResMut<ParamsUniform>,
     time_u: Res<TimeUniform>,
-    gpu: Option<ResMut<GpuBuffers>>,
+    mut gpu: Option<ResMut<GpuBuffers>>,
     queue: Res<RenderQueue>,
     render_device: Res<RenderDevice>,
     pipeline: Option<Res<GpuMetaballPipeline>>,
@@ -372,22 +425,76 @@ fn upload_metaball_buffers(
     gpu_images: Option<Res<RenderAssets<GpuImage>>>,
     mut commands: Commands,
 ) {
-    let Some(mut gpu) = gpu else {
+    let Some(ref mut gpu) = gpu else {
         return;
     };
-    params.num_balls = balls.balls.len() as u32;
 
-    let required_size = (balls.balls.len() * std::mem::size_of::<BallGpu>()) as u64;
-    if required_size > 0 && required_size > gpu.balls.size() {
-        // Recreate storage buffer with new size.
+    params.num_balls = balls.balls.len() as u32;
+    params.active_ball_count = balls.active_count;
+
+    // Upload ball data to fixed-capacity buffer (no reallocation!)
+    if !balls.balls.is_empty() {
+        let ball_data_size = (balls.balls.len() * std::mem::size_of::<BallGpu>()) as u64;
+        if ball_data_size <= gpu.balls.size() {
+            queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&balls.balls));
+        } else {
+            warn!(
+                target: "metaballs",
+                "Ball count {} exceeds MAX_BALLS capacity, truncating",
+                balls.balls.len()
+            );
+            let truncated = &balls.balls[..MAX_BALLS as usize];
+            queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(truncated));
+        }
+    }
+
+    // Upload spatial grid data (may require resizing)
+    let mut grid_changed = grid.is_changed();
+    let grid_cell_size = (grid.cell_data.len() * std::mem::size_of::<GridCell>()) as u64;
+    let ball_indices_size = (grid.ball_indices.len() * std::mem::size_of::<u32>()) as u64;
+
+    // Resize grid_cells buffer if needed
+    if grid_cell_size > gpu.grid_cells.size() {
         let new_buf = render_device.create_buffer(&BufferDescriptor {
-            label: Some("metaballs.balls"),
-            size: required_size.next_power_of_two(),
+            label: Some("metaballs.grid_cells"),
+            size: grid_cell_size.next_power_of_two(),
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        gpu.balls = new_buf;
-        // Rebuild bind group because buffer changed.
+        gpu.grid_cells = new_buf;
+        grid_changed = true; // Force bind group rebuild
+    }
+
+    // Resize ball_indices buffer if needed
+    if ball_indices_size > gpu.ball_indices.size() {
+        let new_buf = render_device.create_buffer(&BufferDescriptor {
+            label: Some("metaballs.ball_indices"),
+            size: ball_indices_size.next_power_of_two(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.ball_indices = new_buf;
+        grid_changed = true; // Force bind group rebuild
+    }
+
+    // Upload grid data
+    if !grid.cell_data.is_empty() {
+        queue.write_buffer(&gpu.grid_cells, 0, bytemuck::cast_slice(&grid.cell_data));
+    }
+    if !grid.ball_indices.is_empty() {
+        queue.write_buffer(
+            &gpu.ball_indices,
+            0,
+            bytemuck::cast_slice(&grid.ball_indices),
+        );
+    }
+
+    // Upload uniforms
+    queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&*params));
+    queue.write_buffer(&gpu.time, 0, bytemuck::bytes_of(&*time_u));
+
+    // Rebuild bind group if grid buffers were resized
+    if grid_changed {
         if let (Some(pipeline), Some(field), Some(albedo), Some(gpu_images)) =
             (pipeline, field, albedo, gpu_images)
         {
@@ -418,17 +525,20 @@ fn upload_metaball_buffers(
                             binding: 4,
                             resource: BindingResource::TextureView(&gpu_albedo.texture_view),
                         },
+                        BindGroupEntry {
+                            binding: 5,
+                            resource: gpu.grid_cells.as_entire_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 6,
+                            resource: gpu.ball_indices.as_entire_binding(),
+                        },
                     ],
                 );
                 commands.insert_resource(GpuMetaballBindGroup(bind_group));
             }
         }
     }
-    if required_size > 0 {
-        queue.write_buffer(&gpu.balls, 0, bytemuck::cast_slice(&balls.balls));
-    }
-    queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&*params));
-    queue.write_buffer(&gpu.time, 0, bytemuck::bytes_of(&*time_u));
 }
 
 #[derive(Default)]

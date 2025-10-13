@@ -10,6 +10,8 @@ pub struct GpuBuffers {
     pub params: bevy::render::render_resource::Buffer,
     pub time: bevy::render::render_resource::Buffer,
     pub balls: bevy::render::render_resource::Buffer,
+    pub grid_cells: bevy::render::render_resource::Buffer,
+    pub ball_indices: bevy::render::render_resource::Buffer,
 }
 
 // Removed unused CPU-side alias types to reduce warnings (previously: BallBuffer, ParamsUniform, TimeUniform, Field/Albedo textures).
