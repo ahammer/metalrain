@@ -4,6 +4,8 @@
 
 Create a lightweight, composable immediate-mode UI layer within the scaffold that provides interactive debug controls for demos without introducing complex state management or conflicting with existing scaffold patterns.
 
+**Primary Deliverable**: A new **UI Test demo** (`demos/ui_test`) that demonstrates and validates all UI scaffold capabilities including header/footer bars, toggleable sidebars, and all core widget types.
+
 ## Philosophy
 
 The UI Scaffold follows Metalrain's **Zero-Code Philosophy**:
@@ -454,6 +456,11 @@ fn render_center_panel(
                 }
             }
         });
+}
+
+// In demos/ui_test/src/main.rs (for standalone execution)
+fn main() {
+    ui_test::run_ui_test();
 }
 ```
 
@@ -1032,7 +1039,7 @@ The UI Test demo demonstrates the recommended pattern for adding debug UI to dem
 - Drag-and-drop panel repositioning
 - Theme selector demonstration
 
-```
+```markdown
 
 ## Notes
 
@@ -1045,6 +1052,67 @@ This subsprint creates the **minimal viable UI infrastructure** for demos withou
 5. **Demonstrating** layout patterns through the UI Test demo
 
 The result is a lightweight, optional layer that demos can adopt as needed without coupling to complex UI framework state machines. The **UI Test demo** serves as both validation and reference implementation.
+
+## Quick Start Implementation Guide
+
+### Step 1: Scaffold Infrastructure
+
+```bash
+# Add bevy_immediate to scaffold/Cargo.toml under [features]
+debug_ui = ["bevy_immediate"]
+```
+
+### Step 2: Create UI Test Demo
+
+```bash
+# Create directory structure
+mkdir -p demos/ui_test/src
+
+# Create files:
+# - demos/ui_test/Cargo.toml
+# - demos/ui_test/src/lib.rs (with run_ui_test, DEMO_NAME, and all UI systems)
+# - demos/ui_test/src/main.rs (calls run_ui_test)
+# - demos/ui_test/README.md
+```
+
+### Step 3: Integrate with Launcher
+
+```toml
+# In demos/demo_launcher/Cargo.toml
+ui_test = { path = "../ui_test" }
+```
+
+```rust
+// In demos/demo_launcher/src/main.rs
+use ui_test::{run_ui_test, DEMO_NAME as UI_TEST_DEMO};
+
+// Add to DEMOS array
+DemoEntry {
+    name: UI_TEST_DEMO,
+    run: run_ui_test,
+    description: "UI layout patterns and widget demonstrations",
+},
+```
+
+### Step 4: Update Workspace
+
+```toml
+# In workspace Cargo.toml [workspace.members]
+"demos/ui_test",
+```
+
+### Step 5: Test
+
+```bash
+# Standalone
+cargo run -p ui_test
+
+# Via launcher
+cargo run -p demo_launcher ui_test
+
+# WASM
+pwsh scripts/wasm-dev.ps1
+```
 
 ---
 
