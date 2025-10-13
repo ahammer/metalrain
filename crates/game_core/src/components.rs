@@ -26,10 +26,19 @@ pub struct Wall {
 
 impl Wall {
     pub fn new(start: Vec2, end: Vec2, thickness: f32, color: Color) -> Self {
-        Self { start, end, thickness, color }
+        Self {
+            start,
+            end,
+            thickness,
+            color,
+        }
     }
-    pub fn length(&self) -> f32 { self.start.distance(self.end) }
-    pub fn center(&self) -> Vec2 { (self.start + self.end) * 0.5 }
+    pub fn length(&self) -> f32 {
+        self.start.distance(self.end)
+    }
+    pub fn center(&self) -> Vec2 {
+        (self.start + self.end) * 0.5
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -51,13 +60,23 @@ pub struct Target {
 
 impl Target {
     pub fn new(health: u8, radius: f32, color: Color) -> Self {
-        Self { health, max_health: health, radius, color, state: TargetState::Idle }
+        Self {
+            health,
+            max_health: health,
+            radius,
+            color,
+            state: TargetState::Idle,
+        }
     }
-    pub fn is_destroyed(&self) -> bool { self.health == 0 }
+    pub fn is_destroyed(&self) -> bool {
+        self.health == 0
+    }
 }
 
 #[derive(Clone, Debug)]
-pub enum HazardType { Pit }
+pub enum HazardType {
+    Pit,
+}
 
 #[derive(Component, Clone, Debug)]
 pub struct Hazard {
@@ -66,9 +85,18 @@ pub struct Hazard {
 }
 
 impl Hazard {
-    pub fn new(bounds: Rect, hazard_type: HazardType) -> Self { Self { bounds, hazard_type } }
-    pub fn center(&self) -> Vec2 { self.bounds.center() }
-    pub fn size(&self) -> Vec2 { self.bounds.size() }
+    pub fn new(bounds: Rect, hazard_type: HazardType) -> Self {
+        Self {
+            bounds,
+            hazard_type,
+        }
+    }
+    pub fn center(&self) -> Vec2 {
+        self.bounds.center()
+    }
+    pub fn size(&self) -> Vec2 {
+        self.bounds.size()
+    }
 }
 #[derive(Clone, Debug, Default)]
 pub enum PaddleControl {
@@ -105,10 +133,14 @@ pub struct SpawnPoint {
 
 impl Default for SpawnPoint {
     fn default() -> Self {
-        Self { radius: 14.0, active: true, cooldown: 0.0, timer: 0.0 }
+        Self {
+            radius: 14.0,
+            active: true,
+            cooldown: 0.0,
+            timer: 0.0,
+        }
     }
 }
 
 #[derive(Component, Debug, Default)]
 pub struct Selected;
-

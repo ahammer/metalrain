@@ -15,6 +15,6 @@ pub struct GameLost;
 
 #[derive(Event, Debug)]
 pub struct SpawnBallEvent {
-	pub spawn_entity: Entity,
-	pub override_position: Option<Vec2>,
+    pub spawn_entity: Entity,
+    pub override_position: Option<Vec2>,
 }

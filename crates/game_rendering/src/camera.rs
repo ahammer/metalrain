@@ -79,8 +79,7 @@ pub fn update_game_camera(time: Res<Time>, mut query: Query<&mut GameCamera>) {
             .lerp(cam.target_viewport_scale, lerp_factor);
 
         if cam.shake_intensity > 0.0001 {
-            cam.shake_intensity = (cam.shake_intensity - cam.shake_decay_rate * dt)
-                .max(0.0);
+            cam.shake_intensity = (cam.shake_intensity - cam.shake_decay_rate * dt).max(0.0);
             let freq1 = 17.0;
             let freq2 = 23.0;
             let x = (t * freq1).sin();
@@ -98,7 +97,9 @@ pub fn apply_camera_to_layer_cameras(
     mut transform_q: Query<&mut Transform>,
     targets: Res<crate::targets::RenderTargets>,
 ) {
-    let Some(game_cam) = game_cam_q.iter().next() else { return; };
+    let Some(game_cam) = game_cam_q.iter().next() else {
+        return;
+    };
     for layer in targets.layers.values() {
         if let Ok(mut projection) = proj_q.get_mut(layer.camera) {
             if let Projection::Orthographic(ref mut ortho) = *projection {

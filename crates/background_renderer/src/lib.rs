@@ -22,6 +22,6 @@ impl Plugin for BackgroundRendererPlugin {
             app.insert_resource(BackgroundConfig::default());
         }
         app.add_systems(Startup, setup_background)
-           .add_systems(Update, update_background);
+            .add_systems(Update, update_background);
     }
 }

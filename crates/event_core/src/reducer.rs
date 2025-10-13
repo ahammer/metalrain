@@ -1,5 +1,8 @@
+use crate::{
+    EventEnvelope, EventPayload, EventQueue, EventResult, EventSourceTag, FrameCounter, GameEvent,
+    HandlerRegistry, MiddlewareChain,
+};
 use bevy::prelude::*;
-use crate::{EventQueue, HandlerRegistry, MiddlewareChain, EventPayload, GameEvent, EventResult, EventSourceTag, FrameCounter, EventEnvelope};
 
 pub fn reducer_system(world: &mut World) {
     let frame_idx = world.resource::<FrameCounter>().0;
@@ -12,7 +15,9 @@ pub fn reducer_system(world: &mut World) {
             let mut mw = world.resource_mut::<MiddlewareChain>();
             mw.run(env.clone())
         };
-        let Some(final_env) = maybe_final else { continue; };
+        let Some(final_env) = maybe_final else {
+            continue;
+        };
         let result = match &final_env.payload {
             EventPayload::Game(g) => {
                 let mut result = EventResult::Ignored;
@@ -27,7 +32,11 @@ pub fn reducer_system(world: &mut World) {
         };
         {
             let mut q = world.resource_mut::<EventQueue>();
-            q.push_journal(crate::queue::JournalEntry { event: final_env, result, frame_processed: frame_idx });
+            q.push_journal(crate::queue::JournalEntry {
+                event: final_env,
+                result,
+                frame_processed: frame_idx,
+            });
         }
     }
     world.resource_mut::<EventQueue>().promote_next_frame();
@@ -35,5 +44,7 @@ pub fn reducer_system(world: &mut World) {
 
 pub fn emit_game_event(world: &mut World, game_event: GameEvent) {
     let frame = world.resource::<FrameCounter>().0;
-    world.resource_mut::<EventQueue>().enqueue_game(game_event, EventSourceTag::Handler, frame + 1);
+    world
+        .resource_mut::<EventQueue>()
+        .enqueue_game(game_event, EventSourceTag::Handler, frame + 1);
 }

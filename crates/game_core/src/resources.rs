@@ -48,7 +48,11 @@ pub struct BallSpawnPolicy {
 }
 
 impl Default for BallSpawnPolicy {
-    fn default() -> Self { Self { mode: BallSpawnPolicyMode::Manual } }
+    fn default() -> Self {
+        Self {
+            mode: BallSpawnPolicyMode::Manual,
+        }
+    }
 }
 
 #[derive(Resource, Default, Debug)]
@@ -58,15 +62,23 @@ pub struct ActiveSpawnRotation {
 }
 
 impl ActiveSpawnRotation {
-    pub fn current_entity(&self) -> Option<Entity> { self.indices.get(self.current).copied() }
+    pub fn current_entity(&self) -> Option<Entity> {
+        self.indices.get(self.current).copied()
+    }
     pub fn advance(&mut self) {
-        if !self.indices.is_empty() { self.current = (self.current + 1) % self.indices.len(); }
+        if !self.indices.is_empty() {
+            self.current = (self.current + 1) % self.indices.len();
+        }
     }
     pub fn retreat(&mut self) {
-        if !self.indices.is_empty() { self.current = (self.current + self.indices.len() - 1) % self.indices.len(); }
+        if !self.indices.is_empty() {
+            self.current = (self.current + self.indices.len() - 1) % self.indices.len();
+        }
     }
     pub fn set_index(&mut self, idx: usize) {
-        if idx < self.indices.len() { self.current = idx; }
+        if idx < self.indices.len() {
+            self.current = idx;
+        }
     }
 }
 

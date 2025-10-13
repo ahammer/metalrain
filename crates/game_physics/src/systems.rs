@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
-use game_core::{Ball, Paddle, PaddleControl, ArenaConfig};
+use game_core::{ArenaConfig, Ball, Paddle, PaddleControl};
 
 use crate::PhysicsConfig;
 use std::collections::HashMap;
@@ -39,8 +39,7 @@ pub fn apply_clustering_forces(
     }
 
     let cell_size = config.clustering_radius.max(1.0);
-    let mut positions: Vec<Vec2> = Vec::new();
-    positions.reserve(query.iter().len());
+    let mut positions: Vec<Vec2> = Vec::with_capacity(query.iter().len());
     for (t, _) in query.iter() {
         positions.push(t.translation.truncate());
     }
@@ -141,11 +140,23 @@ pub fn spawn_physics_for_new_balls(
         commands.entity(e).insert((
             RigidBody::Dynamic,
             Collider::ball(radius),
-            Velocity { linvel: ball.velocity, angvel: 0.0 },
-            Restitution { coefficient: config.ball_restitution, combine_rule: CoefficientCombineRule::Average },
-            Friction { coefficient: config.ball_friction, combine_rule: CoefficientCombineRule::Average },
+            Velocity {
+                linvel: ball.velocity,
+                angvel: 0.0,
+            },
+            Restitution {
+                coefficient: config.ball_restitution,
+                combine_rule: CoefficientCombineRule::Average,
+            },
+            Friction {
+                coefficient: config.ball_friction,
+                combine_rule: CoefficientCombineRule::Average,
+            },
             ExternalForce::default(),
-            Damping { linear_damping: 0.0, angular_damping: 1.0 },
+            Damping {
+                linear_damping: 0.0,
+                angular_damping: 1.0,
+            },
             ActiveEvents::COLLISION_EVENTS,
         ));
         let _ = transform;
@@ -160,8 +171,14 @@ pub fn attach_paddle_kinematic_physics(
             RigidBody::KinematicVelocityBased,
             Collider::cuboid(paddle.half_extents.x, paddle.half_extents.y),
             Velocity::zero(),
-            Restitution { coefficient: 1.1, combine_rule: CoefficientCombineRule::Average },
-            Friction { coefficient: 0.2, combine_rule: CoefficientCombineRule::Min },
+            Restitution {
+                coefficient: 1.1,
+                combine_rule: CoefficientCombineRule::Average,
+            },
+            Friction {
+                coefficient: 0.2,
+                combine_rule: CoefficientCombineRule::Min,
+            },
             ActiveEvents::COLLISION_EVENTS,
         ));
     }
@@ -172,13 +189,25 @@ pub fn drive_paddle_velocity(
     mut paddles: Query<(&Paddle, &mut Velocity), With<RigidBody>>,
 ) {
     for (paddle, mut vel) in &mut paddles {
-        if !matches!(paddle.control, PaddleControl::Player) { continue; }
+        if !matches!(paddle.control, PaddleControl::Player) {
+            continue;
+        }
         let mut dir = Vec2::ZERO;
-        if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) { dir.x -= 1.0; }
-        if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) { dir.x += 1.0; }
-        if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) { dir.y += 1.0; }
-        if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) { dir.y -= 1.0; }
-        if dir.length_squared() > 0.0 { dir = dir.normalize(); }
+        if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+            dir.x -= 1.0;
+        }
+        if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
+            dir.x += 1.0;
+        }
+        if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+            dir.y += 1.0;
+        }
+        if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+            dir.y -= 1.0;
+        }
+        if dir.length_squared() > 0.0 {
+            dir = dir.normalize();
+        }
         vel.linvel = dir * paddle.move_speed;
     }
 }
@@ -187,16 +216,36 @@ pub fn clamp_paddle_positions(
     arena: Option<Res<ArenaConfig>>,
     mut q: Query<(&Paddle, &mut Transform, &mut Velocity)>,
 ) {
-    let Some(arena) = arena else { return; };
+    let Some(arena) = arena else {
+        return;
+    };
     for (paddle, mut tf, mut vel) in &mut q {
         let half_w = arena.width * 0.5 - paddle.half_extents.x;
         let half_h = arena.height * 0.5 - paddle.half_extents.y;
         let mut clamped = false;
         let mut pos = tf.translation;
-        if pos.x < -half_w { pos.x = -half_w; vel.linvel.x = vel.linvel.x.max(0.0); clamped = true; }
-        if pos.x >  half_w { pos.x =  half_w; vel.linvel.x = vel.linvel.x.min(0.0); clamped = true; }
-        if pos.y < -half_h { pos.y = -half_h; vel.linvel.y = vel.linvel.y.max(0.0); clamped = true; }
-        if pos.y >  half_h { pos.y =  half_h; vel.linvel.y = vel.linvel.y.min(0.0); clamped = true; }
-        if clamped { tf.translation = pos; }
+        if pos.x < -half_w {
+            pos.x = -half_w;
+            vel.linvel.x = vel.linvel.x.max(0.0);
+            clamped = true;
+        }
+        if pos.x > half_w {
+            pos.x = half_w;
+            vel.linvel.x = vel.linvel.x.min(0.0);
+            clamped = true;
+        }
+        if pos.y < -half_h {
+            pos.y = -half_h;
+            vel.linvel.y = vel.linvel.y.max(0.0);
+            clamped = true;
+        }
+        if pos.y > half_h {
+            pos.y = half_h;
+            vel.linvel.y = vel.linvel.y.min(0.0);
+            clamped = true;
+        }
+        if clamped {
+            tf.translation = pos;
+        }
     }
 }

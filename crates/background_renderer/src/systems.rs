@@ -1,10 +1,13 @@
 use bevy::{
     prelude::*,
-    render::{view::RenderLayers, mesh::Mesh2d},
+    render::{mesh::Mesh2d, view::RenderLayers},
     sprite::MeshMaterial2d,
 };
 
-use crate::{config::{BackgroundConfig, BackgroundMode}, material::BackgroundMaterial};
+use crate::{
+    config::{BackgroundConfig, BackgroundMode},
+    material::BackgroundMaterial,
+};
 
 #[derive(Component)]
 pub struct BackgroundEntity;
@@ -35,7 +38,9 @@ pub fn update_background(
     query: Query<&MeshMaterial2d<BackgroundMaterial>, With<BackgroundEntity>>,
 ) {
     let animated = matches!(config.mode, BackgroundMode::Animated);
-    if !config.is_changed() && !animated { return; }
+    if !config.is_changed() && !animated {
+        return;
+    }
     let t = time.elapsed_secs();
     for handle in &query {
         if let Some(mat) = materials.get_mut(&handle.0) {
@@ -45,5 +50,7 @@ pub fn update_background(
 }
 
 pub fn cleanup_background(mut commands: Commands, q: Query<Entity, With<BackgroundEntity>>) {
-    for e in &q { commands.entity(e).despawn(); }
+    for e in &q {
+        commands.entity(e).despawn();
+    }
 }

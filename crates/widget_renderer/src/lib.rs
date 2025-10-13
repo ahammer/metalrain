@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
-use game_core::{Hazard, HazardType, Target, TargetState, Wall, Paddle, SpawnPoint, Selected};
+use game_core::{Hazard, HazardType, Paddle, Selected, SpawnPoint, Target, TargetState, Wall};
 
 pub struct WidgetRendererPlugin;
 
@@ -56,7 +56,9 @@ fn spawn_target_visuals(mut commands: Commands, targets: Query<(Entity, &Target)
 fn spawn_hazard_visuals(mut commands: Commands, hazards: Query<(Entity, &Hazard), Added<Hazard>>) {
     for (entity, hazard) in &hazards {
         let size = hazard.size();
-        let base_color = match hazard.hazard_type { HazardType::Pit => Color::srgba(0.8, 0.1, 0.1, 0.35) };
+        let base_color = match hazard.hazard_type {
+            HazardType::Pit => Color::srgba(0.8, 0.1, 0.1, 0.35),
+        };
         commands.entity(entity).insert((
             RenderLayers::layer(1),
             Sprite::from_color(base_color, size),
@@ -67,12 +69,19 @@ fn spawn_hazard_visuals(mut commands: Commands, hazards: Query<(Entity, &Hazard)
     }
 }
 
-fn update_target_animations(time: Res<Time>, mut query: Query<(&mut Target, &mut Transform, &mut Sprite)>) {
+fn update_target_animations(
+    time: Res<Time>,
+    mut query: Query<(&mut Target, &mut Transform, &mut Sprite)>,
+) {
     let dt = time.delta_secs();
     for (mut target, mut transform, mut sprite) in &mut query {
         match target.state {
             TargetState::Idle => {
-                let health_ratio = if target.max_health > 0 { target.health as f32 / target.max_health as f32 } else { 0.0 };
+                let health_ratio = if target.max_health > 0 {
+                    target.health as f32 / target.max_health as f32
+                } else {
+                    0.0
+                };
                 let alpha = 0.5 + 0.5 * health_ratio;
                 let lin = target.color.to_linear();
                 sprite.color = Color::linear_rgba(lin.red, lin.green, lin.blue, alpha);
@@ -89,16 +98,21 @@ fn update_target_animations(time: Res<Time>, mut query: Query<(&mut Target, &mut
                 let ng = lin.green + (1.0 - lin.green) * amt;
                 let nb = lin.blue + (1.0 - lin.blue) * amt;
                 sprite.color = Color::linear_rgba(nr, ng, nb, lin.alpha);
-                if new_t >= 1.0 { target.state = TargetState::Idle; }
-                else if let TargetState::Hit(ref mut inner) = target.state { *inner = new_t; }
+                if new_t >= 1.0 {
+                    target.state = TargetState::Idle;
+                } else if let TargetState::Hit(ref mut inner) = target.state {
+                    *inner = new_t;
+                }
             }
             TargetState::Destroying(ref mut t) => {
                 let new_t = (*t + dt * 2.0).min(1.0);
                 transform.scale = Vec3::splat(1.0 + new_t * 0.4);
                 let lin = target.color.to_linear();
                 sprite.color = Color::linear_rgba(lin.red, lin.green, lin.blue, 1.0 - new_t);
-                if new_t >= 1.0 { /* removal handled later */ }
-                else if let TargetState::Destroying(ref mut inner) = target.state { *inner = new_t; }
+                if new_t >= 1.0 { /* removal handled later */
+                } else if let TargetState::Destroying(ref mut inner) = target.state {
+                    *inner = new_t;
+                }
             }
         }
     }
@@ -134,7 +148,10 @@ fn spawn_paddle_visuals(mut commands: Commands, paddles: Query<(Entity, &Paddle)
     }
 }
 
-fn spawn_spawnpoint_visuals(mut commands: Commands, spawns: Query<(Entity, &SpawnPoint), Added<SpawnPoint>>) {
+fn spawn_spawnpoint_visuals(
+    mut commands: Commands,
+    spawns: Query<(Entity, &SpawnPoint), Added<SpawnPoint>>,
+) {
     for (entity, sp) in &spawns {
         let r = sp.radius;
         commands.entity(entity).insert((
@@ -186,6 +203,7 @@ mod tests {
     #[test]
     fn plugin_builds() {
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins).add_plugins(WidgetRendererPlugin);
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(WidgetRendererPlugin);
     }
 }

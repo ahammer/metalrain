@@ -1,0 +1,18 @@
+[package]
+name = "scaffold"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Unified integration plugin wiring physics, rendering, assets, and diagnostics"
+
+[dependencies]
+bevy = { workspace = true }
+bevy_rapier2d = { workspace = true }
+background_renderer = { path = "../background_renderer" }
+event_core = { path = "../event_core" }
+game_assets = { path = "../game_assets" }
+game_core = { path = "../game_core" }
+game_physics = { path = "../game_physics" }
+game_rendering = { path = "../game_rendering" }
+metaball_renderer = { path = "../metaball_renderer" }
+widget_renderer = { path = "../widget_renderer" }

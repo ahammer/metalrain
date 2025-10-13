@@ -2,7 +2,12 @@ use bevy::prelude::*;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction2D { Up, Down, Left, Right }
+pub enum Direction2D {
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerAction {
@@ -21,22 +26,44 @@ pub enum GameEvent {
     BallLostToHazard,
     TargetHit,
     TargetDestroyed,
-    GameWon { balls_remaining: u32, time_elapsed: f32 },
-    GameLost { targets_remaining: u32, time_elapsed: f32 },
-    StartLevel { level_id: Option<String> },
+    GameWon {
+        balls_remaining: u32,
+        time_elapsed: f32,
+    },
+    GameLost {
+        targets_remaining: u32,
+        time_elapsed: f32,
+    },
+    StartLevel {
+        level_id: Option<String>,
+    },
     ResetLevel,
     PauseGame,
     ResumeGame,
     PlayerAction(PlayerAction),
 
-    SpawnBallAtCursor { position: Vec2 },
-    PlaceWidget { widget_type: WidgetType, position: Vec2 },
-    SelectEntity { entity: Option<Entity> },
-    DeleteEntity { entity: Entity },
-    MoveEntity { entity: Entity, position: Vec2 },
+    SpawnBallAtCursor {
+        position: Vec2,
+    },
+    PlaceWidget {
+        widget_type: WidgetType,
+        position: Vec2,
+    },
+    SelectEntity {
+        entity: Option<Entity>,
+    },
+    DeleteEntity {
+        entity: Entity,
+    },
+    MoveEntity {
+        entity: Entity,
+        position: Vec2,
+    },
     ClearArena,
     TogglePhysics,
-    ChangeTool { mode: PlaygroundMode },
+    ChangeTool {
+        mode: PlaygroundMode,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Resource)]
@@ -52,14 +79,25 @@ pub enum PlaygroundMode {
 }
 
 impl Default for PlaygroundMode {
-    fn default() -> Self { Self::SpawnBall }
+    fn default() -> Self {
+        Self::SpawnBall
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WidgetType {
-    Wall { start: Vec2, end: Vec2, thickness: f32 },
-    Target { health: u8, radius: f32 },
-    Hazard { bounds: Rect },
+    Wall {
+        start: Vec2,
+        end: Vec2,
+        thickness: f32,
+    },
+    Target {
+        health: u8,
+        radius: f32,
+    },
+    Hazard {
+        bounds: Rect,
+    },
     Paddle,
     SpawnPoint,
 }
@@ -112,12 +150,21 @@ pub struct EventEnvelope {
 
 impl EventEnvelope {
     pub fn new(payload: EventPayload, source: EventSourceTag, frame: u64) -> Self {
-        Self { payload, source, frame_enqueued: frame, timestamp_ns: std::time::Instant::now().elapsed().as_nanos() }
+        Self {
+            payload,
+            source,
+            frame_enqueued: frame,
+            timestamp_ns: std::time::Instant::now().elapsed().as_nanos(),
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum EventResult { Handled, Ignored, Error(String) }
+pub enum EventResult {
+    Handled,
+    Ignored,
+    Error(String),
+}
 
 pub trait EventHandler: Send + Sync {
     fn handle(&mut self, ev: &GameEvent, world: &mut World) -> EventResult;
@@ -125,19 +172,29 @@ pub trait EventHandler: Send + Sync {
 }
 
 #[derive(Resource, Default)]
-pub struct HandlerRegistry { handlers: Vec<Box<dyn EventHandler>> }
+pub struct HandlerRegistry {
+    handlers: Vec<Box<dyn EventHandler>>,
+}
 impl HandlerRegistry {
-    pub fn register<H: EventHandler + 'static>(&mut self, h: H) { self.handlers.push(Box::new(h)); }
-    pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut Box<dyn EventHandler>> { self.handlers.iter_mut() }
+    pub fn register<H: EventHandler + 'static>(&mut self, h: H) {
+        self.handlers.push(Box::new(h));
+    }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn EventHandler>> {
+        self.handlers.iter_mut()
+    }
     pub fn dispatch(&mut self, ev: &GameEvent, world: &mut World) -> EventResult {
         let mut any = false;
         for h in self.handlers.iter_mut() {
             match h.handle(ev, world) {
                 EventResult::Handled => any = true,
-                EventResult::Ignored => {},
+                EventResult::Ignored => {}
                 e @ EventResult::Error(_) => return e,
             }
         }
-        if any { EventResult::Handled } else { EventResult::Ignored }
+        if any {
+            EventResult::Handled
+        } else {
+            EventResult::Ignored
+        }
     }
 }

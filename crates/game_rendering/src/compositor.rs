@@ -296,7 +296,11 @@ fn update_uniforms(
 
     uniforms.settings = Vec4::new(
         settings.exposure,
-        if settings.debug_layer_boundaries { 1.0 } else { 0.0 },
+        if settings.debug_layer_boundaries {
+            1.0
+        } else {
+            0.0
+        },
         0.0,
         0.0,
     );

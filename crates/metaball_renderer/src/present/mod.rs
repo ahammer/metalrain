@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::view::RenderLayers;
 use bevy::sprite::{Material2d, Material2dPlugin, MeshMaterial2d};
 
 use crate::internal::{AlbedoTexture, FieldTexture, NormalTexture};
@@ -77,9 +77,13 @@ fn setup_present(
 }
 
 /// Debug instrumentation: logs the name + layers of the presentation quad after spawn.
-fn log_presentation_quad(query: Query<(Entity, &Name, Option<&RenderLayers>), With<MetaballPresentationQuad>>) {
+fn log_presentation_quad(
+    query: Query<(Entity, &Name, Option<&RenderLayers>), With<MetaballPresentationQuad>>,
+) {
     for (entity, name, layers) in &query {
-        let layers_bits = layers.map(|l| format!("{:?}", l.bits())).unwrap_or_else(|| "<none>".to_string());
+        let layers_bits = layers
+            .map(|l| format!("{:?}", l.bits()))
+            .unwrap_or_else(|| "<none>".to_string());
         info!(target: "metaballs", ?entity, quad=?name, layers=%layers_bits, "Metaball presentation quad state");
     }
 }

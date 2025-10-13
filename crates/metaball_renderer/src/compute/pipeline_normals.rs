@@ -1,9 +1,9 @@
 use super::types::GpuMetaballBindGroup; // ensure compute pass ran
 use crate::compute::MetaballPassLabel;
 use crate::internal::{FieldTexture, NormalTexture, ParamsUniform};
-use bevy::prelude::*;
 #[cfg(feature = "embed_shaders")]
 use bevy::asset::Assets;
+use bevy::prelude::*;
 use bevy::render::{
     render_asset::RenderAssets,
     render_graph::{self, RenderGraph, RenderLabel},
@@ -81,9 +81,7 @@ fn build_normals_pipeline(world: &mut World) {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(
-                        std::mem::size_of::<ParamsUniform>() as u64
-                    ),
+                    min_binding_size: BufferSize::new(std::mem::size_of::<ParamsUniform>() as u64),
                 },
                 count: None,
             },
@@ -128,14 +126,24 @@ fn build_normals_pipeline(world: &mut World) {
         zero_initialize_workgroup_memory: false,
     });
 
-    world.insert_resource(GpuNormalsPipeline { layout, pipeline_id });
-    info!(target="metaballs", "Normals compute pipeline created (assets ready).");
+    world.insert_resource(GpuNormalsPipeline {
+        layout,
+        pipeline_id,
+    });
+    info!(
+        target = "metaballs",
+        "Normals compute pipeline created (assets ready)."
+    );
 }
 
 fn create_normals_pipeline_when_ready(world: &mut World) {
-    if world.get_resource::<GpuNormalsPipeline>().is_some() { return; }
+    if world.get_resource::<GpuNormalsPipeline>().is_some() {
+        return;
+    }
     // Wait for GameAssets extraction (state machine guarantees readiness in main world)
-    if !world.contains_resource::<GameAssets>() { return; }
+    if !world.contains_resource::<GameAssets>() {
+        return;
+    }
 
     #[cfg(not(feature = "embed_shaders"))]
     {
@@ -143,12 +151,17 @@ fn create_normals_pipeline_when_ready(world: &mut World) {
         let ga = world.resource::<GameAssets>();
         let asset_server = world.resource::<AssetServer>();
         match asset_server.get_load_state(ga.shaders.compute_3d_normals.id()) {
-            Some(LoadState::Loaded) => {},
+            Some(LoadState::Loaded) => {}
             Some(LoadState::Failed(_)) => {
-                error!(target="metaballs", "compute_3d_normals.wgsl failed to load; cannot build normals pipeline");
+                error!(
+                    target = "metaballs",
+                    "compute_3d_normals.wgsl failed to load; cannot build normals pipeline"
+                );
                 return;
             }
-            _ => { return; } // still loading
+            _ => {
+                return;
+            } // still loading
         }
     }
     build_normals_pipeline(world);
@@ -209,7 +222,9 @@ enum NodeState {
 
 impl render_graph::Node for NormalsComputeNode {
     fn update(&mut self, world: &mut World) {
-        let Some(pipeline) = world.get_resource::<GpuNormalsPipeline>() else { return; };
+        let Some(pipeline) = world.get_resource::<GpuNormalsPipeline>() else {
+            return;
+        };
         let cache = world.resource::<PipelineCache>();
         if matches!(self.state, NodeState::Loading) {
             match cache.get_compute_pipeline_state(pipeline.pipeline_id) {

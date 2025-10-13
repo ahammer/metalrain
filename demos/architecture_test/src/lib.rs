@@ -1,9 +1,9 @@
-use bevy::prelude::*;
 use bevy::asset::AssetPlugin;
-use game_assets::GameAssetsPlugin;
+use bevy::prelude::*;
 use game::GamePlugin;
+use game_assets::GameAssetsPlugin;
 use game_core::{
-    BallBundle, BallSpawned, GameColor, GameCorePlugin, GameLost, GameWon, TargetDestroyed, Target,
+    BallBundle, BallSpawned, GameColor, GameCorePlugin, GameLost, GameWon, Target, TargetDestroyed,
 };
 
 pub const DEMO_NAME: &str = "architecture_test";
@@ -16,7 +16,10 @@ struct DemoTarget;
 
 pub fn run_architecture_test() {
     App::new()
-        .add_plugins(DefaultPlugins.set(AssetPlugin { file_path: "../../assets".into(), ..default() }))
+        .add_plugins(DefaultPlugins.set(AssetPlugin {
+            file_path: "../../assets".into(),
+            ..default()
+        }))
         .add_plugins(GameAssetsPlugin::default())
         .add_plugins(GamePlugin)
         .add_plugins(GameCorePlugin)
