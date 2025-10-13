@@ -48,16 +48,30 @@ However, some demo scenarios need:
 - [ ] Radio button group (enum selection)
 - [ ] Slider widget (f32 parameter adjustment)
 - [ ] Label/separator formatting utilities
+- [ ] Header/footer layout components
+- [ ] Sidebar layout components (left/right)
+- [ ] Panel grouping and spacing utilities
 
-### 3. Demo Integration Patterns
+### 3. UI Test Demo (NEW)
 
-- [ ] **Physics Playground**: Spawn mode toolbar + physics sliders
-- [ ] **Metaballs Test**: Visualization mode selector (distance/normals/albedo)
-- [ ] **Compositor Test**: Layer visibility checkboxes
-- [ ] **Background Renderer**: Mode cycling with preview
-- [ ] Document integration pattern in scaffold README
+- [ ] Create `ui_test` demo crate with scaffold integration
+- [ ] Implement header bar (top, persistent)
+- [ ] Implement footer bar (bottom, persistent)
+- [ ] Implement left sidebar (toggleable with Tab)
+- [ ] Implement right sidebar (toggleable with ~)
+- [ ] Demonstrate all widget types (buttons, checkboxes, sliders, radio buttons)
+- [ ] Include widget state visualization
+- [ ] Add color picker and theme selector demonstrations
+- [ ] Integrate with demo_launcher
+- [ ] Add `run_ui_test` export and DEMO_NAME constant
 
-### 4. Keyboard Binding Registry
+### 4. Demo Integration Examples (Existing Demos)
+
+- [ ] **Physics Playground**: Spawn mode toolbar + physics sliders (example only)
+- [ ] **Metaballs Test**: Visualization mode selector (example only)
+- [ ] **Compositor Test**: Layer visibility checkboxes (example only)
+
+### 5. Keyboard Binding Registry
 
 - [ ] Central `ScaffoldKeyBindings` resource documenting reserved keys
 - [ ] Conflict detection for demo-added bindings
@@ -162,56 +176,100 @@ pub mod positioning {
 }
 ```
 
-### Demo Integration: Physics Playground Example
+### UI Test Demo: Comprehensive UI Pattern Demonstration
 
 ```rust
-// In physics_playground/Cargo.toml
-[dependencies]
-scaffold = { path = "../../crates/scaffold", features = ["debug_ui"] }
+// In demos/ui_test/Cargo.toml
+[package]
+name = "ui_test"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+publish = false
 
-// In physics_playground/src/ui.rs
+[dependencies]
+bevy = { workspace = true }
+scaffold = { path = "../../crates/scaffold", features = ["debug_ui"] }
+game_assets = { path = "../../crates/game_assets" }
+
+// In demos/ui_test/src/lib.rs
 use bevy::prelude::*;
 use bevy_immediate::prelude::*;
 use scaffold::ui::{ScaffoldUiContext, positioning};
+use scaffold::ScaffoldIntegrationPlugin;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpawnMode {
-    Balls,
-    Walls,
-    Obstacles,
-}
-
-impl SpawnMode {
-    pub fn name(&self) -> &'static str {
-        match self {
-            SpawnMode::Balls => "Balls",
-            SpawnMode::Walls => "Walls",
-            SpawnMode::Obstacles => "Obstacles",
-        }
-    }
-}
+pub const DEMO_NAME: &str = "ui_test";
 
 #[derive(Resource, Debug)]
-pub struct PhysicsPlaygroundUi {
-    pub spawn_mode: SpawnMode,
+pub struct UiTestState {
+    pub left_sidebar_visible: bool,
+    pub right_sidebar_visible: bool,
+    pub checkbox_demo: bool,
+    pub slider_value: f32,
+    pub radio_selection: WidgetDemo,
+    pub button_click_count: u32,
 }
 
-impl Default for PhysicsPlaygroundUi {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WidgetDemo {
+    Buttons,
+    Checkboxes,
+    Sliders,
+    RadioButtons,
+}
+
+impl Default for UiTestState {
     fn default() -> Self {
         Self {
-            spawn_mode: SpawnMode::Balls,
+            left_sidebar_visible: true,
+            right_sidebar_visible: true,
+            checkbox_demo: false,
+            slider_value: 50.0,
+            radio_selection: WidgetDemo::Buttons,
+            button_click_count: 0,
         }
     }
 }
 
-pub fn render_physics_controls(
+pub fn run_ui_test() {
+    App::new()
+        .add_plugins(ScaffoldIntegrationPlugin::with_demo_name(DEMO_NAME))
+        .init_resource::<UiTestState>()
+        .add_systems(
+            Update,
+            (
+                toggle_sidebars,
+                render_header,
+                render_footer,
+                render_left_sidebar,
+                render_right_sidebar,
+                render_center_panel,
+            ),
+        )
+        .run();
+}
+
+/// Toggle sidebars with Tab (left) and ~ (right)
+fn toggle_sidebars(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut state: ResMut<UiTestState>,
+) {
+    if keys.just_pressed(KeyCode::Tab) {
+        state.left_sidebar_visible = !state.left_sidebar_visible;
+        info!("Left sidebar: {}", state.left_sidebar_visible);
+    }
+    if keys.just_pressed(KeyCode::Backquote) {
+        state.right_sidebar_visible = !state.right_sidebar_visible;
+        info!("Right sidebar: {}", state.right_sidebar_visible);
+    }
+}
+
+/// Persistent header bar at top
+fn render_header(
     mut ctx: NonSendMut<ImmediateContext>,
     scaffold_ctx: Res<ScaffoldUiContext>,
-    mut ui_state: ResMut<PhysicsPlaygroundUi>,
-    mut physics: ResMut<game_physics::PhysicsConfig>,
     windows: Query<&Window>,
 ) {
-    // Only render when panels are visible (F2 toggle)
     if !scaffold_ctx.panels_visible {
         return;
     }
@@ -219,80 +277,21 @@ pub fn render_physics_controls(
     let window = windows.single();
     let window_size = Vec2::new(window.width(), window.height());
     
-    // Position below scaffold HUD
-    let pos = positioning::below_hud(window_size);
-
-    ui::Window::new("physics_controls")
-        .position(pos)
-        .size([320.0, 250.0])
+    ui::Window::new("header")
+        .position([0.0, 0.0])
+        .size([window_size.x, 40.0])
         .show(&mut ctx, |ui| {
-            ui.label(None, "Physics Playground Controls");
-            ui.separator();
-            
-            // Spawn mode selector (complement keyboard Tab shortcut)
-            if ui.button(None, format!("Spawn Mode: {}", ui_state.spawn_mode.name())) {
-                ui_state.spawn_mode = match ui_state.spawn_mode {
-                    SpawnMode::Balls => SpawnMode::Walls,
-                    SpawnMode::Walls => SpawnMode::Obstacles,
-                    SpawnMode::Obstacles => SpawnMode::Balls,
-                };
-            }
-            
-            ui.separator();
-            ui.label(None, "Physics Parameters");
-            
-            // Fine-grained gravity adjustment (complement arrow keys)
-            ui.slider(None, "Gravity Y", &mut physics.gravity.y, -1000.0, 1000.0);
-            
-            // Clustering force (no keyboard shortcut alternative)
-            ui.slider(None, "Clustering", &mut physics.clustering_strength, 0.0, 500.0);
-            
-            ui.separator();
-            
-            if ui.button(None, "Reset Physics (R)") {
-                physics.gravity = Vec2::ZERO;
-                physics.clustering_strength = 200.0;
-            }
+            ui.label(None, "UI Test Demo - Header Bar");
+            ui.same_line();
+            ui.label(None, "[Tab] Toggle Left | [~] Toggle Right | [F2] Toggle UI");
         });
 }
-```
 
-### Demo Integration: Metaballs Test Example
-
-```rust
-// In metaballs_test/src/ui.rs
-use bevy::prelude::*;
-use bevy_immediate::prelude::*;
-use scaffold::ui::{ScaffoldUiContext, positioning};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VisualizationMode {
-    FinalComposite,
-    DistanceField,
-    Normals,
-    Albedo,
-}
-
-impl VisualizationMode {
-    pub fn name(&self) -> &'static str {
-        match self {
-            VisualizationMode::FinalComposite => "Final Composite",
-            VisualizationMode::DistanceField => "Distance Field",
-            VisualizationMode::Normals => "Normals",
-            VisualizationMode::Albedo => "Albedo",
-        }
-    }
-}
-
-#[derive(Resource, Debug)]
-pub struct MetaballVisualizationUi {
-    pub mode: VisualizationMode,
-}
-
-pub fn render_metaball_debug_ui(
+/// Persistent footer bar at bottom
+fn render_footer(
     mut ctx: NonSendMut<ImmediateContext>,
     scaffold_ctx: Res<ScaffoldUiContext>,
-    mut viz: ResMut<MetaballVisualizationUi>,
+    state: Res<UiTestState>,
     windows: Query<&Window>,
 ) {
     if !scaffold_ctx.panels_visible {
@@ -301,74 +300,117 @@ pub fn render_metaball_debug_ui(
 
     let window = windows.single();
     let window_size = Vec2::new(window.width(), window.height());
-    let pos = positioning::calculate_position(
-        window_size,
-        positioning::Anchor::TopRight,
-        Vec2::new(280.0, 180.0),
-        10.0,
-    );
-
-    ui::Window::new("metaball_viz")
-        .position(pos)
-        .size([280.0, 180.0])
+    
+    ui::Window::new("footer")
+        .position([0.0, window_size.y - 30.0])
+        .size([window_size.x, 30.0])
         .show(&mut ctx, |ui| {
-            ui.label(None, "Visualization Mode");
-            ui.separator();
-            
-            // Radio button group for mode selection
-            if ui.radio_button(None, "Final Composite", viz.mode == VisualizationMode::FinalComposite) {
-                viz.mode = VisualizationMode::FinalComposite;
-            }
-            if ui.radio_button(None, "Distance Field", viz.mode == VisualizationMode::DistanceField) {
-                viz.mode = VisualizationMode::DistanceField;
-            }
-            if ui.radio_button(None, "Normals", viz.mode == VisualizationMode::Normals) {
-                viz.mode = VisualizationMode::Normals;
-            }
-            if ui.radio_button(None, "Albedo", viz.mode == VisualizationMode::Albedo) {
-                viz.mode = VisualizationMode::Albedo;
-            }
-            
-            ui.separator();
-            ui.label(None, "Keyboard: M to cycle modes");
+            ui.label(None, format!(
+                "Status: Left={} | Right={} | Checkbox={} | Slider={:.1} | Clicks={}",
+                state.left_sidebar_visible,
+                state.right_sidebar_visible,
+                state.checkbox_demo,
+                state.slider_value,
+                state.button_click_count,
+            ));
         });
 }
-```
 
-### Demo Integration: Compositor Test Example
-
-```rust
-// In compositor_test/src/ui.rs
-use bevy::prelude::*;
-use bevy_immediate::prelude::*;
-use scaffold::ui::{ScaffoldUiContext, positioning};
-use game_rendering::RenderLayer;
-
-#[derive(Resource, Debug)]
-pub struct LayerVisibilityUi {
-    pub background: bool,
-    pub game_world: bool,
-    pub metaballs: bool,
-    pub effects: bool,
-    pub ui: bool,
-}
-
-impl Default for LayerVisibilityUi {
-    fn default() -> Self {
-        Self {
-            background: true,
-            game_world: true,
-            metaballs: true,
-            effects: true,
-            ui: true,
-        }
-    }
-}
-
-pub fn render_compositor_layer_ui(
+/// Left sidebar - Widget demonstrations
+fn render_left_sidebar(
     mut ctx: NonSendMut<ImmediateContext>,
     scaffold_ctx: Res<ScaffoldUiContext>,
-    mut visibility: ResMut<LayerVisibilityUi>,
+    mut state: ResMut<UiTestState>,
+    windows: Query<&Window>,
+) {
+    if !scaffold_ctx.panels_visible || !state.left_sidebar_visible {
+        return;
+    }
+
+    let window = windows.single();
+    let window_size = Vec2::new(window.width(), window.height());
+    
+    ui::Window::new("left_sidebar")
+        .position([0.0, 40.0])
+        .size([250.0, window_size.y - 70.0])
+        .show(&mut ctx, |ui| {
+            ui.label(None, "Widget Demonstrations");
+            ui.separator();
+            
+            // Button demo
+            if ui.button(None, format!("Click Me! ({})", state.button_click_count)) {
+                state.button_click_count += 1;
+            }
+            
+            ui.separator();
+            
+            // Checkbox demo
+            ui.checkbox(None, "Checkbox Demo", &mut state.checkbox_demo);
+            
+            ui.separator();
+            ui.label(None, "Slider Demo");
+            ui.slider(None, "Value", &mut state.slider_value, 0.0, 100.0);
+            
+            ui.separator();
+            ui.label(None, "Radio Button Demo");
+            
+            if ui.radio_button(None, "Buttons", state.radio_selection == WidgetDemo::Buttons) {
+                state.radio_selection = WidgetDemo::Buttons;
+            }
+            if ui.radio_button(None, "Checkboxes", state.radio_selection == WidgetDemo::Checkboxes) {
+                state.radio_selection = WidgetDemo::Checkboxes;
+            }
+            if ui.radio_button(None, "Sliders", state.radio_selection == WidgetDemo::Sliders) {
+                state.radio_selection = WidgetDemo::Sliders;
+            }
+            if ui.radio_button(None, "Radio Buttons", state.radio_selection == WidgetDemo::RadioButtons) {
+                state.radio_selection = WidgetDemo::RadioButtons;
+            }
+        });
+}
+
+/// Right sidebar - State visualization
+fn render_right_sidebar(
+    mut ctx: NonSendMut<ImmediateContext>,
+    scaffold_ctx: Res<ScaffoldUiContext>,
+    state: Res<UiTestState>,
+    windows: Query<&Window>,
+) {
+    if !scaffold_ctx.panels_visible || !state.right_sidebar_visible {
+        return;
+    }
+
+    let window = windows.single();
+    let window_size = Vec2::new(window.width(), window.height());
+    
+    ui::Window::new("right_sidebar")
+        .position([window_size.x - 250.0, 40.0])
+        .size([250.0, window_size.y - 70.0])
+        .show(&mut ctx, |ui| {
+            ui.label(None, "State Inspector");
+            ui.separator();
+            
+            ui.label(None, format!("Left Sidebar: {}", state.left_sidebar_visible));
+            ui.label(None, format!("Right Sidebar: {}", state.right_sidebar_visible));
+            ui.label(None, format!("Checkbox: {}", state.checkbox_demo));
+            ui.label(None, format!("Slider: {:.2}", state.slider_value));
+            ui.label(None, format!("Radio: {:?}", state.radio_selection));
+            ui.label(None, format!("Button Clicks: {}", state.button_click_count));
+            
+            ui.separator();
+            ui.label(None, "Layout Information");
+            ui.label(None, format!("Window: {:.0}x{:.0}", window_size.x, window_size.y));
+            ui.label(None, format!("Header Height: 40px"));
+            ui.label(None, format!("Footer Height: 30px"));
+            ui.label(None, format!("Sidebar Width: 250px"));
+        });
+}
+
+/// Center panel - Active widget demonstration area
+fn render_center_panel(
+    mut ctx: NonSendMut<ImmediateContext>,
+    scaffold_ctx: Res<ScaffoldUiContext>,
+    state: Res<UiTestState>,
     windows: Query<&Window>,
 ) {
     if !scaffold_ctx.panels_visible {
@@ -377,46 +419,67 @@ pub fn render_compositor_layer_ui(
 
     let window = windows.single();
     let window_size = Vec2::new(window.width(), window.height());
-    let pos = positioning::calculate_position(
-        window_size,
-        positioning::Anchor::BottomRight,
-        Vec2::new(250.0, 220.0),
-        10.0,
-    );
-
-    ui::Window::new("compositor_layers")
-        .position(pos)
-        .size([250.0, 220.0])
+    
+    let left_offset = if state.left_sidebar_visible { 260.0 } else { 10.0 };
+    let right_offset = if state.right_sidebar_visible { 260.0 } else { 10.0 };
+    let panel_width = window_size.x - left_offset - right_offset;
+    
+    ui::Window::new("center_panel")
+        .position([left_offset, 50.0])
+        .size([panel_width, window_size.y - 90.0])
         .show(&mut ctx, |ui| {
-            ui.label(None, "Compositor Layers");
+            ui.label(None, "Widget Demonstration Area");
             ui.separator();
             
-            // Checkboxes mirror keyboard shortcuts (1-5)
-            ui.checkbox(None, "[1] Background", &mut visibility.background);
-            ui.checkbox(None, "[2] Game World", &mut visibility.game_world);
-            ui.checkbox(None, "[3] Metaballs", &mut visibility.metaballs);
-            ui.checkbox(None, "[4] Effects", &mut visibility.effects);
-            ui.checkbox(None, "[5] UI", &mut visibility.ui);
-            
-            ui.separator();
-            
-            if ui.button(None, "Show All") {
-                visibility.background = true;
-                visibility.game_world = true;
-                visibility.metaballs = true;
-                visibility.effects = true;
-                visibility.ui = true;
-            }
-            
-            if ui.button(None, "Hide All") {
-                visibility.background = false;
-                visibility.game_world = false;
-                visibility.metaballs = false;
-                visibility.effects = false;
-                visibility.ui = false;
+            match state.radio_selection {
+                WidgetDemo::Buttons => {
+                    ui.label(None, "Button Widgets");
+                    ui.label(None, "Buttons emit events on click.");
+                    ui.label(None, "Use for: Actions, mode switching, confirmations");
+                }
+                WidgetDemo::Checkboxes => {
+                    ui.label(None, "Checkbox Widgets");
+                    ui.label(None, "Checkboxes provide direct state binding.");
+                    ui.label(None, "Use for: Boolean toggles, feature flags");
+                }
+                WidgetDemo::Sliders => {
+                    ui.label(None, "Slider Widgets");
+                    ui.label(None, "Sliders provide fine-grained parameter adjustment.");
+                    ui.label(None, "Use for: Numeric parameters, percentages");
+                }
+                WidgetDemo::RadioButtons => {
+                    ui.label(None, "Radio Button Widgets");
+                    ui.label(None, "Radio buttons provide enum selection.");
+                    ui.label(None, "Use for: Mutually exclusive options");
+                }
             }
         });
 }
+```
+
+### Demo Integration Examples (Reference Only - Not Part of This Sprint)
+
+These examples show how existing demos *could* integrate the UI scaffold feature once it's complete. They are provided as reference patterns but are **NOT** required deliverables for this sprint.
+
+#### Physics Playground Example Pattern
+
+```rust
+// Example only - shows sidebar pattern for physics controls
+// Would add spawn mode selector and physics parameter sliders
+```
+
+#### Metaballs Test Example Pattern
+
+```rust
+// Example only - shows radio button pattern for visualization modes
+// Would add visualization mode selector (distance field, normals, etc.)
+```
+
+#### Compositor Test Example Pattern
+
+```rust
+// Example only - shows checkbox group pattern for layer visibility
+// Would add layer visibility toggles mirroring keyboard shortcuts
 ```
 
 ### Keyboard Binding Registry
@@ -653,7 +716,27 @@ pub fn render_help_panel(
 
 ## Integration Checklist
 
-When adding debug UI to a demo:
+### For the UI Test Demo (Primary Deliverable)
+
+- [ ] Create `demos/ui_test/` directory structure
+- [ ] Add `demos/ui_test/Cargo.toml` with proper dependencies
+- [ ] Create `demos/ui_test/src/lib.rs` with `run_ui_test()` and `DEMO_NAME`
+- [ ] Create `demos/ui_test/src/main.rs` for standalone execution
+- [ ] Implement header bar (persistent, top)
+- [ ] Implement footer bar (persistent, bottom)
+- [ ] Implement left sidebar (toggleable with Tab)
+- [ ] Implement right sidebar (toggleable with ~)
+- [ ] Add all widget demonstrations (buttons, checkboxes, sliders, radio buttons)
+- [ ] Add state visualization in right sidebar
+- [ ] Add demo to `demo_launcher` dependencies
+- [ ] Add demo to `demo_launcher` DEMOS array
+- [ ] Update workspace `Cargo.toml` to include `ui_test` member
+- [ ] Create `demos/ui_test/README.md` with usage instructions
+- [ ] Test standalone: `cargo run -p ui_test`
+- [ ] Test via launcher: `cargo run -p demo_launcher ui_test`
+- [ ] Verify WASM compatibility with `pwsh scripts/wasm-dev.ps1`
+
+### For Future Demo Integrations (Optional Reference)
 
 - [ ] Add `scaffold = { features = ["debug_ui"] }` to demo's `Cargo.toml`
 - [ ] Add `UiScaffoldPlugin` to app (if using interactive panels)
@@ -685,10 +768,15 @@ When adding debug UI to a demo:
 - `M`: Metaball mode cycle
 - `Esc`: Exit
 
-**Available for Demos**:
+**UI Test Demo Specific**:
+
+- `Tab`: Toggle left sidebar
+- `~` (Backquote): Toggle right sidebar
+- `F2`: Toggle all UI panels (inherited from scaffold)
+
+**Available for Other Demos**:
 
 - `F4-F12`: Demo-specific features
-- `Tab`: Mode switching
 - `Q`/`E`: Demo-specific cycles
 - `T`/`Y`/`U`/`I`/`O`: Parameter adjustments
 - `A`/`S`/`D`/`F`/`G`: Actions
@@ -734,21 +822,51 @@ When adding debug UI to a demo:
 ✅ Demos can add panels without modifying scaffold core  
 ✅ WASM compatibility maintained  
 ✅ Performance impact < 0.5ms per frame  
-✅ All three demo integrations working (physics/metaballs/compositor)  
+✅ **UI Test demo fully functional and integrated:**
+
+- ✅ Header bar displays at top (persistent)
+- ✅ Footer bar displays at bottom (persistent)
+- ✅ Left sidebar toggles with Tab
+- ✅ Right sidebar toggles with ~
+- ✅ All widgets demonstrate correctly (buttons, checkboxes, sliders, radio buttons)
+- ✅ State visualization updates in real-time
+- ✅ Accessible via demo_launcher
+- ✅ Works standalone (`cargo run -p ui_test`)
+- ✅ WASM build successful  
 
 ## Definition of Done
 
+### Core UI Scaffold Infrastructure
+
 - [ ] `UiScaffoldPlugin` feature-gated in scaffold crate
 - [ ] `ScaffoldUiContext` resource with F2 toggle
-- [ ] `positioning` helpers for window-relative layout
+- [ ] `positioning` helpers for window-relative layout (including header/footer/sidebar utilities)
 - [ ] `ScaffoldKeyBindings` registry with conflict detection
 - [ ] F3 help panel showing all bindings by category
-- [ ] Physics Playground UI integration complete
-- [ ] Metaballs Test UI integration complete
-- [ ] Compositor Test UI integration complete
-- [ ] All demos tested on native and WASM
 - [ ] Scaffold README updated with UI integration guide
 - [ ] No conflicts with existing scaffold bindings
+
+### UI Test Demo (Primary Deliverable)
+
+- [ ] `demos/ui_test/` crate created with proper structure
+- [ ] `DEMO_NAME` constant and `run_ui_test()` function exported
+- [ ] Header bar component implemented and functional
+- [ ] Footer bar component implemented and functional
+- [ ] Left sidebar component implemented (toggleable with Tab)
+- [ ] Right sidebar component implemented (toggleable with ~)
+- [ ] Center panel component implemented with responsive layout
+- [ ] Button widget demonstrations working
+- [ ] Checkbox widget demonstrations working
+- [ ] Slider widget demonstrations working
+- [ ] Radio button widget demonstrations working
+- [ ] State visualization in right sidebar updating correctly
+- [ ] Demo added to `demo_launcher` dependencies
+- [ ] Demo added to `demo_launcher` DEMOS array
+- [ ] Workspace `Cargo.toml` updated with `ui_test` member
+- [ ] `demos/ui_test/README.md` created with usage instructions
+- [ ] Demo tested standalone: `cargo run -p ui_test`
+- [ ] Demo tested via launcher: `cargo run -p demo_launcher ui_test`
+- [ ] WASM build tested and verified working
 
 ## Implementation Phases
 
@@ -757,7 +875,7 @@ When adding debug UI to a demo:
 - Add `bevy_immediate` dependency (feature-gated)
 - Create `UiScaffoldPlugin` with F2 toggle
 - Add `ScaffoldUiContext` resource
-- Create `positioning` module with helpers
+- Create `positioning` module with helpers (including header/footer/sidebar positioning)
 
 ### Phase 2: Bindings System (1 hour)
 
@@ -766,21 +884,39 @@ When adding debug UI to a demo:
 - Create F3 help panel system
 - Document all existing scaffold keys
 
-### Phase 3: Demo Integration (3 hours)
+### Phase 3: UI Test Demo Creation (4 hours)
 
-- Physics Playground: spawn mode + physics sliders
-- Metaballs Test: visualization mode radio buttons
-- Compositor Test: layer visibility checkboxes
-- Test all demos on native + WASM
+- Create `demos/ui_test/` directory structure
+- Set up `Cargo.toml` with dependencies
+- Implement `lib.rs` with core demo logic:
+  - `UiTestState` resource
+  - Header rendering system
+  - Footer rendering system
+  - Left sidebar system (toggleable with Tab)
+  - Right sidebar system (toggleable with ~)
+  - Center panel system
+  - Widget demonstration systems
+- Create `main.rs` for standalone execution
+- Create `README.md` with usage instructions
 
-### Phase 4: Documentation (1 hour)
+### Phase 4: Demo Launcher Integration (1 hour)
 
-- Update scaffold README with integration guide
+- Add `ui_test` to workspace `Cargo.toml`
+- Add `ui_test` dependency to `demo_launcher`
+- Import `run_ui_test` and `DEMO_NAME` in launcher
+- Add demo entry to DEMOS array
+- Test via launcher interface
+
+### Phase 5: Testing & Documentation (2 hours)
+
+- Test standalone: `cargo run -p ui_test`
+- Test via launcher: `cargo run -p demo_launcher ui_test`
+- Test WASM build with `pwsh scripts/wasm-dev.ps1`
+- Update scaffold README with UI integration guide
 - Document best practices and patterns
-- Create integration checklist
-- Add examples for common patterns
+- Verify all keyboard shortcuts work correctly
 
-**Total Estimated Time**: 7 hours
+**Total Estimated Time**: 10 hours
 
 ## Future Enhancements (Out of Scope)
 
@@ -790,6 +926,113 @@ When adding debug UI to a demo:
 - **Drag-and-Drop**: Reposition panels at runtime
 - **Graph Widgets**: Real-time performance visualization
 - **Command Palette**: Quick action search (Ctrl+P)
+- **Color Picker Widget**: Interactive HSV/RGB color selection
+- **Text Input Widget**: Editable text fields for numeric/string parameters
+- **Existing Demo Integrations**: Physics Playground, Metaballs Test, Compositor Test (defer to future sprint)
+- **Multi-Window Support**: Detachable panels
+
+## UI Test Demo README Template
+
+```markdown
+# UI Test Demo
+
+Comprehensive demonstration of the UI Scaffold system showcasing layout patterns and widget types.
+
+## Purpose
+
+This demo validates the UI Scaffold infrastructure and serves as a reference implementation for:
+
+- **Header/Footer patterns**: Persistent bars at top and bottom
+- **Sidebar patterns**: Toggleable left/right panels
+- **Responsive layouts**: Center content adapts to sidebar visibility
+- **Widget demonstrations**: All core UI widget types
+- **State management**: Real-time state visualization
+
+## Features
+
+### Layout Components
+
+- **Header Bar**: Persistent information bar at top
+- **Footer Bar**: Status display at bottom
+- **Left Sidebar**: Widget demonstrations (toggle with Tab)
+- **Right Sidebar**: State inspector (toggle with ~)
+- **Center Panel**: Context-sensitive demonstration area
+
+### Widget Demonstrations
+
+- **Buttons**: Click counter demonstration
+- **Checkboxes**: Boolean toggle demonstration
+- **Sliders**: Continuous value adjustment (0-100)
+- **Radio Buttons**: Mutually exclusive selection among widget types
+
+### Keyboard Controls
+
+- `F1`: Toggle scaffold HUD (performance stats)
+- `F2`: Toggle all UI panels
+- `F3`: Show help/key bindings
+- `Tab`: Toggle left sidebar
+- `~` (Backquote): Toggle right sidebar
+- `Esc`: Exit demo
+
+## Running
+
+### Standalone
+
+```bash
+cargo run -p ui_test
+```
+
+### Via Demo Launcher
+
+```bash
+cargo run -p demo_launcher ui_test
+```
+
+### WASM
+
+```powershell
+pwsh scripts/wasm-dev.ps1
+# Then select ui_test from launcher
+```
+
+## Architecture
+
+This demo uses:
+
+- **Scaffold Integration**: `ScaffoldIntegrationPlugin` for baseline functionality
+- **Immediate-Mode UI**: `bevy_immediate` for stateless widget rendering
+- **Resource-Based State**: Single `UiTestState` resource for all demo state
+- **System-Based Rendering**: Each layout component has its own render system
+
+## Integration Pattern
+
+The UI Test demo demonstrates the recommended pattern for adding debug UI to demos:
+
+1. **Feature-gate**: Add `scaffold = { features = ["debug_ui"] }` to Cargo.toml
+2. **State Resource**: Create single resource for demo UI state
+3. **Render Systems**: One system per layout component
+4. **Visibility Check**: Respect `ScaffoldUiContext::panels_visible` (F2 toggle)
+5. **Positioning**: Use `positioning` helpers for consistent layout
+6. **Keyboard Bindings**: Register custom bindings with `ScaffoldKeyBindings`
+
+## Best Practices Demonstrated
+
+✅ Immediate-mode rendering (no complex state management)
+✅ Responsive layout (adapts to sidebar visibility)
+✅ Consistent positioning (uses scaffold positioning helpers)
+✅ Performance-conscious (only renders when panels visible)
+✅ Keyboard-friendly (all controls accessible via keyboard)
+✅ WASM-compatible (no platform-specific dependencies)
+
+## Future Enhancements
+
+- Color picker widget demonstration
+- Text input widget demonstration
+- Graph/plot widget demonstration
+- Drag-and-drop panel repositioning
+- Theme selector demonstration
+
+```
 
 ## Notes
 
@@ -799,8 +1042,9 @@ This subsprint creates the **minimal viable UI infrastructure** for demos withou
 2. **Composing** UI from simple, stateless widgets
 3. **Integrating** with keyboard shortcuts for discoverability
 4. **Maintaining** WASM compatibility and performance
+5. **Demonstrating** layout patterns through the UI Test demo
 
-The result is a lightweight, optional layer that demos can adopt as needed without coupling to complex UI framework state machines.
+The result is a lightweight, optional layer that demos can adopt as needed without coupling to complex UI framework state machines. The **UI Test demo** serves as both validation and reference implementation.
 
 ---
 
