@@ -16,8 +16,8 @@ impl Default for GameCamera {
     fn default() -> Self {
         Self {
             base_resolution: Vec2::new(1280.0, 720.0),
-            viewport_scale: 1.0,
-            target_viewport_scale: 1.0,
+            viewport_scale: 2.0,
+            target_viewport_scale: 0.5,
             shake_intensity: 0.0,
             shake_decay_rate: 2.5,
             shake_offset: Vec2::ZERO,
