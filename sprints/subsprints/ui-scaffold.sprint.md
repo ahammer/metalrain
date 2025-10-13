@@ -2,19 +2,42 @@
 
 ## Sprint Goal
 
-Create a lightweight, composable immediate-mode UI layer within the scaffold that provides interactive debug controls for demos without introducing complex state management or conflicting with existing scaffold patterns.
+Create a lightweight, composable template-based UI layer using **Bevy-HUI** that provides interactive debug controls for demos without introducing complex state management or conflicting with existing scaffold patterns.
 
-**Primary Deliverable**: A new **UI Test demo** (`demos/ui_test`) that demonstrates and validates all UI scaffold capabilities including header/footer bars, toggleable sidebars, and all core widget types.
+**Primary Deliverable**: A new `basic_ui` crate that provides HUI-based UI infrastructure, integrated through scaffold, and demonstrated in the **UI Test demo** (`demos/ui_test`).
+
+## Architecture Overview
+
+```
+┌─────────────────┐
+│   basic_ui      │ ← New crate: HUI templates & utilities
+│  (HUI-based)    │
+└────────┬────────┘
+         │
+         ↓
+┌─────────────────┐
+│   scaffold      │ ← Integrates basic_ui via feature flag
+│ (debug_ui flag) │
+└────────┬────────┘
+         │
+         ↓
+┌─────────────────┐
+│   demos/*       │ ← Demos use scaffold with debug_ui feature
+│  (ui_test, etc) │
+└─────────────────┘
+```
 
 ## Philosophy
 
 The UI Scaffold follows Metalrain's **Zero-Code Philosophy**:
 
-- **Lightweight**: Immediate-mode rendering, no complex panel management
+- **Template-based**: Uses Bevy-HUI's HTML-style templates (not immediate-mode)
+- **Declarative**: UI layouts defined in pseudo-HTML syntax
 - **Integrated**: Extends existing Scaffold HUD rather than replacing it
-- **Composable**: Each demo adds only what it needs via simple systems
+- **Composable**: Each demo adds only what it needs via template includes
 - **Minimal**: Text overlays preferred; interactive widgets only where necessary
 - **Non-intrusive**: Works alongside existing keyboard shortcuts (F1, 1-5, arrow keys, etc.)
+- **Hot-reload friendly**: Templates can be edited and reloaded during development
 
 ## Problem Statement
 
@@ -34,72 +57,122 @@ However, some demo scenarios need:
 
 ## Deliverables
 
-### 1. Lightweight UI Integration
+### 1. New `basic_ui` Crate (Core Infrastructure)
 
-- [ ] Add `bevy_immediate` as optional scaffold feature
-- [ ] Create `UiScaffoldPlugin` for immediate-mode rendering
+- [ ] Create `crates/basic_ui` with Bevy-HUI dependency
+- [ ] Define reusable HTML component templates:
+  - [ ] Header bar template (`templates/header.html`)
+  - [ ] Footer bar template (`templates/footer.html`)
+  - [ ] Sidebar templates (`templates/sidebar_left.html`, `templates/sidebar_right.html`)
+  - [ ] Panel container templates with common styling
+  - [ ] Button/control widget templates
+- [ ] Create `BasicUiPlugin` for template registration
+- [ ] Export template loading utilities
+- [ ] Document template customization patterns
+
+### 2. Scaffold Integration (Feature-Gated)
+
+- [ ] Add `bevy_hui` as optional dependency in scaffold (via `basic_ui`)
+- [ ] Create `UiScaffoldPlugin` that wraps `BasicUiPlugin`
 - [ ] Integrate with existing `ScaffoldHudState` toggle (F1 behavior)
 - [ ] Define `ScaffoldUiContext` resource for demo UI state
 - [ ] Add F2 as standard "interactive panel" toggle
+- [ ] Implement F3 help panel template
 
-### 2. Core Widget Helpers
-
-- [ ] Window positioning helpers (relative to window edges)
-- [ ] Button widget (emits events on click)
-- [ ] Checkbox widget (direct state binding)
-- [ ] Radio button group (enum selection)
-- [ ] Slider widget (f32 parameter adjustment)
-- [ ] Label/separator formatting utilities
-- [ ] Header/footer layout components
-- [ ] Sidebar layout components (left/right)
-- [ ] Panel grouping and spacing utilities
-
-### 3. UI Test Demo (NEW)
-
-- [ ] Create `ui_test` demo crate with scaffold integration
-- [ ] Implement header bar (top, persistent)
-- [ ] Implement footer bar (bottom, persistent)
-- [ ] Implement left sidebar (toggleable with Tab)
-- [ ] Implement right sidebar (toggleable with ~)
-- [ ] Demonstrate all widget types (buttons, checkboxes, sliders, radio buttons)
-- [ ] Include widget state visualization
-- [ ] Add color picker and theme selector demonstrations
-- [ ] Integrate with demo_launcher
-- [ ] Add `run_ui_test` export and DEMO_NAME constant
-
-### 4. Demo Integration Examples (Existing Demos)
-
-- [ ] **Physics Playground**: Spawn mode toolbar + physics sliders (example only)
-- [ ] **Metaballs Test**: Visualization mode selector (example only)
-- [ ] **Compositor Test**: Layer visibility checkboxes (example only)
-
-### 5. Keyboard Binding Registry
+### 3. Keyboard Binding Registry (Scaffold)
 
 - [ ] Central `ScaffoldKeyBindings` resource documenting reserved keys
 - [ ] Conflict detection for demo-added bindings
-- [ ] Runtime binding display (help panel via F3)
+- [ ] Help panel template showing all bindings (F3 toggle)
+- [ ] Export binding registration utilities for demos
+
+### 4. UI Test Demo (Validation & Reference)
+
+- [ ] Create `demos/ui_test` crate
+- [ ] Implement custom templates extending `basic_ui`:
+  - [ ] Header bar (demonstrates template customization)
+  - [ ] Footer bar with status display
+  - [ ] Left sidebar (widget demonstrations, toggleable with Tab)
+  - [ ] Right sidebar (state inspector, toggleable with ~)
+  - [ ] Center panel (content area)
+- [ ] Demonstrate template property injection
+- [ ] Include interactive widget examples (buttons, controls)
+- [ ] Integrate with demo_launcher
+- [ ] Add `run_ui_test` export and DEMO_NAME constant
+- [ ] Create comprehensive README with usage patterns
+
+### 5. Documentation & Examples
+
+- [ ] Document `basic_ui` template structure in crate README
+- [ ] Provide template customization guide
+- [ ] Document scaffold integration pattern for new demos
+- [ ] Include example of registering custom HUI functions
+- [ ] Note future integration patterns for existing demos (Physics, Metaballs, Compositor)
 
 ## Technical Specifications
 
-### UI Scaffold Plugin (Feature-Gated)
+### 1. basic_ui Crate Structure
 
-```rust
-// In scaffold/Cargo.toml
+```toml
+# crates/basic_ui/Cargo.toml
+[package]
+name = "basic_ui"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Reusable HUI-based UI templates for Metalrain demos"
+
 [dependencies]
-bevy_immediate = { version = "0.3.0", optional = true }
-
-[features]
-debug_ui = ["bevy_immediate"]
+bevy = { workspace = true }
+bevy_hui = "0.4"  # Compatible with Bevy 0.16
 ```
 
 ```rust
-// In scaffold/src/ui.rs
+// crates/basic_ui/src/lib.rs
 use bevy::prelude::*;
+use bevy_hui::prelude::*;
 
-#[cfg(feature = "debug_ui")]
-use bevy_immediate::prelude::*;
+pub struct BasicUiPlugin;
 
-/// Optional plugin providing immediate-mode UI infrastructure for demos.
+impl Plugin for BasicUiPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(HuiPlugin)
+            .add_systems(Startup, register_templates);
+    }
+}
+
+fn register_templates(
+    asset_server: Res<AssetServer>,
+    mut html_components: ResMut<HtmlComponents>,
+) {
+    // Register reusable component templates
+    html_components.register("ui_header", asset_server.load("ui/templates/header.html"));
+    html_components.register("ui_footer", asset_server.load("ui/templates/footer.html"));
+    html_components.register("ui_sidebar_left", asset_server.load("ui/templates/sidebar_left.html"));
+    html_components.register("ui_sidebar_right", asset_server.load("ui/templates/sidebar_right.html"));
+}
+```
+
+### 2. Scaffold Integration (Feature-Gated)
+
+```toml
+# crates/scaffold/Cargo.toml
+[dependencies]
+bevy = { workspace = true }
+bevy_rapier2d = { workspace = true }
+basic_ui = { path = "../basic_ui", optional = true }
+# ... other dependencies
+
+[features]
+debug_ui = ["basic_ui"]
+```
+
+```rust
+// crates/scaffold/src/ui/plugin.rs
+use bevy::prelude::*;
+use basic_ui::BasicUiPlugin;
+
+/// Optional plugin providing HUI-based UI infrastructure for demos.
 /// Enable with the "debug_ui" feature.
 #[cfg(feature = "debug_ui")]
 pub struct UiScaffoldPlugin;
@@ -107,9 +180,11 @@ pub struct UiScaffoldPlugin;
 #[cfg(feature = "debug_ui")]
 impl Plugin for UiScaffoldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(bevy_immediate::ImmediateModePlugin)
+        app.add_plugins(BasicUiPlugin)
             .init_resource::<ScaffoldUiContext>()
-            .add_systems(Update, toggle_ui_panels);
+            .init_resource::<ScaffoldKeyBindings>()
+            .init_resource::<HelpPanelVisible>()
+            .add_systems(Update, (toggle_ui_panels, toggle_help_panel));
     }
 }
 
@@ -119,8 +194,8 @@ pub struct ScaffoldUiContext {
     /// Whether interactive panels are visible (toggled with F2)
     pub panels_visible: bool,
     
-    /// Demo-specific panel state (demos populate this)
-    pub demo_state: Option<Box<dyn std::any::Any + Send + Sync>>,
+    /// Entity for the help panel UI (F3)
+    pub help_panel_entity: Option<Entity>,
 }
 
 /// Toggle interactive panels with F2 (F1 is scaffold HUD)
@@ -133,55 +208,81 @@ fn toggle_ui_panels(
         info!("Interactive UI panels: {}", ctx.panels_visible);
     }
 }
-```
 
-### Widget Positioning Utilities
-
-```rust
-/// Helpers for positioning UI panels relative to window edges
-pub mod positioning {
-    use bevy::prelude::*;
-
-    pub enum Anchor {
-        TopLeft,
-        TopRight,
-        BottomLeft,
-        BottomRight,
-        Center,
-    }
-
-    pub fn calculate_position(
-        window_size: Vec2,
-        anchor: Anchor,
-        panel_size: Vec2,
-        margin: f32,
-    ) -> [f32; 2] {
-        match anchor {
-            Anchor::TopLeft => [margin, margin],
-            Anchor::TopRight => [window_size.x - panel_size.x - margin, margin],
-            Anchor::BottomLeft => [margin, window_size.y - panel_size.y - margin],
-            Anchor::BottomRight => [
-                window_size.x - panel_size.x - margin,
-                window_size.y - panel_size.y - margin,
-            ],
-            Anchor::Center => [
-                (window_size.x - panel_size.x) * 0.5,
-                (window_size.y - panel_size.y) * 0.5,
-            ],
+/// Toggle help panel with F3
+fn toggle_help_panel(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut help_visible: ResMut<HelpPanelVisible>,
+    mut ctx: ResMut<ScaffoldUiContext>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    if keys.just_pressed(KeyCode::F3) {
+        help_visible.0 = !help_visible.0;
+        
+        if help_visible.0 {
+            // Spawn help panel from basic_ui template
+            let entity = commands.spawn(HtmlNode(asset_server.load("ui/help_panel.html"))).id();
+            ctx.help_panel_entity = Some(entity);
+        } else if let Some(entity) = ctx.help_panel_entity.take() {
+            commands.entity(entity).despawn();
         }
-    }
-
-    /// Position panel below scaffold HUD (top-left, offset by 80px)
-    pub fn below_hud(window_size: Vec2) -> [f32; 2] {
-        [10.0, 80.0]
     }
 }
 ```
 
-### UI Test Demo: Comprehensive UI Pattern Demonstration
+### 3. HUI Template Examples
+
+```html
+<!-- crates/basic_ui/assets/ui/templates/header.html -->
+<template>
+    <property name="title">Demo Title</property>
+    
+    <node 
+        position_type="absolute"
+        top="0px"
+        left="0px"
+        right="0px"
+        height="40px"
+        background="#1a1a1a"
+        border_bottom="2px"
+        border_color="#444444"
+        padding="10px"
+        display="flex"
+        align_items="center"
+    >
+        <text font_size="20" font_color="#ffffff">
+            {title}
+        </text>
+    </node>
+</template>
+```
+
+```html
+<!-- crates/basic_ui/assets/ui/templates/sidebar_left.html -->
+<template>
+    <node 
+        position_type="absolute"
+        left="0px"
+        top="40px"
+        bottom="30px"
+        width="250px"
+        background="#252525"
+        border_right="2px"
+        border_color="#444444"
+        padding="15px"
+        display="flex"
+        flex_direction="column"
+    >
+        <!-- Content injected by extending templates -->
+    </node>
+</template>
+```
+
+### 4. UI Test Demo Implementation
 
 ```rust
-// In demos/ui_test/Cargo.toml
+// demos/ui_test/Cargo.toml
 [package]
 name = "ui_test"
 version = "0.1.0"
@@ -191,274 +292,114 @@ publish = false
 
 [dependencies]
 bevy = { workspace = true }
+bevy_hui = "0.4"
 scaffold = { path = "../../crates/scaffold", features = ["debug_ui"] }
 game_assets = { path = "../../crates/game_assets" }
+```
 
-// In demos/ui_test/src/lib.rs
+```rust
+// demos/ui_test/src/lib.rs
 use bevy::prelude::*;
-use bevy_immediate::prelude::*;
-use scaffold::ui::{ScaffoldUiContext, positioning};
-use scaffold::ScaffoldIntegrationPlugin;
+use bevy_hui::{HuiPlugin, HtmlNode};
+use scaffold::ui::UiScaffoldPlugin;
 
-pub const DEMO_NAME: &str = "ui_test";
+pub const DEMO_NAME: &str = "UI Layout Patterns";
 
-#[derive(Resource, Debug)]
+#[derive(Resource, Default)]
 pub struct UiTestState {
-    pub left_sidebar_visible: bool,
-    pub right_sidebar_visible: bool,
-    pub checkbox_demo: bool,
-    pub slider_value: f32,
-    pub radio_selection: WidgetDemo,
-    pub button_click_count: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WidgetDemo {
-    Buttons,
-    Checkboxes,
-    Sliders,
-    RadioButtons,
-}
-
-impl Default for UiTestState {
-    fn default() -> Self {
-        Self {
-            left_sidebar_visible: true,
-            right_sidebar_visible: true,
-            checkbox_demo: false,
-            slider_value: 50.0,
-            radio_selection: WidgetDemo::Buttons,
-            button_click_count: 0,
-        }
-    }
+    pub panels_visible: bool,
+    // UI entity handles
+    pub header: Option<Entity>,
+    pub footer: Option<Entity>,
+    pub left_sidebar: Option<Entity>,
+    pub right_sidebar: Option<Entity>,
+    pub center_panel: Option<Entity>,
 }
 
 pub fn run_ui_test() {
     App::new()
-        .add_plugins(ScaffoldIntegrationPlugin::with_demo_name(DEMO_NAME))
+        .add_plugins((
+            DefaultPlugins,
+            HuiPlugin,
+            UiScaffoldPlugin,
+        ))
         .init_resource::<UiTestState>()
-        .add_systems(
-            Update,
-            (
-                toggle_sidebars,
-                render_header,
-                render_footer,
-                render_left_sidebar,
-                render_right_sidebar,
-                render_center_panel,
-            ),
-        )
+        .add_systems(Startup, (setup_demo_camera, setup_demo_ui))
+        .add_systems(Update, (toggle_panels, update_panel_visibility))
         .run();
 }
 
-/// Toggle sidebars with Tab (left) and ~ (right)
-fn toggle_sidebars(
+fn setup_demo_camera(mut commands: Commands) {
+    commands.spawn(Camera2d::default());
+}
+
+/// Spawn HUI templates for all UI panels
+fn setup_demo_ui(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut state: ResMut<UiTestState>,
+) {
+    // Load all templates from basic_ui assets
+    state.header = Some(
+        commands.spawn(HtmlNode(asset_server.load("ui/header.html"))).id()
+    );
+    
+    state.footer = Some(
+        commands.spawn(HtmlNode(asset_server.load("ui/footer.html"))).id()
+    );
+    
+    state.left_sidebar = Some(
+        commands.spawn(HtmlNode(asset_server.load("ui/left_sidebar.html"))).id()
+    );
+    
+    state.right_sidebar = Some(
+        commands.spawn(HtmlNode(asset_server.load("ui/right_sidebar.html"))).id()
+    );
+    
+    state.center_panel = Some(
+        commands.spawn(HtmlNode(asset_server.load("ui/center_panel.html"))).id()
+    );
+    
+    info!("UI Test demo initialized with HUI templates");
+}
+
+/// Toggle panels with F2
+fn toggle_panels(
     keys: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<UiTestState>,
 ) {
-    if keys.just_pressed(KeyCode::Tab) {
-        state.left_sidebar_visible = !state.left_sidebar_visible;
-        info!("Left sidebar: {}", state.left_sidebar_visible);
-    }
-    if keys.just_pressed(KeyCode::Backquote) {
-        state.right_sidebar_visible = !state.right_sidebar_visible;
-        info!("Right sidebar: {}", state.right_sidebar_visible);
+    if keys.just_pressed(KeyCode::F2) {
+        state.panels_visible = !state.panels_visible;
+        info!("UI panels: {}", state.panels_visible);
     }
 }
 
-/// Persistent header bar at top
-fn render_header(
-    mut ctx: NonSendMut<ImmediateContext>,
-    scaffold_ctx: Res<ScaffoldUiContext>,
-    windows: Query<&Window>,
-) {
-    if !scaffold_ctx.panels_visible {
-        return;
-    }
-
-    let window = windows.single();
-    let window_size = Vec2::new(window.width(), window.height());
-    
-    ui::Window::new("header")
-        .position([0.0, 0.0])
-        .size([window_size.x, 40.0])
-        .show(&mut ctx, |ui| {
-            ui.label(None, "UI Test Demo - Header Bar");
-            ui.same_line();
-            ui.label(None, "[Tab] Toggle Left | [~] Toggle Right | [F2] Toggle UI");
-        });
-}
-
-/// Persistent footer bar at bottom
-fn render_footer(
-    mut ctx: NonSendMut<ImmediateContext>,
-    scaffold_ctx: Res<ScaffoldUiContext>,
+/// Show/hide UI panels based on state
+fn update_panel_visibility(
     state: Res<UiTestState>,
-    windows: Query<&Window>,
+    mut query: Query<&mut Visibility>,
 ) {
-    if !scaffold_ctx.panels_visible {
-        return;
+    let visibility = if state.panels_visible {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    
+    // Toggle sidebars and center panel only (header/footer stay visible)
+    for entity in [
+        state.left_sidebar,
+        state.right_sidebar,
+        state.center_panel,
+    ].iter().filter_map(|e| *e) {
+        if let Ok(mut vis) = query.get_mut(entity) {
+            *vis = visibility;
+        }
     }
-
-    let window = windows.single();
-    let window_size = Vec2::new(window.width(), window.height());
-    
-    ui::Window::new("footer")
-        .position([0.0, window_size.y - 30.0])
-        .size([window_size.x, 30.0])
-        .show(&mut ctx, |ui| {
-            ui.label(None, format!(
-                "Status: Left={} | Right={} | Checkbox={} | Slider={:.1} | Clicks={}",
-                state.left_sidebar_visible,
-                state.right_sidebar_visible,
-                state.checkbox_demo,
-                state.slider_value,
-                state.button_click_count,
-            ));
-        });
 }
+```
 
-/// Left sidebar - Widget demonstrations
-fn render_left_sidebar(
-    mut ctx: NonSendMut<ImmediateContext>,
-    scaffold_ctx: Res<ScaffoldUiContext>,
-    mut state: ResMut<UiTestState>,
-    windows: Query<&Window>,
-) {
-    if !scaffold_ctx.panels_visible || !state.left_sidebar_visible {
-        return;
-    }
-
-    let window = windows.single();
-    let window_size = Vec2::new(window.width(), window.height());
-    
-    ui::Window::new("left_sidebar")
-        .position([0.0, 40.0])
-        .size([250.0, window_size.y - 70.0])
-        .show(&mut ctx, |ui| {
-            ui.label(None, "Widget Demonstrations");
-            ui.separator();
-            
-            // Button demo
-            if ui.button(None, format!("Click Me! ({})", state.button_click_count)) {
-                state.button_click_count += 1;
-            }
-            
-            ui.separator();
-            
-            // Checkbox demo
-            ui.checkbox(None, "Checkbox Demo", &mut state.checkbox_demo);
-            
-            ui.separator();
-            ui.label(None, "Slider Demo");
-            ui.slider(None, "Value", &mut state.slider_value, 0.0, 100.0);
-            
-            ui.separator();
-            ui.label(None, "Radio Button Demo");
-            
-            if ui.radio_button(None, "Buttons", state.radio_selection == WidgetDemo::Buttons) {
-                state.radio_selection = WidgetDemo::Buttons;
-            }
-            if ui.radio_button(None, "Checkboxes", state.radio_selection == WidgetDemo::Checkboxes) {
-                state.radio_selection = WidgetDemo::Checkboxes;
-            }
-            if ui.radio_button(None, "Sliders", state.radio_selection == WidgetDemo::Sliders) {
-                state.radio_selection = WidgetDemo::Sliders;
-            }
-            if ui.radio_button(None, "Radio Buttons", state.radio_selection == WidgetDemo::RadioButtons) {
-                state.radio_selection = WidgetDemo::RadioButtons;
-            }
-        });
-}
-
-/// Right sidebar - State visualization
-fn render_right_sidebar(
-    mut ctx: NonSendMut<ImmediateContext>,
-    scaffold_ctx: Res<ScaffoldUiContext>,
-    state: Res<UiTestState>,
-    windows: Query<&Window>,
-) {
-    if !scaffold_ctx.panels_visible || !state.right_sidebar_visible {
-        return;
-    }
-
-    let window = windows.single();
-    let window_size = Vec2::new(window.width(), window.height());
-    
-    ui::Window::new("right_sidebar")
-        .position([window_size.x - 250.0, 40.0])
-        .size([250.0, window_size.y - 70.0])
-        .show(&mut ctx, |ui| {
-            ui.label(None, "State Inspector");
-            ui.separator();
-            
-            ui.label(None, format!("Left Sidebar: {}", state.left_sidebar_visible));
-            ui.label(None, format!("Right Sidebar: {}", state.right_sidebar_visible));
-            ui.label(None, format!("Checkbox: {}", state.checkbox_demo));
-            ui.label(None, format!("Slider: {:.2}", state.slider_value));
-            ui.label(None, format!("Radio: {:?}", state.radio_selection));
-            ui.label(None, format!("Button Clicks: {}", state.button_click_count));
-            
-            ui.separator();
-            ui.label(None, "Layout Information");
-            ui.label(None, format!("Window: {:.0}x{:.0}", window_size.x, window_size.y));
-            ui.label(None, format!("Header Height: 40px"));
-            ui.label(None, format!("Footer Height: 30px"));
-            ui.label(None, format!("Sidebar Width: 250px"));
-        });
-}
-
-/// Center panel - Active widget demonstration area
-fn render_center_panel(
-    mut ctx: NonSendMut<ImmediateContext>,
-    scaffold_ctx: Res<ScaffoldUiContext>,
-    state: Res<UiTestState>,
-    windows: Query<&Window>,
-) {
-    if !scaffold_ctx.panels_visible {
-        return;
-    }
-
-    let window = windows.single();
-    let window_size = Vec2::new(window.width(), window.height());
-    
-    let left_offset = if state.left_sidebar_visible { 260.0 } else { 10.0 };
-    let right_offset = if state.right_sidebar_visible { 260.0 } else { 10.0 };
-    let panel_width = window_size.x - left_offset - right_offset;
-    
-    ui::Window::new("center_panel")
-        .position([left_offset, 50.0])
-        .size([panel_width, window_size.y - 90.0])
-        .show(&mut ctx, |ui| {
-            ui.label(None, "Widget Demonstration Area");
-            ui.separator();
-            
-            match state.radio_selection {
-                WidgetDemo::Buttons => {
-                    ui.label(None, "Button Widgets");
-                    ui.label(None, "Buttons emit events on click.");
-                    ui.label(None, "Use for: Actions, mode switching, confirmations");
-                }
-                WidgetDemo::Checkboxes => {
-                    ui.label(None, "Checkbox Widgets");
-                    ui.label(None, "Checkboxes provide direct state binding.");
-                    ui.label(None, "Use for: Boolean toggles, feature flags");
-                }
-                WidgetDemo::Sliders => {
-                    ui.label(None, "Slider Widgets");
-                    ui.label(None, "Sliders provide fine-grained parameter adjustment.");
-                    ui.label(None, "Use for: Numeric parameters, percentages");
-                }
-                WidgetDemo::RadioButtons => {
-                    ui.label(None, "Radio Button Widgets");
-                    ui.label(None, "Radio buttons provide enum selection.");
-                    ui.label(None, "Use for: Mutually exclusive options");
-                }
-            }
-        });
-}
-
-// In demos/ui_test/src/main.rs (for standalone execution)
+```rust
+// demos/ui_test/src/main.rs (standalone entry point)
 fn main() {
     ui_test::run_ui_test();
 }
@@ -489,10 +430,10 @@ These examples show how existing demos *could* integrate the UI scaffold feature
 // Would add layer visibility toggles mirroring keyboard shortcuts
 ```
 
-### Keyboard Binding Registry
+### 5. Keyboard Binding Registry
 
 ```rust
-// In scaffold/src/bindings.rs
+// crates/scaffold/src/ui/bindings.rs
 
 /// Central registry of scaffold keyboard bindings to prevent conflicts
 #[derive(Resource, Debug, Clone)]
@@ -663,62 +604,50 @@ impl ScaffoldKeyBindings {
     }
 }
 
-/// System to display help panel (F3)
-pub fn render_help_panel(
-    mut ctx: NonSendMut<ImmediateContext>,
-    bindings: Res<ScaffoldKeyBindings>,
-    keys: Res<ButtonInput<KeyCode>>,
-    windows: Query<&Window>,
-) {
-    static mut HELP_VISIBLE: bool = false;
-    
-    if keys.just_pressed(KeyCode::F3) {
-        unsafe { HELP_VISIBLE = !HELP_VISIBLE; }
-    }
-    
-    if unsafe { !HELP_VISIBLE } {
-        return;
-    }
+```
 
-    let window = windows.single();
-    let window_size = Vec2::new(window.width(), window.height());
-    let pos = [
-        (window_size.x - 500.0) * 0.5,
-        (window_size.y - 600.0) * 0.5,
-    ];
+### 6. Help Panel Template
 
-    ui::Window::new("help_panel")
-        .position(pos)
-        .size([500.0, 600.0])
-        .show(&mut ctx, |ui| {
-            ui.label(None, "Keyboard Bindings (F3 to close)");
-            ui.separator();
-            
-            for category in [
-                BindingCategory::Scaffold,
-                BindingCategory::Camera,
-                BindingCategory::Layers,
-                BindingCategory::Debug,
-                BindingCategory::Demo,
-            ] {
-                let category_bindings: Vec<_> = bindings.bindings.iter()
-                    .filter(|b| b.category == category)
-                    .collect();
-                
-                if category_bindings.is_empty() {
-                    continue;
-                }
-                
-                ui.label(None, format!("{:?}", category));
-                
-                for binding in category_bindings {
-                    ui.label(None, format!("  {:?}: {}", binding.key, binding.description));
-                }
-                
-                ui.separator();
-            }
-        });
-}
+```html
+<!-- crates/basic_ui/assets/ui/templates/help_panel.html -->
+<template>
+    <node 
+        position_type="absolute"
+        left="50%"
+        top="50%"
+        transform="translate(-50%, -50%)"
+        width="500px"
+        height="600px"
+        background="#1a1a1a"
+        border="2px"
+        border_color="#444444"
+        padding="20px"
+        display="flex"
+        flex_direction="column"
+    >
+        <text font_size="24" font_color="#ffffff">
+            Keyboard Bindings (F3 to close)
+        </text>
+        
+        <node height="2px" background="#444444" margin_top="10px" margin_bottom="10px"></node>
+        
+        <!-- Scaffold bindings section -->
+        <text font_size="18" font_color="#aaaaaa">Scaffold</text>
+        <text font_size="14" font_color="#cccccc">  F1: Toggle HUD</text>
+        <text font_size="14" font_color="#cccccc">  F2: Toggle UI Panels</text>
+        <text font_size="14" font_color="#cccccc">  F3: Show Help</text>
+        
+        <node height="1px" background="#333333" margin_top="8px" margin_bottom="8px"></node>
+        
+        <!-- Camera bindings section -->
+        <text font_size="18" font_color="#aaaaaa">Camera</text>
+        <text font_size="14" font_color="#cccccc">  -/=: Zoom</text>
+        <text font_size="14" font_color="#cccccc">  Space: Shake</text>
+        <text font_size="14" font_color="#cccccc">  R: Reset</text>
+        
+        <!-- Additional sections... -->
+    </node>
+</template>
 ```
 
 ## Integration Checklist
@@ -795,29 +724,33 @@ pub fn render_help_panel(
 ### DO
 
 ✅ Start with text overlays (extend scaffold HUD)  
-✅ Use immediate-mode UI only for actual interaction  
-✅ Position panels consistently (use `positioning` helpers)  
-✅ Check `scaffold_ctx.panels_visible` before rendering  
+✅ Use HUI templates for declarative layouts  
+✅ Position panels consistently using absolute positioning with named anchors  
+✅ Toggle panel visibility via `Visibility` component (respecting `panels_visible`)  
 ✅ Mirror keyboard shortcuts in UI for discoverability  
 ✅ Use F2 toggle (don't override F1)  
 ✅ Register demo keys with `ScaffoldKeyBindings`  
+✅ Store UI entity handles in demo state resource  
+✅ Use property injection for dynamic content updates (future enhancement)  
 
 ### DON'T
 
 ❌ Override scaffold's F1/1-5/arrow key bindings  
-❌ Create complex panel state management (it's immediate-mode!)  
-❌ Hardcode positions in pixels (calculate from window size)  
+❌ Spawn UI templates every frame (spawn once in Startup, toggle visibility)  
+❌ Hardcode positions in pixels (use percentages, flex layouts, or relative units)  
 ❌ Store UI state in multiple places (one resource per demo)  
 ❌ Add UI for things that work fine as keyboard shortcuts  
 ❌ Introduce dependencies on higher-level game crates  
+❌ Create complex interactive widgets in first iteration (keep it simple)  
 
 ## Performance Considerations
 
-- Immediate-mode UI has negligible overhead (~0.1ms per frame)
-- Only render panels when `panels_visible` is true (F2 toggled on)
-- Avoid complex calculations inside UI rendering (pre-compute in systems)
-- Use resource changes for reactivity, not per-frame polling
+- HUI templates have minimal overhead (~0.05ms per frame for 5 panels)
+- Spawning templates once in Startup avoids per-frame allocations
+- Visibility toggling is nearly free (component flag flip)
+- Property injection (future) enables reactive updates without full respawn
 - Panel count per demo should stay under 5 for visual clarity
+- Template loading happens asynchronously during asset loading phase
 
 ## Success Criteria
 
@@ -843,30 +776,50 @@ pub fn render_help_panel(
 
 ## Definition of Done
 
-### Core UI Scaffold Infrastructure
+### 1. basic_ui Crate (New Crate - Foundation)
 
-- [ ] `UiScaffoldPlugin` feature-gated in scaffold crate
-- [ ] `ScaffoldUiContext` resource with F2 toggle
-- [ ] `positioning` helpers for window-relative layout (including header/footer/sidebar utilities)
-- [ ] `ScaffoldKeyBindings` registry with conflict detection
-- [ ] F3 help panel showing all bindings by category
-- [ ] Scaffold README updated with UI integration guide
-- [ ] No conflicts with existing scaffold bindings
+- [ ] `crates/basic_ui/` crate created with proper structure
+- [ ] `basic_ui/Cargo.toml` with bevy_hui 0.4 dependency
+- [ ] `HuiPlugin` integrated in basic_ui plugin
+- [ ] Five HUI templates created in `basic_ui/assets/ui/`:
+  - [ ] `header.html` - Top bar (40px height, dark theme)
+  - [ ] `footer.html` - Bottom status bar (30px height)
+  - [ ] `left_sidebar.html` - Left panel (250px width)
+  - [ ] `right_sidebar.html` - Right panel (250px width)
+  - [ ] `center_panel.html` - Main content area (responsive)
+- [ ] `help_panel.html` template for F3 help display
+- [ ] `BasicUiPlugin` exports HUI functionality
+- [ ] Templates use absolute positioning with flexbox where appropriate
+- [ ] Property injection points documented in templates (for future use)
 
-### UI Test Demo (Primary Deliverable)
+### 2. Scaffold Integration (Feature-Gated)
+
+- [ ] `scaffold/Cargo.toml` updated with `basic_ui` optional dependency
+- [ ] `debug_ui` feature flag properly gates basic_ui
+- [ ] `UiScaffoldPlugin` integrates `BasicUiPlugin`
+- [ ] `ScaffoldUiContext` resource tracks panel visibility and help panel entity
+- [ ] F2 toggle system for `panels_visible` flag
+- [ ] F3 toggle system spawns/despawns help panel HtmlNode
+- [ ] `ScaffoldKeyBindings` registry with 23 predefined bindings
+- [ ] Conflict detection logic for key binding registration
+- [ ] `scaffold/src/ui/` module structure properly organized
+- [ ] Scaffold README updated with HUI integration guide
+- [ ] No conflicts with existing scaffold bindings (F1/1-5/arrows reserved)
+
+### 3. UI Test Demo (Primary Deliverable)
 
 - [ ] `demos/ui_test/` crate created with proper structure
 - [ ] `DEMO_NAME` constant and `run_ui_test()` function exported
-- [ ] Header bar component implemented and functional
-- [ ] Footer bar component implemented and functional
-- [ ] Left sidebar component implemented (toggleable with Tab)
-- [ ] Right sidebar component implemented (toggleable with ~)
-- [ ] Center panel component implemented with responsive layout
-- [ ] Button widget demonstrations working
-- [ ] Checkbox widget demonstrations working
-- [ ] Slider widget demonstrations working
-- [ ] Radio button widget demonstrations working
-- [ ] State visualization in right sidebar updating correctly
+- [ ] Five HTML templates copied to `demos/ui_test/assets/ui/`:
+  - [ ] `header.html` loaded and spawned
+  - [ ] `footer.html` loaded and spawned
+  - [ ] `left_sidebar.html` loaded and spawned
+  - [ ] `right_sidebar.html` loaded and spawned
+  - [ ] `center_panel.html` loaded and spawned
+- [ ] `UiTestState` resource tracks entity handles for all panels
+- [ ] F2 toggle system updates panel visibility (sidebars + center panel)
+- [ ] Header and footer remain visible (persistent)
+- [ ] Templates demonstrate HUI layout capabilities (no interactive widgets needed)
 - [ ] Demo added to `demo_launcher` dependencies
 - [ ] Demo added to `demo_launcher` DEMOS array
 - [ ] Workspace `Cargo.toml` updated with `ui_test` member
@@ -875,110 +828,152 @@ pub fn render_help_panel(
 - [ ] Demo tested via launcher: `cargo run -p demo_launcher ui_test`
 - [ ] WASM build tested and verified working
 
+### 4. Documentation & Testing
+
+- [ ] Scaffold README updated with HUI integration patterns
+- [ ] Template customization guide documented
+- [ ] Best practices section reflects HUI approach (not immediate-mode)
+- [ ] Reserved keyboard shortcuts documented (F1/F2/F3/1-5/arrows)
+- [ ] All keyboard shortcuts tested and working
+- [ ] WASM compatibility verified with `pwsh scripts/wasm-dev.ps1`
+- [ ] Build passes: `cargo build --all`
+- [ ] No new clippy warnings introduced
+
 ## Implementation Phases
 
-### Phase 1: Foundation (2 hours)
+### Phase 1: basic_ui Crate Foundation (3 hours)
 
-- Add `bevy_immediate` dependency (feature-gated)
-- Create `UiScaffoldPlugin` with F2 toggle
-- Add `ScaffoldUiContext` resource
-- Create `positioning` module with helpers (including header/footer/sidebar positioning)
+- Create `crates/basic_ui/` directory structure
+- Add `basic_ui/Cargo.toml` with bevy_hui dependency
+- Implement `BasicUiPlugin` integrating `HuiPlugin`
+- Create five HTML templates in `assets/ui/templates/`:
+  - `header.html` - Top bar with title injection point
+  - `footer.html` - Bottom status bar with property injection
+  - `left_sidebar.html` - Left panel with flexbox layout
+  - `right_sidebar.html` - Right panel with state display
+  - `center_panel.html` - Main responsive content area
+- Create `help_panel.html` template for F3 display
+- Document template structure and customization points
 
-### Phase 2: Bindings System (1 hour)
+### Phase 2: Scaffold Integration (2 hours)
 
-- Implement `ScaffoldKeyBindings` resource
-- Add conflict detection
-- Create F3 help panel system
-- Document all existing scaffold keys
+- Add `basic_ui` optional dependency to scaffold
+- Create `debug_ui` feature flag
+- Implement `UiScaffoldPlugin` with `BasicUiPlugin` integration
+- Add `ScaffoldUiContext` resource (panels_visible, help_panel_entity)
+- Implement F2 toggle system for `panels_visible`
+- Implement F3 toggle system (spawn/despawn help HtmlNode)
+- Add `ScaffoldKeyBindings` resource with 23 bindings
+- Implement conflict detection for key registration
 
-### Phase 3: UI Test Demo Creation (4 hours)
+### Phase 3: UI Test Demo Creation (3 hours)
 
 - Create `demos/ui_test/` directory structure
-- Set up `Cargo.toml` with dependencies
-- Implement `lib.rs` with core demo logic:
-  - `UiTestState` resource
-  - Header rendering system
-  - Footer rendering system
-  - Left sidebar system (toggleable with Tab)
-  - Right sidebar system (toggleable with ~)
-  - Center panel system
-  - Widget demonstration systems
-- Create `main.rs` for standalone execution
+- Set up `Cargo.toml` with bevy_hui and scaffold dependencies
+- Copy HTML templates from basic_ui to `demos/ui_test/assets/ui/`
+- Implement `lib.rs`:
+  - `UiTestState` resource with entity handles
+  - `setup_demo_ui` system spawning five HtmlNodes
+  - `toggle_panels` system for F2 handling
+  - `update_panel_visibility` system toggling Visibility component
+- Create `main.rs` standalone entry point
 - Create `README.md` with usage instructions
 
 ### Phase 4: Demo Launcher Integration (1 hour)
 
-- Add `ui_test` to workspace `Cargo.toml`
-- Add `ui_test` dependency to `demo_launcher`
+- Add `ui_test` to workspace `Cargo.toml` members
+- Add `ui_test` dependency to `demo_launcher/Cargo.toml`
 - Import `run_ui_test` and `DEMO_NAME` in launcher
-- Add demo entry to DEMOS array
+- Add demo entry to DEMOS array with description
 - Test via launcher interface
 
-### Phase 5: Testing & Documentation (2 hours)
+### Phase 5: Testing & Documentation (1 hour)
 
 - Test standalone: `cargo run -p ui_test`
 - Test via launcher: `cargo run -p demo_launcher ui_test`
 - Test WASM build with `pwsh scripts/wasm-dev.ps1`
-- Update scaffold README with UI integration guide
-- Document best practices and patterns
+- Update scaffold README with HUI integration guide
+- Document template-based patterns (not immediate-mode)
 - Verify all keyboard shortcuts work correctly
+- Run full workspace build: `cargo build --all`
+- Check for clippy warnings: `cargo clippy --all`
 
 **Total Estimated Time**: 10 hours
 
 ## Future Enhancements (Out of Scope)
 
-- **Preset System**: Save/load UI parameter configurations
-- **Theme Support**: Customizable panel colors/fonts
-- **Layout Persistence**: Remember panel positions between runs
-- **Drag-and-Drop**: Reposition panels at runtime
-- **Graph Widgets**: Real-time performance visualization
+### Template System Extensions
+
+- **Property Injection System**: Dynamic content updates via property bindings
+- **Custom HUI Functions**: Register Rust functions callable from templates
+- **Template Inheritance**: Base templates with extending child templates
+- **Component Templates**: Reusable UI component library
+- **Conditional Rendering**: Show/hide template sections based on state
+
+### Interactive Widgets (HUI v0.5+)
+
+- **Button Handlers**: Click event routing to Bevy systems
+- **Text Input Fields**: Editable text with validation
+- **Slider Widgets**: Interactive parameter adjustment
+- **Checkbox/Radio**: Toggle and selection widgets
+- **Dropdown Menus**: Dynamic option lists
+
+### Advanced Features
+
+- **Theme Support**: CSS-style theme files with color schemes
+- **Layout Persistence**: Save panel positions to config file
+- **Preset System**: Named UI configurations (save/load)
+- **Graph Widgets**: Real-time performance charts
 - **Command Palette**: Quick action search (Ctrl+P)
-- **Color Picker Widget**: Interactive HSV/RGB color selection
-- **Text Input Widget**: Editable text fields for numeric/string parameters
-- **Existing Demo Integrations**: Physics Playground, Metaballs Test, Compositor Test (defer to future sprint)
 - **Multi-Window Support**: Detachable panels
+
+### Demo Integrations (Future Sprint)
+
+- **Physics Playground**: Spawn mode selector, physics parameter controls
+- **Metaballs Test**: Visualization mode selector, compute settings
+- **Compositor Test**: Layer visibility toggles, blend mode controls
+- **Architecture Test**: ECS inspection, system ordering visualization
 
 ## UI Test Demo README Template
 
 ```markdown
 # UI Test Demo
 
-Comprehensive demonstration of the UI Scaffold system showcasing layout patterns and widget types.
+Comprehensive demonstration of the UI Scaffold system showcasing HUI template-based layout patterns.
 
 ## Purpose
 
-This demo validates the UI Scaffold infrastructure and serves as a reference implementation for:
+This demo validates the UI Scaffold infrastructure using Bevy-HUI templates and serves as a reference implementation for:
 
 - **Header/Footer patterns**: Persistent bars at top and bottom
-- **Sidebar patterns**: Toggleable left/right panels
+- **Sidebar patterns**: Toggleable left/right panels  
 - **Responsive layouts**: Center content adapts to sidebar visibility
-- **Widget demonstrations**: All core UI widget types
-- **State management**: Real-time state visualization
+- **Template-based UI**: Declarative HTML-style UI definitions
+- **Visibility management**: ECS-based show/hide patterns
 
 ## Features
 
 ### Layout Components
 
-- **Header Bar**: Persistent information bar at top
-- **Footer Bar**: Status display at bottom
-- **Left Sidebar**: Widget demonstrations (toggle with Tab)
-- **Right Sidebar**: State inspector (toggle with ~)
-- **Center Panel**: Context-sensitive demonstration area
+- **Header Bar**: Persistent title bar at top (40px height)
+- **Footer Bar**: Status display at bottom (30px height)
+- **Left Sidebar**: Widget demonstrations placeholder (250px width, F2 to toggle)
+- **Right Sidebar**: State inspector placeholder (250px width, F2 to toggle)
+- **Center Panel**: Main content area explaining HUI features
 
-### Widget Demonstrations
+### Template System
 
-- **Buttons**: Click counter demonstration
-- **Checkboxes**: Boolean toggle demonstration
-- **Sliders**: Continuous value adjustment (0-100)
-- **Radio Buttons**: Mutually exclusive selection among widget types
+- **HTML Templates**: All UI defined in `.html` files under `assets/ui/`
+- **Absolute Positioning**: Panels use CSS-like absolute positioning
+- **Flexbox Layouts**: Internal panel layouts use flexbox (column/row)
+- **Property Injection**: Placeholders for dynamic content (future enhancement)
+- **Hot Reload**: Templates can be edited and reloaded during development
 
 ### Keyboard Controls
 
 - `F1`: Toggle scaffold HUD (performance stats)
-- `F2`: Toggle all UI panels
+- `F2`: Toggle UI sidebars and center panel
 - `F3`: Show help/key bindings
-- `Tab`: Toggle left sidebar
-- `~` (Backquote): Toggle right sidebar
 - `Esc`: Exit demo
 
 ## Running
@@ -999,83 +994,121 @@ cargo run -p demo_launcher ui_test
 
 ```powershell
 pwsh scripts/wasm-dev.ps1
-# Then select ui_test from launcher
+# Then select "UI Layout Patterns" from launcher
 ```
 
 ## Architecture
 
 This demo uses:
 
-- **Scaffold Integration**: `ScaffoldIntegrationPlugin` for baseline functionality
-- **Immediate-Mode UI**: `bevy_immediate` for stateless widget rendering
-- **Resource-Based State**: Single `UiTestState` resource for all demo state
-- **System-Based Rendering**: Each layout component has its own render system
+- **Scaffold Integration**: `UiScaffoldPlugin` for F2/F3 toggle functionality
+- **Bevy-HUI**: Template-based declarative UI system
+- **Resource-Based State**: `UiTestState` tracks entity handles for all panels
+- **Visibility Component**: Standard Bevy `Visibility` for show/hide
 
 ## Integration Pattern
 
-The UI Test demo demonstrates the recommended pattern for adding debug UI to demos:
+The UI Test demo demonstrates the recommended pattern for adding HUI UI to demos:
 
-1. **Feature-gate**: Add `scaffold = { features = ["debug_ui"] }` to Cargo.toml
-2. **State Resource**: Create single resource for demo UI state
-3. **Render Systems**: One system per layout component
-4. **Visibility Check**: Respect `ScaffoldUiContext::panels_visible` (F2 toggle)
-5. **Positioning**: Use `positioning` helpers for consistent layout
-6. **Keyboard Bindings**: Register custom bindings with `ScaffoldKeyBindings`
+1. **Add Dependencies**: `bevy_hui = "0.4"` and `scaffold = { features = ["debug_ui"] }`
+2. **Add HuiPlugin**: Include in app plugin list
+3. **Create Templates**: Define UI in HTML files under `assets/ui/`
+4. **Spawn Once**: Load `HtmlNode` components in Startup system
+5. **Store Handles**: Track entity IDs in demo state resource
+6. **Toggle Visibility**: Update `Visibility` component based on F2 state
+7. **Register Bindings**: Add custom keys to `ScaffoldKeyBindings`
 
 ## Best Practices Demonstrated
 
-✅ Immediate-mode rendering (no complex state management)
-✅ Responsive layout (adapts to sidebar visibility)
-✅ Consistent positioning (uses scaffold positioning helpers)
-✅ Performance-conscious (only renders when panels visible)
-✅ Keyboard-friendly (all controls accessible via keyboard)
+✅ Template-based declarative UI (no per-frame rendering logic)
+✅ Spawn once in Startup (no runtime allocations)
+✅ Visibility toggling (efficient component flag flip)
+✅ Entity handle tracking (proper ECS resource management)
+✅ Keyboard-friendly (all controls accessible via F2)
 ✅ WASM-compatible (no platform-specific dependencies)
 
 ## Future Enhancements
 
-- Color picker widget demonstration
-- Text input widget demonstration
-- Graph/plot widget demonstration
-- Drag-and-drop panel repositioning
-- Theme selector demonstration
-
-```markdown
+- Property injection for dynamic content updates
+- Interactive widget event handlers (buttons, sliders)
+- Custom HUI function registration from Rust
+- Template inheritance and component library
+- Theme system with color customization
 
 ## Notes
 
-This subsprint creates the **minimal viable UI infrastructure** for demos without introducing complexity that violates the Zero-Code Philosophy. The focus is on:
+This subsprint creates the **basic_ui crate** and **minimal viable UI infrastructure** using Bevy-HUI templates without introducing complexity that violates the Zero-Code Philosophy. The focus is on:
 
-1. **Extending** (not replacing) existing scaffold patterns
-2. **Composing** UI from simple, stateless widgets
-3. **Integrating** with keyboard shortcuts for discoverability
-4. **Maintaining** WASM compatibility and performance
-5. **Demonstrating** layout patterns through the UI Test demo
+1. **Separating Concerns**: basic_ui crate provides reusable template foundation
+2. **Template-Based**: Declarative HTML-style UI definitions (not immediate-mode)
+3. **Integrating**: Scaffold provides F2/F3 toggle functionality via optional feature
+4. **Maintaining**: WASM compatibility and minimal performance overhead
+5. **Demonstrating**: ui_test demo shows layout patterns and visibility management
 
-The result is a lightweight, optional layer that demos can adopt as needed without coupling to complex UI framework state machines. The **UI Test demo** serves as both validation and reference implementation.
+The result is a lightweight, optional layer with proper crate separation:
+
+- **basic_ui**: Reusable HUI template infrastructure
+- **scaffold**: Integrates basic_ui via `debug_ui` feature, adds F2/F3 toggles
+- **demos**: Use scaffold with `debug_ui` feature to access UI templates
+
+The **UI Test demo** serves as both validation and reference implementation.
 
 ## Quick Start Implementation Guide
 
-### Step 1: Scaffold Infrastructure
+### Step 1: Create basic_ui Crate
 
 ```bash
-# Add bevy_immediate to scaffold/Cargo.toml under [features]
-debug_ui = ["bevy_immediate"]
+# Create directory structure
+mkdir -p crates/basic_ui/src
+mkdir -p crates/basic_ui/assets/ui/templates
+
+# Create files:
+# - crates/basic_ui/Cargo.toml (with bevy_hui = "0.4")
+# - crates/basic_ui/src/lib.rs (BasicUiPlugin)
+# - crates/basic_ui/assets/ui/templates/*.html (five templates + help_panel)
 ```
 
-### Step 2: Create UI Test Demo
+### Step 2: Scaffold Integration
+
+```toml
+# In crates/scaffold/Cargo.toml
+[dependencies]
+basic_ui = { path = "../basic_ui", optional = true }
+
+[features]
+debug_ui = ["basic_ui"]
+```
+
+```rust
+// In crates/scaffold/src/ui/plugin.rs
+use basic_ui::BasicUiPlugin;
+
+#[cfg(feature = "debug_ui")]
+impl Plugin for UiScaffoldPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(BasicUiPlugin)
+            .init_resource::<ScaffoldUiContext>()
+            // ... F2/F3 toggle systems
+    }
+}
+```
+
+### Step 3: Create UI Test Demo
 
 ```bash
 # Create directory structure
 mkdir -p demos/ui_test/src
+mkdir -p demos/ui_test/assets/ui
 
+# Copy templates from basic_ui to demos/ui_test/assets/ui/
 # Create files:
 # - demos/ui_test/Cargo.toml
-# - demos/ui_test/src/lib.rs (with run_ui_test, DEMO_NAME, and all UI systems)
-# - demos/ui_test/src/main.rs (calls run_ui_test)
+# - demos/ui_test/src/lib.rs (with HtmlNode spawning)
+# - demos/ui_test/src/main.rs
 # - demos/ui_test/README.md
 ```
 
-### Step 3: Integrate with Launcher
+### Step 4: Integrate with Launcher
 
 ```toml
 # In demos/demo_launcher/Cargo.toml
@@ -1090,20 +1123,22 @@ use ui_test::{run_ui_test, DEMO_NAME as UI_TEST_DEMO};
 DemoEntry {
     name: UI_TEST_DEMO,
     run: run_ui_test,
-    description: "UI layout patterns and widget demonstrations",
+    description: "UI layout patterns with Bevy-HUI",
 },
 ```
 
-### Step 4: Update Workspace
+### Step 5: Update Workspace & Test
 
 ```toml
 # In workspace Cargo.toml [workspace.members]
+"crates/basic_ui",
 "demos/ui_test",
 ```
 
-### Step 5: Test
-
 ```bash
+# Build all
+cargo build --all
+
 # Standalone
 cargo run -p ui_test
 
