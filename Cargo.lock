@@ -746,6 +746,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_hui"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f3165f26eaccf6a0cdc2c18000271cee4339e6604bc84379d1d514d972aba99"
+dependencies = [
+ "bevy",
+ "nom",
+ "owo-colors",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "bevy_image"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3680,6 +3692,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "owo-colors"
+version = "4.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4832,6 +4850,15 @@ name = "typewit"
 version = "1.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8c1ae7cc0fdb8b842d65d127cb981574b0d2b249b74d1c7a2986863dc134f71"
+
+[[package]]
+name = "ui_demo"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_hui",
+ "rand",
+]
 
 [[package]]
 name = "unicode-bidi"

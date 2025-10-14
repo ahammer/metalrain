@@ -1133,7 +1133,7 @@ By completing this POC, we should know:
 
 Based on the POC findings, we can decide:
 
-### If HUI is suitable:
+### If HUI is suitable
 
 1. **Integration Strategy**: Determine how to integrate with scaffold/existing demos
 2. **Crate Organization**: Decide if we need a shared `ui_common` crate or demo-specific UI
@@ -1142,7 +1142,7 @@ Based on the POC findings, we can decide:
 5. **Performance Optimization**: Profile and optimize any bottlenecks
 6. **Documentation**: Write comprehensive guides for adding UI to demos
 
-### If HUI has limitations:
+### If HUI has limitations
 
 1. **Alternative Evaluation**: Explore `bevy_egui` or `kayak_ui`
 2. **Custom Solution**: Consider building minimal immediate-mode UI layer
@@ -1251,9 +1251,11 @@ python -m http.server 8000
 ### Template System
 
 **Pros:**
+
 - [List positives]
 
 **Cons:**
+
 - [List limitations]
 
 ### Overall Recommendation
@@ -1273,11 +1275,13 @@ python -m http.server 8000
 ## Next Steps
 
 If HUI proves suitable:
+
 1. Define integration strategy with scaffold
 2. Create shared UI component library
 3. Add UI to existing demos (physics_playground, compositor_test, metaballs_test)
 
 If HUI has limitations:
+
 1. Evaluate alternatives (bevy_egui, kayak_ui)
 2. Consider hybrid approach
 3. Document specific blockers
@@ -1285,4 +1289,5 @@ If HUI has limitations:
 ---
 
 *This is a proof of concept—not production code.*
+
 ```

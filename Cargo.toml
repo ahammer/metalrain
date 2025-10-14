@@ -30,6 +30,8 @@ members = [
     "demos/input_demo",
     # New standardized assets demonstration demo
     "demos/asset_test",
+    # UI Demo POC exploring Bevy-HUI (UI Scaffold Sprint)
+    "demos/ui_demo",
 ]
 exclude = [
     "external/bevy"
