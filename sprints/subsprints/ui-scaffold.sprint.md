@@ -1,155 +1,280 @@
-# UI Scaffold Subsprint: Reusable Debug UI for Demos
+# UI Demo POC: Bevy-HUI Interface Exploration
+
+> **🎯 Sprint Direction Change**: This document has been updated to focus on a standalone POC demo using Bevy-HUI directly, rather than integrating UI into core crates. The goal is to explore HUI's capabilities before committing to an architecture decision.
 
 ## Sprint Goal
 
-Create a lightweight, composable template-based UI layer using **Bevy-HUI** that provides interactive debug controls for demos without introducing complex state management or conflicting with existing scaffold patterns.
+Create a **proof-of-concept demo** using **Bevy-HUI** directly to explore UI patterns and demonstrate interactive controls with a mock compositor interface. This is a standalone demo that does NOT integrate with core crates—it's purely exploratory.
 
-**Primary Deliverable**: A new `basic_ui` crate that provides HUI-based UI infrastructure, integrated through scaffold, and demonstrated in the **UI Test demo** (`demos/ui_test`).
+**Primary Deliverable**: A new `demos/ui_demo` that showcases Bevy-HUI capabilities with buttons, controls, and a mock compositor interface inspired by `compositor_test`.
 
 ## Architecture Overview
 
 ```
-┌─────────────────┐
-│   basic_ui      │ ← New crate: HUI templates & utilities
-│  (HUI-based)    │
-└────────┬────────┘
-         │
-         ↓
-┌─────────────────┐
-│   scaffold      │ ← Integrates basic_ui via feature flag
-│ (debug_ui flag) │
-└────────┬────────┘
-         │
-         ↓
-┌─────────────────┐
-│   demos/*       │ ← Demos use scaffold with debug_ui feature
-│  (ui_test, etc) │
-└─────────────────┘
+┌─────────────────────────┐
+│   demos/ui_demo         │ ← Standalone POC demo
+│   (Bevy-HUI direct)     │
+│                         │
+│  • No scaffold          │
+│  • No core crate deps   │
+│  • Pure exploration     │
+└─────────────────────────┘
 ```
+
+**Key Principle**: This demo is intentionally isolated. It does NOT integrate with scaffold, game_rendering, or any other crates. It's a sandbox for exploring Bevy-HUI's capabilities.
 
 ## Philosophy
 
-The UI Scaffold follows Metalrain's **Zero-Code Philosophy**:
+This POC explores Bevy-HUI as a potential UI solution:
 
 - **Template-based**: Uses Bevy-HUI's HTML-style templates (not immediate-mode)
 - **Declarative**: UI layouts defined in pseudo-HTML syntax
-- **Integrated**: Extends existing Scaffold HUD rather than replacing it
-- **Composable**: Each demo adds only what it needs via template includes
-- **Minimal**: Text overlays preferred; interactive widgets only where necessary
-- **Non-intrusive**: Works alongside existing keyboard shortcuts (F1, 1-5, arrow keys, etc.)
-- **Hot-reload friendly**: Templates can be edited and reloaded during development
+- **Exploratory**: Test all supported widgets (buttons, checkboxes, sliders, etc.)
+- **Mock Interface**: Simulate compositor controls without real functionality
+- **Standalone**: No dependencies on existing crate architecture
+- **Learning Tool**: Understand HUI's capabilities and limitations before deciding on integration strategy
 
 ## Problem Statement
 
-Currently, demos use:
+Before integrating UI into the existing architecture, we need to:
 
-1. **Text overlays** via Scaffold's performance HUD (good for stats display)
-2. **Keyboard shortcuts** for toggling features (good for binary controls)
-3. **Arrow keys** for parameter adjustment (limited precision)
+1. **Understand Bevy-HUI**: What widgets are supported? How do they work?
+2. **Test Interaction**: Can we handle button clicks, slider changes, checkboxes?
+3. **Evaluate Performance**: What's the overhead? Is it WASM-compatible?
+4. **Design Patterns**: What layout patterns work well for our use cases?
 
-However, some demo scenarios need:
+This POC answers these questions with a **mock compositor interface** that demonstrates:
 
-- **Mode switching** that's more discoverable than keyboard shortcuts
-- **Fine-grained parameter tuning** beyond arrow key increments
-- **Multi-option selection** (radio buttons for visualization modes)
-- **Real-time value inspection** with interactive adjustment
-- **Contextual controls** that appear/hide based on demo phase
+- **Layer visibility toggles** (mirroring compositor_test's 1-5 keys)
+- **Effect controls** (burst force, wall pulse parameters)
+- **Rendering mode selection** (metaball visualization modes)
+- **Real-time parameter adjustment** (sliders for timing, strength, distance)
+- **Status display** (FPS, entity count, active effects)
 
 ## Deliverables
 
-### 1. New `basic_ui` Crate (Core Infrastructure)
+### 1. UI Demo Crate (`demos/ui_demo`)
 
-- [ ] Create `crates/basic_ui` with Bevy-HUI dependency
-- [ ] Define reusable HTML component templates:
-  - [ ] Header bar template (`templates/header.html`)
-  - [ ] Footer bar template (`templates/footer.html`)
-  - [ ] Sidebar templates (`templates/sidebar_left.html`, `templates/sidebar_right.html`)
-  - [ ] Panel container templates with common styling
-  - [ ] Button/control widget templates
-- [ ] Create `BasicUiPlugin` for template registration
-- [ ] Export template loading utilities
-- [ ] Document template customization patterns
+- [ ] Create `demos/ui_demo` with Bevy-HUI dependency
+- [ ] Implement mock compositor state resource
+- [ ] Create HUI templates for all UI panels:
+  - [ ] Control panel (left sidebar with layer toggles, effect controls)
+  - [ ] Status panel (top bar with FPS, entity count, active effects)
+  - [ ] Parameter panel (right sidebar with sliders for timing/strength)
+  - [ ] Info panel (center overlay with help text)
+- [ ] Implement visual simulation (colored balls bouncing in viewport)
+- [ ] Wire up all interactive controls (buttons, checkboxes, sliders)
+- [ ] Add keyboard shortcuts for quick testing (1-5 for layers, Space for effects)
 
-### 2. Scaffold Integration (Feature-Gated)
+### 2. Widget Demonstrations
 
-- [ ] Add `bevy_hui` as optional dependency in scaffold (via `basic_ui`)
-- [ ] Create `UiScaffoldPlugin` that wraps `BasicUiPlugin`
-- [ ] Integrate with existing `ScaffoldHudState` toggle (F1 behavior)
-- [ ] Define `ScaffoldUiContext` resource for demo UI state
-- [ ] Add F2 as standard "interactive panel" toggle
-- [ ] Implement F3 help panel template
+- [ ] **Buttons**: Trigger burst force, reset simulation
+- [ ] **Checkboxes**: Layer visibility toggles (Background, GameWorld, Metaballs, Effects, UI)
+- [ ] **Radio Buttons**: Metaball visualization mode (Normal, Distance Field, Normals, Raw Compute)
+- [ ] **Sliders**: Effect parameters (burst interval, strength, wall pulse timing)
+- [ ] **Text Display**: Real-time status updates (FPS counter, ball count, active effects)
+- [ ] **Dropdown** (if supported): Preset configurations
 
-### 3. Keyboard Binding Registry (Scaffold)
+### 3. Mock Compositor Interface
 
-- [ ] Central `ScaffoldKeyBindings` resource documenting reserved keys
-- [ ] Conflict detection for demo-added bindings
-- [ ] Help panel template showing all bindings (F3 toggle)
-- [ ] Export binding registration utilities for demos
+Inspired by `compositor_test`, simulate these controls:
 
-### 4. UI Test Demo (Validation & Reference)
+- [ ] **Layer Visibility**: 5 checkboxes matching compositor layers
+- [ ] **Burst Force**: Button + parameter sliders (interval, duration, radius, strength)
+- [ ] **Wall Pulse**: Button + parameter sliders (interval, duration, distance, strength)
+- [ ] **Visualization Mode**: Radio buttons for different rendering modes
+- [ ] **Simulation Controls**: Play/Pause, Reset, Spawn More Balls
+- [ ] **Stats Display**: Frame time, ball count, physics tick rate
 
-- [ ] Create `demos/ui_test` crate
-- [ ] Implement custom templates extending `basic_ui`:
-  - [ ] Header bar (demonstrates template customization)
-  - [ ] Footer bar with status display
-  - [ ] Left sidebar (widget demonstrations, toggleable with Tab)
-  - [ ] Right sidebar (state inspector, toggleable with ~)
-  - [ ] Center panel (content area)
-- [ ] Demonstrate template property injection
-- [ ] Include interactive widget examples (buttons, controls)
-- [ ] Integrate with demo_launcher
-- [ ] Add `run_ui_test` export and DEMO_NAME constant
-- [ ] Create comprehensive README with usage patterns
+### 4. Documentation & Findings
 
-### 5. Documentation & Examples
-
-- [ ] Document `basic_ui` template structure in crate README
-- [ ] Provide template customization guide
-- [ ] Document scaffold integration pattern for new demos
-- [ ] Include example of registering custom HUI functions
-- [ ] Note future integration patterns for existing demos (Physics, Metaballs, Compositor)
+- [ ] Create comprehensive README explaining POC purpose
+- [ ] Document which HUI features work well
+- [ ] Note any limitations or issues discovered
+- [ ] Include screenshots of UI layout
+- [ ] Provide recommendations for future integration strategy
 
 ## Technical Specifications
 
-### 1. basic_ui Crate Structure
+### 1. UI Demo Structure
 
 ```toml
-# crates/basic_ui/Cargo.toml
+# demos/ui_demo/Cargo.toml
 [package]
-name = "basic_ui"
+name = "ui_demo"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0"
-description = "Reusable HUI-based UI templates for Metalrain demos"
+publish = false
+description = "POC demo exploring Bevy-HUI with mock compositor interface"
 
 [dependencies]
 bevy = { workspace = true }
 bevy_hui = "0.4"  # Compatible with Bevy 0.16
+rand = "0.8"
 ```
 
 ```rust
-// crates/basic_ui/src/lib.rs
+// demos/ui_demo/src/lib.rs
 use bevy::prelude::*;
 use bevy_hui::prelude::*;
 
-pub struct BasicUiPlugin;
+pub const DEMO_NAME: &str = "UI Demo (Bevy-HUI POC)";
 
-impl Plugin for BasicUiPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(HuiPlugin)
-            .add_systems(Startup, register_templates);
+/// Mock compositor state simulating compositor_test functionality
+#[derive(Resource, Debug)]
+pub struct MockCompositorState {
+    // Layer visibility
+    pub layer_background: bool,
+    pub layer_game_world: bool,
+    pub layer_metaballs: bool,
+    pub layer_effects: bool,
+    pub layer_ui: bool,
+    
+    // Effect parameters
+    pub burst_interval: f32,
+    pub burst_duration: f32,
+    pub burst_radius: f32,
+    pub burst_strength: f32,
+    
+    pub wall_pulse_interval: f32,
+    pub wall_pulse_duration: f32,
+    pub wall_pulse_distance: f32,
+    pub wall_pulse_strength: f32,
+    
+    // Visualization mode
+    pub viz_mode: VizMode,
+    
+    // Simulation state
+    pub paused: bool,
+    pub ball_count: usize,
+    pub fps: f32,
+    pub active_burst: bool,
+    pub active_wall_pulse: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VizMode {
+    Normal,
+    DistanceField,
+    Normals,
+    RawCompute,
+}
+
+impl Default for MockCompositorState {
+    fn default() -> Self {
+        Self {
+            layer_background: true,
+            layer_game_world: true,
+            layer_metaballs: true,
+            layer_effects: true,
+            layer_ui: true,
+            
+            burst_interval: 3.0,
+            burst_duration: 0.6,
+            burst_radius: 110.0,
+            burst_strength: 1400.0,
+            
+            wall_pulse_interval: 10.0,
+            wall_pulse_duration: 0.8,
+            wall_pulse_distance: 120.0,
+            wall_pulse_strength: 2200.0,
+            
+            viz_mode: VizMode::Normal,
+            paused: false,
+            ball_count: 400,
+            fps: 60.0,
+            active_burst: false,
+            active_wall_pulse: false,
+        }
     }
 }
 
-fn register_templates(
+pub fn run_ui_demo() {
+    App::new()
+        .add_plugins((
+            DefaultPlugins,
+            HuiPlugin,
+        ))
+        .init_resource::<MockCompositorState>()
+        .add_systems(Startup, (setup_camera, setup_ui, spawn_visual_simulation))
+        .add_systems(Update, (
+            handle_keyboard_shortcuts,
+            handle_ui_interactions,
+            update_ui_displays,
+            update_visual_simulation,
+            update_fps_counter,
+        ))
+        .run();
+}
+
+fn setup_camera(mut commands: Commands) {
+    commands.spawn(Camera2d::default());
+}
+
+fn setup_ui(
+    mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut html_components: ResMut<HtmlComponents>,
 ) {
-    // Register reusable component templates
-    html_components.register("ui_header", asset_server.load("ui/templates/header.html"));
-    html_components.register("ui_footer", asset_server.load("ui/templates/footer.html"));
-    html_components.register("ui_sidebar_left", asset_server.load("ui/templates/sidebar_left.html"));
-    html_components.register("ui_sidebar_right", asset_server.load("ui/templates/sidebar_right.html"));
+    // Spawn all HUI templates
+    commands.spawn((
+        HtmlNode(asset_server.load("ui/control_panel.html")),
+        Name::new("ControlPanel"),
+    ));
+    
+    commands.spawn((
+        HtmlNode(asset_server.load("ui/status_bar.html")),
+        Name::new("StatusBar"),
+    ));
+    
+    commands.spawn((
+        HtmlNode(asset_server.load("ui/parameter_panel.html")),
+        Name::new("ParameterPanel"),
+    ));
+}
+
+fn spawn_visual_simulation(mut commands: Commands) {
+    // Spawn colored circles to represent balls
+    // This is just visual - no physics, just bouncing sprites
+}
+
+fn handle_keyboard_shortcuts(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut state: ResMut<MockCompositorState>,
+) {
+    // 1-5 for layer toggles
+    if keys.just_pressed(KeyCode::Digit1) {
+        state.layer_background = !state.layer_background;
+    }
+    // ... etc
+}
+
+fn handle_ui_interactions(
+    // Query for HUI interaction events
+    // Update MockCompositorState based on button clicks, slider changes, etc.
+) {
+    // This will be fleshed out based on HUI's event system
+}
+
+fn update_ui_displays(
+    state: Res<MockCompositorState>,
+    // Query for HUI text/display elements
+) {
+    // Update FPS counter, ball count, active effect indicators
+}
+
+fn update_visual_simulation(
+    state: Res<MockCompositorState>,
+    // Query for visual simulation entities
+) {
+    // Animate the colored circles based on simulated effects
+}
+
+fn update_fps_counter(
+    time: Res<Time>,
+    mut state: ResMut<MockCompositorState>,
+) {
+    state.fps = 1.0 / time.delta_secs();
 }
 ```
 
@@ -231,50 +356,154 @@ fn toggle_help_panel(
 }
 ```
 
-### 3. HUI Template Examples
+### 2. HUI Template Examples
 
 ```html
-<!-- crates/basic_ui/assets/ui/templates/header.html -->
+<!-- demos/ui_demo/assets/ui/control_panel.html -->
 <template>
-    <property name="title">Demo Title</property>
-    
     <node 
         position_type="absolute"
-        top="0px"
-        left="0px"
-        right="0px"
+        left="10px"
+        top="60px"
+        width="280px"
+        background="#1a1a1add"
+        border="2px solid #444"
+        padding="15px"
+        display="flex"
+        flex_direction="column"
+        gap="12px"
+    >
+        <text font_size="18" color="#fff" font_weight="bold">
+            Layer Visibility
+        </text>
+        
+        <checkbox id="layer_background" checked="true">
+            Background
+        </checkbox>
+        
+        <checkbox id="layer_game_world" checked="true">
+            Game World
+        </checkbox>
+        
+        <checkbox id="layer_metaballs" checked="true">
+            Metaballs
+        </checkbox>
+        
+        <checkbox id="layer_effects" checked="true">
+            Effects
+        </checkbox>
+        
+        <checkbox id="layer_ui" checked="true">
+            UI
+        </checkbox>
+        
+        <divider height="2px" background="#444" margin="8px 0" />
+        
+        <text font_size="18" color="#fff" font_weight="bold">
+            Effect Controls
+        </text>
+        
+        <button id="trigger_burst">
+            Trigger Burst Force
+        </button>
+        
+        <button id="trigger_wall_pulse">
+            Trigger Wall Pulse
+        </button>
+        
+        <button id="reset_simulation">
+            Reset Simulation
+        </button>
+    </node>
+</template>
+```
+
+```html
+<!-- demos/ui_demo/assets/ui/status_bar.html -->
+<template>
+    <node 
+        position_type="absolute"
+        top="10px"
+        left="10px"
+        right="10px"
         height="40px"
-        background="#1a1a1a"
-        border_bottom="2px"
-        border_color="#444444"
-        padding="10px"
+        background="#1a1a1add"
+        border="2px solid #444"
+        padding="8px 15px"
         display="flex"
         align_items="center"
+        justify_content="space-between"
     >
-        <text font_size="20" font_color="#ffffff">
-            {title}
+        <text font_size="16" color="#fff">
+            UI Demo - Bevy-HUI POC
+        </text>
+        
+        <text id="fps_counter" font_size="14" color="#0f0">
+            FPS: 60
+        </text>
+        
+        <text id="ball_counter" font_size="14" color="#aaa">
+            Balls: 400
+        </text>
+        
+        <text id="active_effects" font_size="14" color="#f80">
+            <!-- Dynamically updated with active effects -->
         </text>
     </node>
 </template>
 ```
 
 ```html
-<!-- crates/basic_ui/assets/ui/templates/sidebar_left.html -->
+<!-- demos/ui_demo/assets/ui/parameter_panel.html -->
 <template>
     <node 
         position_type="absolute"
-        left="0px"
-        top="40px"
-        bottom="30px"
-        width="250px"
-        background="#252525"
-        border_right="2px"
-        border_color="#444444"
+        right="10px"
+        top="60px"
+        width="300px"
+        background="#1a1a1add"
+        border="2px solid #444"
         padding="15px"
         display="flex"
         flex_direction="column"
+        gap="15px"
     >
-        <!-- Content injected by extending templates -->
+        <text font_size="18" color="#fff" font_weight="bold">
+            Burst Force Parameters
+        </text>
+        
+        <label>
+            Interval: <span id="burst_interval_value">3.0s</span>
+        </label>
+        <slider id="burst_interval" min="1.0" max="10.0" value="3.0" step="0.1" />
+        
+        <label>
+            Duration: <span id="burst_duration_value">0.6s</span>
+        </label>
+        <slider id="burst_duration" min="0.1" max="2.0" value="0.6" step="0.1" />
+        
+        <label>
+            Radius: <span id="burst_radius_value">110</span>
+        </label>
+        <slider id="burst_radius" min="50" max="300" value="110" step="10" />
+        
+        <label>
+            Strength: <span id="burst_strength_value">1400</span>
+        </label>
+        <slider id="burst_strength" min="500" max="5000" value="1400" step="100" />
+        
+        <divider height="2px" background="#444" margin="8px 0" />
+        
+        <text font_size="18" color="#fff" font_weight="bold">
+            Visualization Mode
+        </text>
+        
+        <radio-group id="viz_mode">
+            <radio value="normal" checked="true">Normal</radio>
+            <radio value="distance">Distance Field</radio>
+            <radio value="normals">Normals</radio>
+            <radio value="raw">Raw Compute</radio>
+        </radio-group>
     </node>
 </template>
 ```
@@ -650,505 +879,410 @@ impl ScaffoldKeyBindings {
 </template>
 ```
 
-## Integration Checklist
+## Implementation Checklist
 
-### For the UI Test Demo (Primary Deliverable)
+### Phase 1: Project Setup
 
-- [ ] Create `demos/ui_test/` directory structure
-- [ ] Add `demos/ui_test/Cargo.toml` with proper dependencies
-- [ ] Create `demos/ui_test/src/lib.rs` with `run_ui_test()` and `DEMO_NAME`
-- [ ] Create `demos/ui_test/src/main.rs` for standalone execution
-- [ ] Implement header bar (persistent, top)
-- [ ] Implement footer bar (persistent, bottom)
-- [ ] Implement left sidebar (toggleable with Tab)
-- [ ] Implement right sidebar (toggleable with ~)
-- [ ] Add all widget demonstrations (buttons, checkboxes, sliders, radio buttons)
-- [ ] Add state visualization in right sidebar
-- [ ] Add demo to `demo_launcher` dependencies
-- [ ] Add demo to `demo_launcher` DEMOS array
-- [ ] Update workspace `Cargo.toml` to include `ui_test` member
-- [ ] Create `demos/ui_test/README.md` with usage instructions
-- [ ] Test standalone: `cargo run -p ui_test`
-- [ ] Test via launcher: `cargo run -p demo_launcher ui_test`
-- [ ] Verify WASM compatibility with `pwsh scripts/wasm-dev.ps1`
+- [ ] Create `demos/ui_demo/` directory structure
+- [ ] Add `demos/ui_demo/Cargo.toml` with bevy_hui dependency
+- [ ] Create `demos/ui_demo/src/lib.rs` with `run_ui_demo()` and `DEMO_NAME`
+- [ ] Create `demos/ui_demo/src/main.rs` for standalone execution
+- [ ] Define `MockCompositorState` resource with all parameters
+- [ ] Add `demos/ui_demo/assets/ui/` directory for templates
 
-### For Future Demo Integrations (Optional Reference)
+### Phase 2: HUI Template Creation
 
-- [ ] Add `scaffold = { features = ["debug_ui"] }` to demo's `Cargo.toml`
-- [ ] Add `UiScaffoldPlugin` to app (if using interactive panels)
-- [ ] Create demo-specific UI state resource
-- [ ] Add render system using `ImmediateContext` in `Update`
-- [ ] Check `ScaffoldUiContext::panels_visible` before rendering
-- [ ] Position panels to avoid obscuring gameplay
-- [ ] Use `positioning` helpers for consistent layout
-- [ ] Register demo-specific key bindings with `ScaffoldKeyBindings`
-- [ ] Document controls in demo's README
-- [ ] Test panel toggle (F2) and help display (F3)
-- [ ] Verify WASM compatibility
+- [ ] Create `control_panel.html` (left sidebar with checkboxes + buttons)
+- [ ] Create `status_bar.html` (top bar with FPS/stats display)
+- [ ] Create `parameter_panel.html` (right sidebar with sliders + radio buttons)
+- [ ] Create `info_panel.html` (optional center overlay with help text)
+- [ ] Test template loading and rendering
 
-## Reserved Keyboard Shortcuts
+### Phase 3: Visual Simulation
 
-**Scaffold Core** (DO NOT override):
+- [ ] Implement `spawn_visual_simulation` system (spawn colored circles)
+- [ ] Implement `update_visual_simulation` system (simple bouncing physics)
+- [ ] Add visual effects for burst force (radial push from center)
+- [ ] Add visual effects for wall pulse (inward push from edges)
+- [ ] Layer visibility handling (show/hide based on checkboxes)
 
-- `F1`: Toggle scaffold HUD (stats/diagnostics)
-- `F2`: Toggle interactive UI panels (debug_ui feature)
-- `F3`: Show help/key bindings
-- `1-5`: Layer toggles (Background, GameWorld, Metaballs, Effects, UI)
-- `[`/`]`: Exposure adjustment
-- `-`/`=`: Camera zoom
-- `Space`: Camera shake
-- `R`: Reset camera/physics
-- `P`: Pause physics
-- `Arrow keys`: Gravity adjustment
-- `B`: Background mode cycle
-- `M`: Metaball mode cycle
-- `Esc`: Exit
+### Phase 4: UI Interaction Wiring
 
-**UI Test Demo Specific**:
+- [ ] Wire up layer visibility checkboxes (1-5 keys + UI)
+- [ ] Wire up burst force button and parameters
+- [ ] Wire up wall pulse button and parameters
+- [ ] Wire up visualization mode radio buttons
+- [ ] Wire up simulation controls (pause, reset, spawn more)
+- [ ] Update status bar displays (FPS counter, ball count, active effects)
 
-- `Tab`: Toggle left sidebar
-- `~` (Backquote): Toggle right sidebar
-- `F2`: Toggle all UI panels (inherited from scaffold)
+### Phase 5: Testing & Documentation
 
-**Available for Other Demos**:
+- [ ] Test standalone: `cargo run -p ui_demo`
+- [ ] Test all interactive controls (buttons, checkboxes, sliders, radios)
+- [ ] Verify keyboard shortcuts work (1-5, Space, P, R)
+- [ ] Test WASM build with `pwsh scripts/wasm-dev.ps1`
+- [ ] Create comprehensive README with findings
+- [ ] Document which HUI features worked well
+- [ ] Note any limitations or issues
+- [ ] Include screenshots of UI layout
+- [ ] Provide recommendations for potential integration
 
-- `F4-F12`: Demo-specific features
-- `Q`/`E`: Demo-specific cycles
-- `T`/`Y`/`U`/`I`/`O`: Parameter adjustments
-- `A`/`S`/`D`/`F`/`G`: Actions
-- `Z`/`X`/`C`/`V`: Additional controls
-- `Mouse`: Spawn/select/interact
+## Keyboard Shortcuts (UI Demo Specific)
 
-## Best Practices
+Since this is a standalone POC, we can define custom shortcuts without worrying about scaffold conflicts:
 
-### DO
+**Layer Toggles**:
 
-✅ Start with text overlays (extend scaffold HUD)  
-✅ Use HUI templates for declarative layouts  
-✅ Position panels consistently using absolute positioning with named anchors  
-✅ Toggle panel visibility via `Visibility` component (respecting `panels_visible`)  
-✅ Mirror keyboard shortcuts in UI for discoverability  
-✅ Use F2 toggle (don't override F1)  
-✅ Register demo keys with `ScaffoldKeyBindings`  
-✅ Store UI entity handles in demo state resource  
-✅ Use property injection for dynamic content updates (future enhancement)  
+- `1`: Toggle Background layer visibility
+- `2`: Toggle GameWorld layer visibility
+- `3`: Toggle Metaballs layer visibility
+- `4`: Toggle Effects layer visibility
+- `5`: Toggle UI layer visibility
 
-### DON'T
+**Effect Triggers**:
 
-❌ Override scaffold's F1/1-5/arrow key bindings  
-❌ Spawn UI templates every frame (spawn once in Startup, toggle visibility)  
-❌ Hardcode positions in pixels (use percentages, flex layouts, or relative units)  
-❌ Store UI state in multiple places (one resource per demo)  
-❌ Add UI for things that work fine as keyboard shortcuts  
-❌ Introduce dependencies on higher-level game crates  
-❌ Create complex interactive widgets in first iteration (keep it simple)  
+- `Space`: Trigger burst force manually
+- `W`: Trigger wall pulse manually
 
-## Performance Considerations
+**Simulation Controls**:
 
-- HUI templates have minimal overhead (~0.05ms per frame for 5 panels)
-- Spawning templates once in Startup avoids per-frame allocations
-- Visibility toggling is nearly free (component flag flip)
-- Property injection (future) enables reactive updates without full respawn
-- Panel count per demo should stay under 5 for visual clarity
-- Template loading happens asynchronously during asset loading phase
+- `P`: Pause/Resume simulation
+- `R`: Reset simulation (respawn balls)
+- `+`/`=`: Spawn more balls
+- `-`: Remove balls
 
-## Success Criteria
+**Visualization**:
 
-✅ UI scaffold integrates seamlessly with existing scaffold infrastructure  
-✅ F1 continues to toggle scaffold HUD as expected  
-✅ F2 toggles interactive panels independently  
-✅ F3 displays comprehensive help with all bindings  
-✅ No conflicts with existing keyboard shortcuts  
-✅ Demos can add panels without modifying scaffold core  
-✅ WASM compatibility maintained  
-✅ Performance impact < 0.5ms per frame  
-✅ **UI Test demo fully functional and integrated:**
+- `V`: Cycle visualization mode
+- `F1`: Toggle UI panels visibility
+- `Esc`: Exit demo
 
-- ✅ Header bar displays at top (persistent)
-- ✅ Footer bar displays at bottom (persistent)
-- ✅ Left sidebar toggles with Tab
-- ✅ Right sidebar toggles with ~
-- ✅ All widgets demonstrate correctly (buttons, checkboxes, sliders, radio buttons)
-- ✅ State visualization updates in real-time
-- ✅ Accessible via demo_launcher
-- ✅ Works standalone (`cargo run -p ui_test`)
-- ✅ WASM build successful  
+## Exploration Goals
+
+### Questions to Answer
+
+This POC should help us understand:
+
+✅ **Widget Support**: Which HUI widgets are available and functional? (buttons, checkboxes, sliders, radio buttons, dropdowns)  
+✅ **Event Handling**: How do we wire up interactions? Is it ergonomic? Are there callbacks or polling?  
+✅ **Template Syntax**: Is the HTML-like syntax expressive enough? Can we nest templates?  
+✅ **Performance**: What's the frame time impact? Is it acceptable for game UIs?  
+✅ **Hot Reload**: Can we edit templates and see changes without recompiling?  
+✅ **WASM Compatibility**: Does it work in browser? Any special considerations?  
+✅ **Layout Flexibility**: Can we achieve the layouts we need (sidebars, overlays, responsive)?  
+✅ **State Binding**: How do we update UI displays based on game state?  
+
+### Success Criteria
+
+This POC is successful if:
+
+✅ All widgets render correctly and are interactive  
+✅ We can wire up state changes from UI to game logic  
+✅ We can update UI displays based on changing state  
+✅ Performance overhead is reasonable (<1ms per frame)  
+✅ Templates are easy to author and modify  
+✅ WASM build works without issues  
+✅ We have a clear recommendation on whether to adopt HUI  
+
+## Expected Learning Outcomes
+
+By completing this POC, we should know:
+
+📊 **Performance Profile**: Exact frame time overhead of HUI system  
+🎨 **Layout Capabilities**: Whether we can achieve desired UI layouts  
+🔧 **Integration Complexity**: How much code is needed to wire up interactions  
+🐛 **Limitations & Issues**: Any showstoppers or deal-breakers  
+📱 **WASM Viability**: Whether it's production-ready for web deployment  
+🎯 **Recommendation**: Clear go/no-go decision on adopting HUI for demos  
 
 ## Definition of Done
 
-### 1. basic_ui Crate (New Crate - Foundation)
+### 1. Demo Structure & Setup
 
-- [ ] `crates/basic_ui/` crate created with proper structure
-- [ ] `basic_ui/Cargo.toml` with bevy_hui 0.4 dependency
-- [ ] `HuiPlugin` integrated in basic_ui plugin
-- [ ] Five HUI templates created in `basic_ui/assets/ui/`:
-  - [ ] `header.html` - Top bar (40px height, dark theme)
-  - [ ] `footer.html` - Bottom status bar (30px height)
-  - [ ] `left_sidebar.html` - Left panel (250px width)
-  - [ ] `right_sidebar.html` - Right panel (250px width)
-  - [ ] `center_panel.html` - Main content area (responsive)
-- [ ] `help_panel.html` template for F3 help display
-- [ ] `BasicUiPlugin` exports HUI functionality
-- [ ] Templates use absolute positioning with flexbox where appropriate
-- [ ] Property injection points documented in templates (for future use)
+- [ ] `demos/ui_demo/` crate created with proper structure
+- [ ] `demos/ui_demo/Cargo.toml` with bevy_hui 0.4 dependency
+- [ ] `DEMO_NAME` constant and `run_ui_demo()` function exported
+- [ ] `src/main.rs` standalone entry point works
+- [ ] `MockCompositorState` resource defined with all parameters
+- [ ] Visual simulation module created (bouncing balls)
 
-### 2. Scaffold Integration (Feature-Gated)
+### 2. HUI Templates Created
 
-- [ ] `scaffold/Cargo.toml` updated with `basic_ui` optional dependency
-- [ ] `debug_ui` feature flag properly gates basic_ui
-- [ ] `UiScaffoldPlugin` integrates `BasicUiPlugin`
-- [ ] `ScaffoldUiContext` resource tracks panel visibility and help panel entity
-- [ ] F2 toggle system for `panels_visible` flag
-- [ ] F3 toggle system spawns/despawns help panel HtmlNode
-- [ ] `ScaffoldKeyBindings` registry with 23 predefined bindings
-- [ ] Conflict detection logic for key binding registration
-- [ ] `scaffold/src/ui/` module structure properly organized
-- [ ] Scaffold README updated with HUI integration guide
-- [ ] No conflicts with existing scaffold bindings (F1/1-5/arrows reserved)
+- [ ] `control_panel.html` - Left sidebar with layer checkboxes + effect buttons
+- [ ] `status_bar.html` - Top bar with FPS, ball count, active effects
+- [ ] `parameter_panel.html` - Right sidebar with sliders + radio buttons for viz mode
+- [ ] All templates use proper HUI syntax and render correctly
+- [ ] Templates use absolute positioning for consistent layout
 
-### 3. UI Test Demo (Primary Deliverable)
+### 3. Visual Simulation Functional
 
-- [ ] `demos/ui_test/` crate created with proper structure
-- [ ] `DEMO_NAME` constant and `run_ui_test()` function exported
-- [ ] Five HTML templates copied to `demos/ui_test/assets/ui/`:
-  - [ ] `header.html` loaded and spawned
-  - [ ] `footer.html` loaded and spawned
-  - [ ] `left_sidebar.html` loaded and spawned
-  - [ ] `right_sidebar.html` loaded and spawned
-  - [ ] `center_panel.html` loaded and spawned
-- [ ] `UiTestState` resource tracks entity handles for all panels
-- [ ] F2 toggle system updates panel visibility (sidebars + center panel)
-- [ ] Header and footer remain visible (persistent)
-- [ ] Templates demonstrate HUI layout capabilities (no interactive widgets needed)
-- [ ] Demo added to `demo_launcher` dependencies
-- [ ] Demo added to `demo_launcher` DEMOS array
-- [ ] Workspace `Cargo.toml` updated with `ui_test` member
-- [ ] `demos/ui_test/README.md` created with usage instructions
-- [ ] Demo tested standalone: `cargo run -p ui_test`
-- [ ] Demo tested via launcher: `cargo run -p demo_launcher ui_test`
-- [ ] WASM build tested and verified working
+- [ ] 400 colored balls spawn and bounce around viewport
+- [ ] Simple physics (no Rapier needed - just bouncing)
+- [ ] Burst force effect visualized (radial outward push)
+- [ ] Wall pulse effect visualized (inward push from edges)
+- [ ] Layer visibility respected (balls hide when GameWorld layer off)
+- [ ] Pause/resume works correctly
+- [ ] Reset respawns balls
 
-### 4. Documentation & Testing
+### 4. UI Interactions Wired Up
 
-- [ ] Scaffold README updated with HUI integration patterns
-- [ ] Template customization guide documented
-- [ ] Best practices section reflects HUI approach (not immediate-mode)
-- [ ] Reserved keyboard shortcuts documented (F1/F2/F3/1-5/arrows)
-- [ ] All keyboard shortcuts tested and working
-- [ ] WASM compatibility verified with `pwsh scripts/wasm-dev.ps1`
-- [ ] Build passes: `cargo build --all`
-- [ ] No new clippy warnings introduced
+- [ ] Layer visibility checkboxes control which layers render
+- [ ] Burst force button triggers visual effect
+- [ ] Wall pulse button triggers visual effect
+- [ ] Burst parameter sliders update state correctly
+- [ ] Wall pulse parameter sliders update state correctly
+- [ ] Visualization mode radio buttons work
+- [ ] FPS counter updates in real-time
+- [ ] Ball count display updates when balls spawn/despawn
+- [ ] Active effects indicator shows current effects
+
+### 5. Keyboard Shortcuts Functional
+
+- [ ] Keys 1-5 toggle layer visibility (mirror checkbox state)
+- [ ] Space triggers burst force
+- [ ] W triggers wall pulse
+- [ ] P pauses/resumes simulation
+- [ ] R resets simulation
+- [ ] +/- adds/removes balls
+- [ ] V cycles visualization mode
+- [ ] F1 toggles UI visibility
+- [ ] Esc exits demo
+
+### 6. Documentation & Findings
+
+- [ ] Comprehensive README created explaining POC purpose
+- [ ] Widget support matrix documented (which widgets work, how well)
+- [ ] Event handling approach documented (polling vs callbacks)
+- [ ] Template syntax observations noted
+- [ ] Performance measurements recorded (frame times with/without UI)
+- [ ] Hot reload experience documented
+- [ ] WASM compatibility verified
+- [ ] Limitations and issues clearly listed
+- [ ] Screenshots included showing UI layout
+- [ ] Clear recommendation provided (adopt HUI or explore alternatives)
+
+### 7. Testing & Validation
+
+- [ ] Demo tested standalone: `cargo run -p ui_demo`
+- [ ] All interactive controls tested and working
+- [ ] Visual simulation behaves correctly
+- [ ] WASM build successful: `pwsh scripts/wasm-dev.ps1`
+- [ ] No clippy warnings introduced
+- [ ] Performance acceptable (<1ms UI overhead)
 
 ## Implementation Phases
 
-### Phase 1: basic_ui Crate Foundation (3 hours)
+### Phase 1: Project Setup & Basic Structure (1.5 hours)
 
-- Create `crates/basic_ui/` directory structure
-- Add `basic_ui/Cargo.toml` with bevy_hui dependency
-- Implement `BasicUiPlugin` integrating `HuiPlugin`
-- Create five HTML templates in `assets/ui/templates/`:
-  - `header.html` - Top bar with title injection point
-  - `footer.html` - Bottom status bar with property injection
-  - `left_sidebar.html` - Left panel with flexbox layout
-  - `right_sidebar.html` - Right panel with state display
-  - `center_panel.html` - Main responsive content area
-- Create `help_panel.html` template for F3 display
-- Document template structure and customization points
+- Create `demos/ui_demo/` directory structure
+- Set up `Cargo.toml` with bevy_hui 0.4 dependency
+- Create `lib.rs` with `MockCompositorState` resource
+- Create `main.rs` entry point
+- Add camera setup system
+- Verify basic app runs
 
-### Phase 2: Scaffold Integration (2 hours)
+### Phase 2: HUI Template Creation (2 hours)
 
-- Add `basic_ui` optional dependency to scaffold
-- Create `debug_ui` feature flag
-- Implement `UiScaffoldPlugin` with `BasicUiPlugin` integration
-- Add `ScaffoldUiContext` resource (panels_visible, help_panel_entity)
-- Implement F2 toggle system for `panels_visible`
-- Implement F3 toggle system (spawn/despawn help HtmlNode)
-- Add `ScaffoldKeyBindings` resource with 23 bindings
-- Implement conflict detection for key registration
+- Create `assets/ui/` directory structure
+- Write `control_panel.html` with checkboxes and buttons
+- Write `status_bar.html` with text displays
+- Write `parameter_panel.html` with sliders and radio buttons
+- Test template loading and rendering
+- Iterate on layout and styling
 
-### Phase 3: UI Test Demo Creation (3 hours)
+### Phase 3: Visual Simulation (2 hours)
 
-- Create `demos/ui_test/` directory structure
-- Set up `Cargo.toml` with bevy_hui and scaffold dependencies
-- Copy HTML templates from basic_ui to `demos/ui_test/assets/ui/`
-- Implement `lib.rs`:
-  - `UiTestState` resource with entity handles
-  - `setup_demo_ui` system spawning five HtmlNodes
-  - `toggle_panels` system for F2 handling
-  - `update_panel_visibility` system toggling Visibility component
-- Create `main.rs` standalone entry point
-- Create `README.md` with usage instructions
+- Implement ball spawning system (400 colored circles)
+- Implement simple bouncing physics (no Rapier)
+- Add burst force visual effect (radial push)
+- Add wall pulse visual effect (inward push from edges)
+- Test simulation runs smoothly
 
-### Phase 4: Demo Launcher Integration (1 hour)
+### Phase 4: UI Interaction Wiring (3 hours)
 
-- Add `ui_test` to workspace `Cargo.toml` members
-- Add `ui_test` dependency to `demo_launcher/Cargo.toml`
-- Import `run_ui_test` and `DEMO_NAME` in launcher
-- Add demo entry to DEMOS array with description
-- Test via launcher interface
+- Research HUI's event handling system (callbacks vs polling)
+- Wire up layer visibility checkboxes
+- Wire up effect trigger buttons
+- Wire up parameter sliders (with value display updates)
+- Wire up visualization mode radio buttons
+- Wire up keyboard shortcuts (1-5, Space, W, P, R, V, F1, Esc)
+- Test all interactions work correctly
 
-### Phase 5: Testing & Documentation (1 hour)
+### Phase 5: State Display Updates (1 hour)
 
-- Test standalone: `cargo run -p ui_test`
-- Test via launcher: `cargo run -p demo_launcher ui_test`
-- Test WASM build with `pwsh scripts/wasm-dev.ps1`
-- Update scaffold README with HUI integration guide
-- Document template-based patterns (not immediate-mode)
-- Verify all keyboard shortcuts work correctly
-- Run full workspace build: `cargo build --all`
-- Check for clippy warnings: `cargo clippy --all`
+- Implement FPS counter update system
+- Implement ball count display updates
+- Implement active effects indicator
+- Add visual feedback when effects are active
+- Polish UI responsiveness
 
-**Total Estimated Time**: 10 hours
+### Phase 6: Testing, Documentation & Findings (1.5 hours)
 
-## Future Enhancements (Out of Scope)
+- Test all features thoroughly
+- Test WASM build and browser compatibility
+- Measure performance (frame times with/without UI)
+- Write comprehensive README with findings
+- Document widget support matrix
+- Note any issues or limitations discovered
+- Provide clear recommendations for adoption
+- Include screenshots of UI
 
-### Template System Extensions
+**Total Estimated Time**: 11 hours
 
-- **Property Injection System**: Dynamic content updates via property bindings
-- **Custom HUI Functions**: Register Rust functions callable from templates
-- **Template Inheritance**: Base templates with extending child templates
-- **Component Templates**: Reusable UI component library
-- **Conditional Rendering**: Show/hide template sections based on state
+## Next Steps (After POC)
 
-### Interactive Widgets (HUI v0.5+)
+Based on the POC findings, we can decide:
 
-- **Button Handlers**: Click event routing to Bevy systems
-- **Text Input Fields**: Editable text with validation
-- **Slider Widgets**: Interactive parameter adjustment
-- **Checkbox/Radio**: Toggle and selection widgets
-- **Dropdown Menus**: Dynamic option lists
+### If HUI is suitable:
 
-### Advanced Features
+1. **Integration Strategy**: Determine how to integrate with scaffold/existing demos
+2. **Crate Organization**: Decide if we need a shared `ui_common` crate or demo-specific UI
+3. **Widget Library**: Build reusable component templates
+4. **Event System**: Establish patterns for UI→Game and Game→UI communication
+5. **Performance Optimization**: Profile and optimize any bottlenecks
+6. **Documentation**: Write comprehensive guides for adding UI to demos
 
-- **Theme Support**: CSS-style theme files with color schemes
-- **Layout Persistence**: Save panel positions to config file
-- **Preset System**: Named UI configurations (save/load)
-- **Graph Widgets**: Real-time performance charts
-- **Command Palette**: Quick action search (Ctrl+P)
-- **Multi-Window Support**: Detachable panels
+### If HUI has limitations:
 
-### Demo Integrations (Future Sprint)
-
-- **Physics Playground**: Spawn mode selector, physics parameter controls
-- **Metaballs Test**: Visualization mode selector, compute settings
-- **Compositor Test**: Layer visibility toggles, blend mode controls
-- **Architecture Test**: ECS inspection, system ordering visualization
+1. **Alternative Evaluation**: Explore `bevy_egui` or `kayak_ui`
+2. **Custom Solution**: Consider building minimal immediate-mode UI layer
+3. **Hybrid Approach**: Use HUI for static layouts, immediate-mode for dynamic elements
+4. **Defer Decision**: Continue with keyboard-only controls until better solution emerges
 
 ## UI Test Demo README Template
 
 ```markdown
-# UI Test Demo
+## README Template (To be created in demos/ui_demo/)
 
-Comprehensive demonstration of the UI Scaffold system showcasing HUI template-based layout patterns.
+```markdown
+# UI Demo - Bevy-HUI Proof of Concept
 
 ## Purpose
 
-This demo validates the UI Scaffold infrastructure using Bevy-HUI templates and serves as a reference implementation for:
+This is a **standalone POC** exploring Bevy-HUI as a potential UI solution for interactive demo controls. It does NOT integrate with scaffold or any core crates—it's purely exploratory.
 
-- **Header/Footer patterns**: Persistent bars at top and bottom
-- **Sidebar patterns**: Toggleable left/right panels  
-- **Responsive layouts**: Center content adapts to sidebar visibility
-- **Template-based UI**: Declarative HTML-style UI definitions
-- **Visibility management**: ECS-based show/hide patterns
+The demo simulates a compositor interface inspired by `compositor_test`, showcasing:
+
+- Layer visibility controls
+- Effect parameter adjustment
+- Visualization mode selection
+- Real-time status displays
+- Visual simulation with interactive effects
 
 ## Features
 
-### Layout Components
+### Mock Compositor Interface
 
-- **Header Bar**: Persistent title bar at top (40px height)
-- **Footer Bar**: Status display at bottom (30px height)
-- **Left Sidebar**: Widget demonstrations placeholder (250px width, F2 to toggle)
-- **Right Sidebar**: State inspector placeholder (250px width, F2 to toggle)
-- **Center Panel**: Main content area explaining HUI features
+- **5 Layer Toggles**: Background, GameWorld, Metaballs, Effects, UI (checkboxes + 1-5 keys)
+- **Burst Force**: Button + 4 sliders (interval, duration, radius, strength)
+- **Wall Pulse**: Button + 4 sliders (interval, duration, distance, strength)
+- **Visualization Modes**: Radio buttons for Normal, Distance Field, Normals, Raw Compute
+- **Status Display**: FPS counter, ball count, active effects indicator
 
-### Template System
+### Visual Simulation
 
-- **HTML Templates**: All UI defined in `.html` files under `assets/ui/`
-- **Absolute Positioning**: Panels use CSS-like absolute positioning
-- **Flexbox Layouts**: Internal panel layouts use flexbox (column/row)
-- **Property Injection**: Placeholders for dynamic content (future enhancement)
-- **Hot Reload**: Templates can be edited and reloaded during development
+- 400 colored balls bouncing around viewport (no physics engine—just simple math)
+- Burst force effect: Radial outward push from center
+- Wall pulse effect: Inward push from edges
+- Layer visibility: Balls hide/show based on GameWorld layer checkbox
 
-### Keyboard Controls
+### Widgets Demonstrated
 
-- `F1`: Toggle scaffold HUD (performance stats)
-- `F2`: Toggle UI sidebars and center panel
-- `F3`: Show help/key bindings
-- `Esc`: Exit demo
+- ✅ **Buttons**: Trigger effects, reset simulation
+- ✅ **Checkboxes**: Layer visibility toggles
+- ✅ **Sliders**: Parameter adjustment with real-time value display
+- ✅ **Radio Buttons**: Visualization mode selection
+- ✅ **Text Display**: Dynamic FPS counter, ball count, status messages
+
+## Keyboard Controls
+
+- `1-5`: Toggle layer visibility
+- `Space`: Trigger burst force
+- `W`: Trigger wall pulse
+- `P`: Pause/resume simulation
+- `R`: Reset simulation
+- `+/-`: Add/remove balls
+- `V`: Cycle visualization mode
+- `F1`: Toggle all UI visibility
+- `Esc`: Exit
 
 ## Running
 
 ### Standalone
 
 ```bash
-cargo run -p ui_test
+cargo run -p ui_demo
 ```
 
-### Via Demo Launcher
-
-```bash
-cargo run -p demo_launcher ui_test
-```
-
-### WASM
+### WASM (if compatible)
 
 ```powershell
-pwsh scripts/wasm-dev.ps1
-# Then select "UI Layout Patterns" from launcher
+# First build for web
+wasm-pack build --target web demos/ui_demo
+
+# Serve locally
+python -m http.server 8000
+# Then open http://localhost:8000
 ```
 
-## Architecture
+## Findings & Recommendations
 
-This demo uses:
+### Widget Support
 
-- **Scaffold Integration**: `UiScaffoldPlugin` for F2/F3 toggle functionality
-- **Bevy-HUI**: Template-based declarative UI system
-- **Resource-Based State**: `UiTestState` tracks entity handles for all panels
-- **Visibility Component**: Standard Bevy `Visibility` for show/hide
+| Widget | Status | Notes |
+|--------|--------|-------|
+| Buttons | ✅ | [Note findings here] |
+| Checkboxes | ✅ | [Note findings here] |
+| Sliders | ✅ | [Note findings here] |
+| Radio Buttons | ✅ | [Note findings here] |
+| Text Display | ✅ | [Note findings here] |
+| Dropdowns | ❓ | [Test if available] |
 
-## Integration Pattern
+### Event Handling
 
-The UI Test demo demonstrates the recommended pattern for adding HUI UI to demos:
+[Document how HUI handles interactions - callbacks, polling, events?]
 
-1. **Add Dependencies**: `bevy_hui = "0.4"` and `scaffold = { features = ["debug_ui"] }`
-2. **Add HuiPlugin**: Include in app plugin list
-3. **Create Templates**: Define UI in HTML files under `assets/ui/`
-4. **Spawn Once**: Load `HtmlNode` components in Startup system
-5. **Store Handles**: Track entity IDs in demo state resource
-6. **Toggle Visibility**: Update `Visibility` component based on F2 state
-7. **Register Bindings**: Add custom keys to `ScaffoldKeyBindings`
+### Performance
 
-## Best Practices Demonstrated
+- **UI Overhead**: X.XXms per frame
+- **With/Without UI**: Compare frame times
+- **WASM Performance**: [Note any differences]
 
-✅ Template-based declarative UI (no per-frame rendering logic)
-✅ Spawn once in Startup (no runtime allocations)
-✅ Visibility toggling (efficient component flag flip)
-✅ Entity handle tracking (proper ECS resource management)
-✅ Keyboard-friendly (all controls accessible via F2)
-✅ WASM-compatible (no platform-specific dependencies)
+### Template System
 
-## Future Enhancements
+**Pros:**
+- [List positives]
 
-- Property injection for dynamic content updates
-- Interactive widget event handlers (buttons, sliders)
-- Custom HUI function registration from Rust
-- Template inheritance and component library
-- Theme system with color customization
+**Cons:**
+- [List limitations]
 
-## Notes
+### Overall Recommendation
 
-This subsprint creates the **basic_ui crate** and **minimal viable UI infrastructure** using Bevy-HUI templates without introducing complexity that violates the Zero-Code Philosophy. The focus is on:
+**[✅ Adopt / ❌ Reject / ⚠️ Needs More Work]**
 
-1. **Separating Concerns**: basic_ui crate provides reusable template foundation
-2. **Template-Based**: Declarative HTML-style UI definitions (not immediate-mode)
-3. **Integrating**: Scaffold provides F2/F3 toggle functionality via optional feature
-4. **Maintaining**: WASM compatibility and minimal performance overhead
-5. **Demonstrating**: ui_test demo shows layout patterns and visibility management
+[Provide clear reasoning for recommendation]
 
-The result is a lightweight, optional layer with proper crate separation:
+## Architecture Notes
 
-- **basic_ui**: Reusable HUI template infrastructure
-- **scaffold**: Integrates basic_ui via `debug_ui` feature, adds F2/F3 toggles
-- **demos**: Use scaffold with `debug_ui` feature to access UI templates
+- **No Scaffold**: This demo intentionally avoids scaffold to keep it simple
+- **No Physics Engine**: Uses basic math for bouncing (good enough for POC)
+- **Mock State**: `MockCompositorState` resource tracks all UI state
+- **Template-Based**: All UI defined in HTML files under `assets/ui/`
+- **Standalone**: Can be evaluated independently of project architecture
 
-The **UI Test demo** serves as both validation and reference implementation.
+## Next Steps
 
-## Quick Start Implementation Guide
+If HUI proves suitable:
+1. Define integration strategy with scaffold
+2. Create shared UI component library
+3. Add UI to existing demos (physics_playground, compositor_test, metaballs_test)
 
-### Step 1: Create basic_ui Crate
-
-```bash
-# Create directory structure
-mkdir -p crates/basic_ui/src
-mkdir -p crates/basic_ui/assets/ui/templates
-
-# Create files:
-# - crates/basic_ui/Cargo.toml (with bevy_hui = "0.4")
-# - crates/basic_ui/src/lib.rs (BasicUiPlugin)
-# - crates/basic_ui/assets/ui/templates/*.html (five templates + help_panel)
-```
-
-### Step 2: Scaffold Integration
-
-```toml
-# In crates/scaffold/Cargo.toml
-[dependencies]
-basic_ui = { path = "../basic_ui", optional = true }
-
-[features]
-debug_ui = ["basic_ui"]
-```
-
-```rust
-// In crates/scaffold/src/ui/plugin.rs
-use basic_ui::BasicUiPlugin;
-
-#[cfg(feature = "debug_ui")]
-impl Plugin for UiScaffoldPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(BasicUiPlugin)
-            .init_resource::<ScaffoldUiContext>()
-            // ... F2/F3 toggle systems
-    }
-}
-```
-
-### Step 3: Create UI Test Demo
-
-```bash
-# Create directory structure
-mkdir -p demos/ui_test/src
-mkdir -p demos/ui_test/assets/ui
-
-# Copy templates from basic_ui to demos/ui_test/assets/ui/
-# Create files:
-# - demos/ui_test/Cargo.toml
-# - demos/ui_test/src/lib.rs (with HtmlNode spawning)
-# - demos/ui_test/src/main.rs
-# - demos/ui_test/README.md
-```
-
-### Step 4: Integrate with Launcher
-
-```toml
-# In demos/demo_launcher/Cargo.toml
-ui_test = { path = "../ui_test" }
-```
-
-```rust
-// In demos/demo_launcher/src/main.rs
-use ui_test::{run_ui_test, DEMO_NAME as UI_TEST_DEMO};
-
-// Add to DEMOS array
-DemoEntry {
-    name: UI_TEST_DEMO,
-    run: run_ui_test,
-    description: "UI layout patterns with Bevy-HUI",
-},
-```
-
-### Step 5: Update Workspace & Test
-
-```toml
-# In workspace Cargo.toml [workspace.members]
-"crates/basic_ui",
-"demos/ui_test",
-```
-
-```bash
-# Build all
-cargo build --all
-
-# Standalone
-cargo run -p ui_test
-
-# Via launcher
-cargo run -p demo_launcher ui_test
-
-# WASM
-pwsh scripts/wasm-dev.ps1
-```
+If HUI has limitations:
+1. Evaluate alternatives (bevy_egui, kayak_ui)
+2. Consider hybrid approach
+3. Document specific blockers
 
 ---
 
-*UI Scaffold: Just enough interaction, nothing more.*
+*This is a proof of concept—not production code.*
+```
