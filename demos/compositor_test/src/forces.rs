@@ -5,7 +5,7 @@ use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 
 use crate::constants::*;
-use crate::resources::{BurstForceState, WallPulseState};
+use crate::resources::{BurstForceState, CompositorState, WallPulseState};
 
 /// Updates the burst force timer and activates new bursts.
 pub fn update_burst_force_state(time: Res<Time>, mut state: ResMut<BurstForceState>) {
@@ -113,5 +113,35 @@ pub fn apply_wall_pulse_forces(
             let dir = accum / magnitude;
             force.force += dir * WALL_PULSE_STRENGTH * magnitude;
         }
+    }
+}
+
+/// Handle manual effect triggers from the UI/keyboard shortcuts.
+pub fn handle_manual_effect_triggers(
+    mut compositor_state: ResMut<CompositorState>,
+    mut burst_state: ResMut<BurstForceState>,
+    mut wall_pulse_state: ResMut<WallPulseState>,
+) {
+    // Handle manual burst trigger
+    if compositor_state.manual_burst_requested {
+        compositor_state.manual_burst_requested = false;
+
+        let mut rng = thread_rng();
+        let margin = BURST_RADIUS * 0.5;
+        let x = rng.gen_range(-HALF_EXTENT + margin..HALF_EXTENT - margin);
+        let y = rng.gen_range(-HALF_EXTENT + margin..HALF_EXTENT - margin);
+        burst_state.center = Vec2::new(x, y);
+        burst_state.active_timer = Some(Timer::from_seconds(BURST_ACTIVE_SECONDS, TimerMode::Once));
+        info!("Manual burst force activated at ({x:.1},{y:.1})");
+    }
+
+    // Handle manual wall pulse trigger
+    if compositor_state.manual_wall_pulse_requested {
+        compositor_state.manual_wall_pulse_requested = false;
+        wall_pulse_state.active_timer = Some(Timer::from_seconds(
+            WALL_PULSE_ACTIVE_SECONDS,
+            TimerMode::Once,
+        ));
+        info!("Manual wall pulse activated");
     }
 }

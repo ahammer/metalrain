@@ -18,28 +18,28 @@ pub struct MockCompositorState {
     pub layer_metaballs: bool,
     pub layer_effects: bool,
     pub layer_ui: bool,
-    
+
     // Effect parameters
     pub burst_interval: f32,
     pub burst_duration: f32,
     pub burst_radius: f32,
     pub burst_strength: f32,
-    
+
     pub wall_pulse_interval: f32,
     pub wall_pulse_duration: f32,
     pub wall_pulse_distance: f32,
     pub wall_pulse_strength: f32,
-    
+
     // Visualization mode
     pub viz_mode: VizMode,
-    
+
     // Simulation state
     pub paused: bool,
     pub ball_count: usize,
     pub fps: f32,
     pub active_burst: bool,
     pub active_wall_pulse: bool,
-    
+
     // Timers for effects
     pub burst_timer: f32,
     pub wall_pulse_timer: f32,
@@ -61,24 +61,24 @@ impl Default for MockCompositorState {
             layer_metaballs: true,
             layer_effects: true,
             layer_ui: true,
-            
+
             burst_interval: 3.0,
             burst_duration: 0.6,
             burst_radius: 110.0,
             burst_strength: 1400.0,
-            
+
             wall_pulse_interval: 10.0,
             wall_pulse_duration: 0.8,
             wall_pulse_distance: 120.0,
             wall_pulse_strength: 2200.0,
-            
+
             viz_mode: VizMode::Normal,
             paused: false,
             ball_count: 400,
             fps: 60.0,
             active_burst: false,
             active_wall_pulse: false,
-            
+
             burst_timer: 0.0,
             wall_pulse_timer: 0.0,
         }
@@ -140,7 +140,7 @@ fn handle_keyboard_shortcuts(
         state.layer_ui = !state.layer_ui;
         info!("UI layer: {}", state.layer_ui);
     }
-    
+
     // Effect triggers
     if keys.just_pressed(KeyCode::Space) {
         state.active_burst = true;
@@ -152,7 +152,7 @@ fn handle_keyboard_shortcuts(
         state.wall_pulse_timer = state.wall_pulse_duration;
         info!("Wall pulse triggered!");
     }
-    
+
     // Simulation controls
     if keys.just_pressed(KeyCode::KeyP) {
         state.paused = !state.paused;
@@ -162,7 +162,7 @@ fn handle_keyboard_shortcuts(
         info!("Reset simulation");
         // Will be handled in simulation module
     }
-    
+
     // Visualization mode
     if keys.just_pressed(KeyCode::KeyV) {
         state.viz_mode = match state.viz_mode {
@@ -173,7 +173,7 @@ fn handle_keyboard_shortcuts(
         };
         info!("Visualization mode: {:?}", state.viz_mode);
     }
-    
+
     // Exit
     if keys.just_pressed(KeyCode::Escape) {
         info!("Exiting UI Demo");
@@ -196,14 +196,14 @@ fn update_effect_timers(
     mut state: ResMut<MockCompositorState>,
 ) {
     let delta = time.delta_secs();
-    
+
     if state.active_burst {
         state.burst_timer -= delta;
         if state.burst_timer <= 0.0 {
             state.active_burst = false;
         }
     }
-    
+
     if state.active_wall_pulse {
         state.wall_pulse_timer -= delta;
         if state.wall_pulse_timer <= 0.0 {

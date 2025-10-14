@@ -9,13 +9,13 @@ pub fn setup_ui(
     // For this POC, we'll use a simple overlay UI with text displays
     // Since Bevy-HUI doesn't have built-in checkboxes/sliders,
     // we'll create a control panel using buttons and text
-    
+
     info!("Setting up UI (Note: Templates not yet created)");
-    
+
     // TODO: Once we understand HUI better, we'll spawn proper templates
     // For now, let's use Bevy's built-in UI as a fallback to demonstrate
     // the concept while we evaluate HUI
-    
+
     spawn_fallback_ui(&mut commands, &asset_server);
 }
 
@@ -57,7 +57,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         },
                         TextColor(Color::WHITE),
                     ));
-                    
+
                     // FPS counter - will be updated
                     bar.spawn((
                         Text::new("FPS: 60"),
@@ -68,7 +68,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         TextColor(Color::srgb(0.0, 1.0, 0.0)),
                         FpsText,
                     ));
-                    
+
                     // Ball counter - will be updated
                     bar.spawn((
                         Text::new("Balls: 400"),
@@ -80,7 +80,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         BallCountText,
                     ));
                 });
-            
+
             // Control panel on left
             parent
                 .spawn((
@@ -108,7 +108,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         },
                         TextColor(Color::WHITE),
                     ));
-                    
+
                     // Instructions
                     panel.spawn((
                         Text::new("1-5: Toggle Layers\nSpace: Burst Force\nW: Wall Pulse\nP: Pause\nR: Reset\nV: Cycle Viz Mode\nEsc: Exit"),
@@ -118,7 +118,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         },
                         TextColor(Color::srgb(0.8, 0.8, 0.8)),
                     ));
-                    
+
                     // Layer status
                     panel.spawn((
                         Text::new(""),
@@ -130,7 +130,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         LayerStatusText,
                     ));
                 });
-            
+
             // Parameter panel on right
             parent
                 .spawn((
@@ -158,7 +158,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         },
                         TextColor(Color::WHITE),
                     ));
-                    
+
                     // Parameters display
                     panel.spawn((
                         Text::new(""),
@@ -169,7 +169,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
                         TextColor(Color::srgb(0.9, 0.9, 0.9)),
                         ParametersText,
                     ));
-                    
+
                     // Active effects
                     panel.spawn((
                         Text::new(""),
@@ -213,12 +213,12 @@ pub fn update_ui_displays(
     if let Ok(mut text) = fps_query.single_mut() {
         **text = format!("FPS: {:.0}", state.fps);
     }
-    
+
     // Update ball count
     if let Ok(mut text) = ball_query.single_mut() {
         **text = format!("Balls: {}", state.ball_count);
     }
-    
+
     // Update layer status
     if let Ok(mut text) = layer_query.single_mut() {
         let mut status = String::from("Layers:\n");
@@ -229,7 +229,7 @@ pub fn update_ui_displays(
         status.push_str(&format!("  UI: {}", if state.layer_ui { "✓" } else { "✗" }));
         **text = status;
     }
-    
+
     // Update parameters
     if let Ok(mut text) = param_query.single_mut() {
         let params = format!(
@@ -250,7 +250,7 @@ pub fn update_ui_displays(
         );
         **text = params;
     }
-    
+
     // Update active effects
     if let Ok(mut text) = effects_query.single_mut() {
         let mut effects = String::from("Active Effects:\n");

@@ -36,16 +36,7 @@ pub fn setup_scene(mut commands: Commands) {
         Name::new("Effects::PulseOverlay"),
     ));
 
-    commands.spawn((
-        Sprite {
-            color: Color::srgba(1.0, 1.0, 1.0, 0.06),
-            custom_size: Some(Vec2::new(300.0, 80.0)),
-            ..Default::default()
-        },
-        Transform::from_xyz(-480.0, 320.0, 200.0),
-        RenderLayers::layer(RenderLayer::Ui.order()),
-        Name::new("Ui::Placeholder"),
-    ));
+    // UI placeholder sprite removed - now using Bevy UI overlay
 }
 
 /// Configures the metaball presentation quad to render on the Metaballs layer.
