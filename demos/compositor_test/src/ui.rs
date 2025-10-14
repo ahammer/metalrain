@@ -7,7 +7,6 @@ use crate::resources::{BurstForceState, CompositorState, WallPulseState};
 /// Sets up the UI overlay using Bevy's built-in UI system.
 /// This provides a control panel and status displays for the compositor demo.
 pub fn setup_ui(mut commands: Commands) {
-    info!("Setting up compositor test UI");
 
     // Root UI node
     commands
@@ -250,9 +249,9 @@ pub fn update_ui_displays(
         ),
     >,
 ) {
-    // Update FPS
+    // Update FPS (using smoothed value)
     if let Ok(mut text) = fps_query.single_mut() {
-        **text = format!("FPS: {:.0}", state.fps);
+        **text = format!("FPS: {:.0}", state.fps_smoothed);
     }
 
     // Update ball count
@@ -260,26 +259,29 @@ pub fn update_ui_displays(
         **text = format!("Balls: {}", state.ball_count);
     }
 
-    // Update layer status
+    // Update layer status with clear enabled/disabled indicators
     if let Ok(mut text) = layer_query.single_mut() {
         let mut status = String::from("Layers:\n");
         status.push_str(&format!(
-            "  Background: {}\n",
-            if state.layer_background { "✓" } else { "✗" }
+            "  [{}] Background\n",
+            if state.layer_background { "ON " } else { "OFF" }
         ));
         status.push_str(&format!(
-            "  GameWorld: {}\n",
-            if state.layer_game_world { "✓" } else { "✗" }
+            "  [{}] GameWorld\n",
+            if state.layer_game_world { "ON " } else { "OFF" }
         ));
         status.push_str(&format!(
-            "  Metaballs: {}\n",
-            if state.layer_metaballs { "✓" } else { "✗" }
+            "  [{}] Metaballs\n",
+            if state.layer_metaballs { "ON " } else { "OFF" }
         ));
         status.push_str(&format!(
-            "  Effects: {}\n",
-            if state.layer_effects { "✓" } else { "✗" }
+            "  [{}] Effects\n",
+            if state.layer_effects { "ON " } else { "OFF" }
         ));
-        status.push_str(&format!("  UI: {}", if state.layer_ui { "✓" } else { "✗" }));
+        status.push_str(&format!(
+            "  [{}] UI",
+            if state.layer_ui { "ON " } else { "OFF" }
+        ));
         **text = status;
     }
 
@@ -361,39 +363,31 @@ pub fn handle_keyboard_shortcuts(
     // Layer toggles (1-5)
     if keys.just_pressed(KeyCode::Digit1) {
         state.layer_background = !state.layer_background;
-        info!("Background layer: {}", state.layer_background);
     }
     if keys.just_pressed(KeyCode::Digit2) {
         state.layer_game_world = !state.layer_game_world;
-        info!("GameWorld layer: {}", state.layer_game_world);
     }
     if keys.just_pressed(KeyCode::Digit3) {
         state.layer_metaballs = !state.layer_metaballs;
-        info!("Metaballs layer: {}", state.layer_metaballs);
     }
     if keys.just_pressed(KeyCode::Digit4) {
         state.layer_effects = !state.layer_effects;
-        info!("Effects layer: {}", state.layer_effects);
     }
     if keys.just_pressed(KeyCode::Digit5) {
         state.layer_ui = !state.layer_ui;
-        info!("UI layer: {}", state.layer_ui);
     }
 
     // Manual effect triggers
     if keys.just_pressed(KeyCode::Space) {
         state.manual_burst_requested = true;
-        info!("Manual burst force requested!");
     }
     if keys.just_pressed(KeyCode::KeyW) {
         state.manual_wall_pulse_requested = true;
-        info!("Manual wall pulse requested!");
     }
 
     // Simulation controls
     if keys.just_pressed(KeyCode::KeyP) {
         state.paused = !state.paused;
-        info!("Simulation paused: {}", state.paused);
     }
 
     // Visualization mode
@@ -405,20 +399,23 @@ pub fn handle_keyboard_shortcuts(
             VizMode::Normals => VizMode::RawCompute,
             VizMode::RawCompute => VizMode::Normal,
         };
-        info!("Visualization mode: {:?}", state.viz_mode);
     }
 
     // Exit
     if keys.just_pressed(KeyCode::Escape) {
-        info!("Exiting compositor test");
         app_exit.write(AppExit::Success);
     }
 }
 
-/// Update FPS counter from frame time.
+/// Update FPS counter from frame time with exponential moving average smoothing.
 pub fn update_fps_counter(time: Res<Time>, mut state: ResMut<CompositorState>) {
     let delta = time.delta_secs();
     if delta > 0.0 {
         state.fps = 1.0 / delta;
+        
+        // Apply exponential moving average for smooth FPS display
+        // Alpha of 0.1 means we smooth over roughly 10 frames
+        let alpha = 0.1;
+        state.fps_smoothed = alpha * state.fps + (1.0 - alpha) * state.fps_smoothed;
     }
 }

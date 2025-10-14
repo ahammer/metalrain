@@ -52,6 +52,7 @@ pub struct CompositorState {
     pub paused: bool,
     pub ball_count: usize,
     pub fps: f32,
+    pub fps_smoothed: f32,
 
     // Manual effect triggers
     pub manual_burst_requested: bool,
@@ -80,6 +81,7 @@ impl Default for CompositorState {
             paused: false,
             ball_count: NUM_BALLS,
             fps: 60.0,
+            fps_smoothed: 60.0,
             manual_burst_requested: false,
             manual_wall_pulse_requested: false,
             viz_mode: VizMode::Normal,

@@ -23,7 +23,6 @@ pub fn update_burst_force_state(time: Res<Time>, mut state: ResMut<BurstForceSta
         let y = rng.gen_range(-HALF_EXTENT + margin..HALF_EXTENT - margin);
         state.center = Vec2::new(x, y);
         state.active_timer = Some(Timer::from_seconds(BURST_ACTIVE_SECONDS, TimerMode::Once));
-        info!("Burst force activated at ({x:.1},{y:.1})");
     }
 }
 
@@ -68,7 +67,6 @@ pub fn update_wall_pulse_state(time: Res<Time>, mut state: ResMut<WallPulseState
             WALL_PULSE_ACTIVE_SECONDS,
             TimerMode::Once,
         ));
-        info!("Wall repulsion pulse active");
     }
 }
 
@@ -132,7 +130,6 @@ pub fn handle_manual_effect_triggers(
         let y = rng.gen_range(-HALF_EXTENT + margin..HALF_EXTENT - margin);
         burst_state.center = Vec2::new(x, y);
         burst_state.active_timer = Some(Timer::from_seconds(BURST_ACTIVE_SECONDS, TimerMode::Once));
-        info!("Manual burst force activated at ({x:.1},{y:.1})");
     }
 
     // Handle manual wall pulse trigger
@@ -142,6 +139,5 @@ pub fn handle_manual_effect_triggers(
             WALL_PULSE_ACTIVE_SECONDS,
             TimerMode::Once,
         ));
-        info!("Manual wall pulse activated");
     }
 }
