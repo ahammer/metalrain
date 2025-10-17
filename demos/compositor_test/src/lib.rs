@@ -3,16 +3,13 @@
 use bevy::prelude::*;
 use scaffold::ScaffoldIntegrationPlugin;
 
-mod components;
 mod constants;
-mod effects;
 mod forces;
 mod resources;
 mod scene_setup;
 mod ui;
 
 pub use constants::DEMO_NAME;
-use effects::*;
 use forces::*;
 use resources::*;
 use scene_setup::*;
@@ -25,7 +22,7 @@ pub fn run_compositor_test() {
         .init_resource::<BurstForceState>()
         .init_resource::<WallPulseState>()
         .init_resource::<CompositorState>()
-        .add_systems(Startup, (setup_scene, spawn_balls, setup_ui))
+    .add_systems(Startup, (setup_scene, spawn_balls, setup_ui))
         .add_systems(PostStartup, configure_metaball_presentation)
         .add_systems(
             PreUpdate,
@@ -38,7 +35,6 @@ pub fn run_compositor_test() {
                 update_fps_counter,
                 update_wall_pulse_state,
                 apply_wall_pulse_forces,
-                animate_effect_overlay,
                 update_ui_displays,
                 handle_manual_effect_triggers,
             ),

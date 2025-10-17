@@ -41,7 +41,8 @@ pub fn spawn_performance_hud(
         },
         TextColor(Color::WHITE),
         Transform::from_translation(position),
-        RenderLayers::layer(RenderLayer::Ui.order()),
+    // HUD now rendered on GameWorld layer (Ui layer removed)
+    RenderLayers::layer(RenderLayer::GameWorld.order()),
         ScaffoldHud,
     ));
 }
@@ -136,7 +137,7 @@ pub fn update_performance_hud(
         .map(|cfg| !cfg.physics_pipeline_active)
         .unwrap_or(false);
 
-    let mut entity_counts = [0usize; 5];
+    let mut entity_counts = [0usize; 3];
     for layers in &entities_layers {
         for (index, layer) in RenderLayer::ALL.iter().enumerate() {
             if layers.intersects(&RenderLayers::layer(index)) {
@@ -184,7 +185,7 @@ pub fn update_performance_hud(
     };
 
     let hud_text = format!(
-        "Demo: {}\nFPS {:.1} (1s {:.1} / 5s {:.1}) | Frame {:.2} ms\nExposure {:.2} | Zoom {:.2}x | Boundaries {}\nPhysics {} | Gravity ({:.0}, {:.0})\nMetaballs: {} (clustering {})\nLayers:\n{}Controls: 1-5 Layers  [-]/[]= Exposure  -/= Zoom  R Reset  Space Shake  P Pause  Arrows Gravity  B Background  M Metaballs  F1 HUD  Esc Exit",
+        "Demo: {}\nFPS {:.1} (1s {:.1} / 5s {:.1}) | Frame {:.2} ms\nExposure {:.2} | Zoom {:.2}x | Boundaries {}\nPhysics {} | Gravity ({:.0}, {:.0})\nMetaballs: {} (clustering {})\nLayers:\n{}Controls: 1-3 Layers  [-]/[]= Exposure  -/= Zoom  R Reset  Space Shake  P Pause  Arrows Gravity  B Background  M Metaballs  F1 HUD  Esc Exit",
         metadata.demo_name(),
         fps_instant,
         fps_one,

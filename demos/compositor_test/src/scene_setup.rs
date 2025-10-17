@@ -8,7 +8,6 @@ use rand::prelude::*;
 use game_rendering::RenderLayer;
 use metaball_renderer::{MetaBall, MetaBallCluster, MetaBallColor};
 
-use crate::components::EffectsPulse;
 use crate::constants::*;
 
 /// Sets up the initial scene with backdrop and overlay sprites.
@@ -24,19 +23,7 @@ pub fn setup_scene(mut commands: Commands) {
         Name::new("GameWorld::PlayfieldBackdrop"),
     ));
 
-    commands.spawn((
-        Sprite {
-            color: Color::srgba(0.2, 0.6, 1.0, 0.18),
-            custom_size: Some(Vec2::new(620.0, 620.0)),
-            ..Default::default()
-        },
-        Transform::from_xyz(0.0, 0.0, 30.0),
-        RenderLayers::layer(RenderLayer::Effects.order()),
-        EffectsPulse,
-        Name::new("Effects::PulseOverlay"),
-    ));
-
-    // UI placeholder sprite removed - now using Bevy UI overlay
+    // Effects layer removed - overlay sprite no longer spawned
 }
 
 /// Configures the metaball presentation quad to render on the Metaballs layer.

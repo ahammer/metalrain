@@ -16,8 +16,6 @@ pub struct MockCompositorState {
     pub layer_background: bool,
     pub layer_game_world: bool,
     pub layer_metaballs: bool,
-    pub layer_effects: bool,
-    pub layer_ui: bool,
 
     // Effect parameters
     pub burst_interval: f32,
@@ -59,8 +57,6 @@ impl Default for MockCompositorState {
             layer_background: true,
             layer_game_world: true,
             layer_metaballs: true,
-            layer_effects: true,
-            layer_ui: true,
 
             burst_interval: 3.0,
             burst_duration: 0.6,
@@ -119,7 +115,7 @@ fn handle_keyboard_shortcuts(
     mut state: ResMut<MockCompositorState>,
     mut app_exit: EventWriter<AppExit>,
 ) {
-    // Layer toggles (1-5)
+    // Layer toggles (1-3) only
     if keys.just_pressed(KeyCode::Digit1) {
         state.layer_background = !state.layer_background;
         info!("Background layer: {}", state.layer_background);
@@ -132,14 +128,7 @@ fn handle_keyboard_shortcuts(
         state.layer_metaballs = !state.layer_metaballs;
         info!("Metaballs layer: {}", state.layer_metaballs);
     }
-    if keys.just_pressed(KeyCode::Digit4) {
-        state.layer_effects = !state.layer_effects;
-        info!("Effects layer: {}", state.layer_effects);
-    }
-    if keys.just_pressed(KeyCode::Digit5) {
-        state.layer_ui = !state.layer_ui;
-        info!("UI layer: {}", state.layer_ui);
-    }
+    // Effects & UI layers removed
 
     // Effect triggers
     if keys.just_pressed(KeyCode::Space) {

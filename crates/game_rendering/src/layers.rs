@@ -7,17 +7,13 @@ pub enum RenderLayer {
     Background = 0,
     GameWorld = 1,
     Metaballs = 2,
-    Effects = 3,
-    Ui = 4,
 }
 
 impl RenderLayer {
-    pub const ALL: [RenderLayer; 5] = [
+    pub const ALL: [RenderLayer; 3] = [
         RenderLayer::Background,
         RenderLayer::GameWorld,
         RenderLayer::Metaballs,
-        RenderLayer::Effects,
-        RenderLayer::Ui,
     ];
 
     pub fn order(self) -> usize {
@@ -29,8 +25,6 @@ impl RenderLayer {
             RenderLayer::Background => "Background",
             RenderLayer::GameWorld => "GameWorld",
             RenderLayer::Metaballs => "Metaballs",
-            RenderLayer::Effects => "Effects",
-            RenderLayer::Ui => "Ui",
         }
     }
 }
@@ -80,8 +74,6 @@ impl Default for LayerToggleState {
             LayerConfig::new(RenderLayer::Background, BlendMode::Normal, Color::BLACK),
             LayerConfig::new(RenderLayer::GameWorld, BlendMode::Normal, Color::NONE),
             LayerConfig::new(RenderLayer::Metaballs, BlendMode::Additive, Color::NONE),
-            LayerConfig::new(RenderLayer::Effects, BlendMode::Additive, Color::NONE),
-            LayerConfig::new(RenderLayer::Ui, BlendMode::Normal, Color::NONE),
         ];
         Self { configs }
     }

@@ -98,7 +98,7 @@ pub fn setup_ui(mut commands: Commands) {
                     // Instructions
                     panel.spawn((
                         Text::new(
-                            "1-5: Toggle Layers\n\
+                            "1-3: Toggle Layers\n\
                              Space: Manual Burst\n\
                              W: Manual Wall Pulse\n\
                              P: Pause Simulation\n\
@@ -274,14 +274,7 @@ pub fn update_ui_displays(
             "  [{}] Metaballs\n",
             if state.layer_metaballs { "ON " } else { "OFF" }
         ));
-        status.push_str(&format!(
-            "  [{}] Effects\n",
-            if state.layer_effects { "ON " } else { "OFF" }
-        ));
-        status.push_str(&format!(
-            "  [{}] UI",
-            if state.layer_ui { "ON " } else { "OFF" }
-        ));
+        // Effects & UI layers removed
         **text = status;
     }
 
@@ -370,12 +363,7 @@ pub fn handle_keyboard_shortcuts(
     if keys.just_pressed(KeyCode::Digit3) {
         state.layer_metaballs = !state.layer_metaballs;
     }
-    if keys.just_pressed(KeyCode::Digit4) {
-        state.layer_effects = !state.layer_effects;
-    }
-    if keys.just_pressed(KeyCode::Digit5) {
-        state.layer_ui = !state.layer_ui;
-    }
+    // Layers 4 & 5 removed
 
     // Manual effect triggers
     if keys.just_pressed(KeyCode::Space) {
@@ -412,7 +400,7 @@ pub fn update_fps_counter(time: Res<Time>, mut state: ResMut<CompositorState>) {
     let delta = time.delta_secs();
     if delta > 0.0 {
         state.fps = 1.0 / delta;
-        
+
         // Apply exponential moving average for smooth FPS display
         // Alpha of 0.1 means we smooth over roughly 10 frames
         let alpha = 0.1;

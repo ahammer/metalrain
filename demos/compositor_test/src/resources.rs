@@ -45,8 +45,6 @@ pub struct CompositorState {
     pub layer_background: bool,
     pub layer_game_world: bool,
     pub layer_metaballs: bool,
-    pub layer_effects: bool,
-    pub layer_ui: bool,
 
     // Simulation state
     pub paused: bool,
@@ -76,8 +74,6 @@ impl Default for CompositorState {
             layer_background: true,
             layer_game_world: true,
             layer_metaballs: true,
-            layer_effects: true,
-            layer_ui: true,
             paused: false,
             ball_count: NUM_BALLS,
             fps: 60.0,

@@ -111,7 +111,7 @@ fn spawn_fallback_ui(commands: &mut Commands, _asset_server: &Res<AssetServer>) 
 
                     // Instructions
                     panel.spawn((
-                        Text::new("1-5: Toggle Layers\nSpace: Burst Force\nW: Wall Pulse\nP: Pause\nR: Reset\nV: Cycle Viz Mode\nEsc: Exit"),
+                        Text::new("1-3: Toggle Layers\nSpace: Burst Force\nW: Wall Pulse\nP: Pause\nR: Reset\nV: Cycle Viz Mode\nEsc: Exit"),
                         TextFont {
                             font_size: 14.0,
                             ..default()
@@ -225,8 +225,7 @@ pub fn update_ui_displays(
         status.push_str(&format!("  BG: {}\n", if state.layer_background { "✓" } else { "✗" }));
         status.push_str(&format!("  World: {}\n", if state.layer_game_world { "✓" } else { "✗" }));
         status.push_str(&format!("  Metaballs: {}\n", if state.layer_metaballs { "✓" } else { "✗" }));
-        status.push_str(&format!("  Effects: {}\n", if state.layer_effects { "✓" } else { "✗" }));
-        status.push_str(&format!("  UI: {}", if state.layer_ui { "✓" } else { "✗" }));
+    // Effects & UI layers removed
         **text = status;
     }
 

@@ -48,18 +48,7 @@ pub fn handle_universal_inputs(
             RenderLayer::Metaballs,
         );
     }
-    if keys.just_pressed(KeyCode::Digit4) {
-        log_layer(
-            toggle_layer(&mut layer_state, RenderLayer::Effects),
-            RenderLayer::Effects,
-        );
-    }
-    if keys.just_pressed(KeyCode::Digit5) {
-        log_layer(
-            toggle_layer(&mut layer_state, RenderLayer::Ui),
-            RenderLayer::Ui,
-        );
-    }
+    // Layers 4 & 5 removed (Effects, Ui)
 
     if keys.just_pressed(KeyCode::KeyQ) {
         blend_state.set_blend_for(RenderLayer::Metaballs, BlendMode::Normal);
