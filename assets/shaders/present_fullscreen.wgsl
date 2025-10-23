@@ -4,6 +4,7 @@
 @group(2) @binding(1) var albedo_tex: texture_2d<f32>;
 @group(2) @binding(2) var present_sampler: sampler;
 @group(2) @binding(3) var normals_tex: texture_2d<f32>; // sampled (prepared) but not yet used for shading
+@group(2) @binding(4) var<uniform> viz_mode: u32; // 0=Normal, 1=DistanceField, 2=Normals3D, 3=Gradient2D, 4=Coverage, 5=InverseGradient
 
 // Packed metaball field texture layout (rgba16float) produced by compute_metaballs.wgsl:
 //   R: scalar field value  Σ (r_i^2 / d_i^2)
@@ -136,7 +137,6 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let uv = vec2(v.uv.x, 1.0 - v.uv.y);
     let packed       = sample_packed(uv);
     let field        = packed.r;
-    // Sample normals texture (currently unused to preserve visual parity; ensures pipeline & data path are valid)
     let normals_sample = sample_normals(uv);
     var w = max(fwidth(field) * EDGE_BAND, 1e-4);
     if (!USE_DERIV_EDGE) { w = 0.01; }
@@ -144,32 +144,41 @@ fn fragment(v: VertexOutput) -> @location(0) vec4<f32> {
     let albedo = sample_albedo(uv);
     let fill_rgb = select(SOLID_COLOR, albedo.rgb / max(albedo.a, 1e-6), albedo.a > 0.001);
     var blob_rgb = compute_surface_fill(field, ISO, w, fill_rgb);
-    // Soft shadow factor sampled behind blob; only applies off-blob
     let shadow_occlusion = compute_soft_shadow(uv);
     let shadow_strength = shadow_occlusion * (1.0 - inside_mask);
     let shadow_alpha = shadow_strength * SHADOW_ALPHA;
-
-    // Lighting only for blob area: pass mask=1.0 so function returns fully lit blob color.
     let normal = decode_normal(normals_sample.rgb);
     let lit_blob_rgb = add_lighting(blob_rgb, normal, 1.0);
-
-    // Alpha for blob (smooth edge) and shadow (behind blob). Union compositing (shadow then blob):
     let blob_alpha = inside_mask;
-    // Premultiply colors
     let blob_rgb_premul = lit_blob_rgb * blob_alpha;
     let shadow_rgb_premul = SHADOW_COLOR * shadow_alpha;
     let out_alpha = blob_alpha + shadow_alpha * (1.0 - blob_alpha);
     let out_rgb = blob_rgb_premul + shadow_rgb_premul * (1.0 - blob_alpha);
-    return vec4<f32>(out_rgb, out_alpha);
 
-    /*
-    if (field > ISO) {
-        return vec4(normals_sample.rgb, 1.0);
-    } else {
-        return vec4(field, field, field, 1.0);
+    // Visualization mode switching
+    switch viz_mode {
+        case 1u: { // Distance Field (R channel)
+            let vis = vec3<f32>(field, field, field);
+            return vec4<f32>(vis, 1.0);
+        }
+        case 2u: { // 3D Normals
+            // Show normals only where there's a surface
+            let norm_vis = normal * 0.5 + 0.5; // Map [-1,1] to [0,1] for visualization
+            return vec4<f32>(norm_vis, max(inside_mask, 0.3));
+        }
+        case 3u: { // 2D Gradient (G,B channels)
+            let grad = vec2<f32>(packed.g, packed.b);
+            return vec4<f32>(grad.x * 0.5 + 0.5, grad.y * 0.5 + 0.5, 0.5, 1.0);
+        }
+        case 4u: { // Coverage/Albedo
+            return vec4<f32>(fill_rgb * inside_mask, inside_mask);
+        }
+        case 5u: { // Inverse Gradient Length (A channel)
+            let inv_grad = packed.a;
+            return vec4<f32>(inv_grad, inv_grad, inv_grad, 1.0);
+        }
+        default: { // 0 = Normal rendering
+            return vec4<f32>(out_rgb, out_alpha);
+        }
     }
-    */
-
-    // return vec4(normal.rgb, 1.0);
-
 }

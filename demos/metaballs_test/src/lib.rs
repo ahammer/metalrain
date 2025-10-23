@@ -5,8 +5,10 @@ use scaffold::{ScaffoldConfig, ScaffoldIntegrationPlugin};
 
 mod debug_vis;
 mod simulation;
+mod ui;
 use debug_vis::DebugVisPlugin;
 use simulation::BouncySimulationPlugin;
+use ui::MetaballUiPlugin;
 
 pub const DEMO_NAME: &str = "metaballs_test";
 
@@ -27,5 +29,6 @@ pub fn run_metaballs_test() {
     app
         .add_plugins(BouncySimulationPlugin)
         .add_plugins(DebugVisPlugin)
+        .add_plugins(MetaballUiPlugin)
         .run();
 }

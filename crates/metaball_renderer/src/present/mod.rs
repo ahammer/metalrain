@@ -21,6 +21,8 @@ pub struct MetaballDisplayMaterial {
     albedo: Handle<Image>,
     #[texture(3)]
     normals: Handle<Image>,
+    #[uniform(4)]
+    pub viz_mode: u32,
 }
 
 impl Material2d for MetaballDisplayMaterial {
@@ -59,6 +61,7 @@ fn setup_present(
         texture: field.0.clone(),
         albedo: albedo.0.clone(),
         normals: normals.0.clone(),
+        viz_mode: 0, // Default to normal rendering
     });
     let mut entity = commands.spawn((
         Mesh2d(quad_handle),

@@ -12,11 +12,11 @@ pub const COLLISION_PADDING: f32 = 64.0;
 pub(crate) struct Velocity(pub Vec2);
 
 #[derive(Resource, Clone)]
-pub(crate) struct BouncyParams {
-    gravity: Vec2,
-    restitution: f32,
-    enable_gravity: bool,
-    speed_dampen: f32,
+pub struct BouncyParams {
+    pub gravity: Vec2,
+    pub restitution: f32,
+    pub enable_gravity: bool,
+    pub speed_dampen: f32,
 }
 impl Default for BouncyParams {
     fn default() -> Self {

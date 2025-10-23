@@ -17,7 +17,7 @@ pub use coordinates::{
 };
 pub use diagnostics::{MetaballDiagnosticsConfig, MetaballDiagnosticsPlugin};
 #[cfg(feature = "present")]
-pub use present::MetaballDisplayPlugin;
+pub use present::{MetaballDisplayMaterial, MetaballDisplayPlugin, MetaballPresentationQuad};
 pub use settings::{MetaballRenderSettings, MetaballRendererPlugin};
 
 #[derive(Resource, Clone)]
