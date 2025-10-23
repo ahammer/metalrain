@@ -21,7 +21,6 @@ pub use resources::{
 pub use systems::{
     arena::spawn_physics_arena,
     camera::align_game_camera,
-    hud::{accumulate_performance_stats, spawn_performance_hud, update_performance_hud},
     input::{exit_on_escape, handle_universal_inputs},
 };
 
@@ -30,8 +29,6 @@ pub use systems::{
 pub enum ScaffoldSystemSet {
     /// Handles input bindings such as layer toggles and camera controls.
     Input,
-    /// Updates performance overlays and diagnostics-driven UI.
-    Hud,
 }
 
 /// High-level plugin wiring physics, rendering, assets, input, and diagnostics for demos.
@@ -132,10 +129,10 @@ impl Plugin for ScaffoldIntegrationPlugin {
 
         app.configure_sets(
             Update,
-            (ScaffoldSystemSet::Input, ScaffoldSystemSet::Hud).chain(),
+            ScaffoldSystemSet::Input,
         );
 
-        app.add_systems(Startup, (spawn_physics_arena, spawn_performance_hud));
+        app.add_systems(Startup, spawn_physics_arena);
         app.add_systems(PostStartup, align_game_camera);
         app.add_systems(
             Update,
@@ -144,10 +141,6 @@ impl Plugin for ScaffoldIntegrationPlugin {
                 exit_on_escape
                     .after(handle_universal_inputs)
                     .in_set(ScaffoldSystemSet::Input),
-                accumulate_performance_stats.in_set(ScaffoldSystemSet::Hud),
-                update_performance_hud
-                    .after(accumulate_performance_stats)
-                    .in_set(ScaffoldSystemSet::Hud),
             ),
         );
     }
