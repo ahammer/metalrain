@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use std::collections::VecDeque;
 
 /// Metadata describing the owning demo for diagnostics displays.
 #[derive(Resource, Debug, Clone)]
@@ -60,80 +59,5 @@ impl ScaffoldConfig {
     pub fn with_default_gravity(mut self, gravity: Vec2) -> Self {
         self.default_gravity = gravity;
         self
-    }
-}
-
-/// Toggleable HUD visibility controlled by standard bindings.
-#[derive(Resource, Debug, Clone)]
-pub struct ScaffoldHudState {
-    pub visible: bool,
-}
-
-impl Default for ScaffoldHudState {
-    fn default() -> Self {
-        Self { visible: true }
-    }
-}
-
-/// Sliding-window frame statistics used by the HUD overlay.
-#[derive(Resource, Debug, Default)]
-pub struct ScaffoldPerformanceStats {
-    pub frames: u64,
-    pub last_sample_time: f32,
-    pub recent: VecDeque<(f32, f32)>,
-}
-
-impl ScaffoldPerformanceStats {
-    pub fn record_sample(&mut self, timestamp: f32, delta: f32) {
-        self.frames += 1;
-        self.last_sample_time = timestamp;
-        self.recent.push_back((timestamp, delta.max(0.0)));
-        while let Some((t, _)) = self.recent.front() {
-            if timestamp - *t > 6.0 {
-                self.recent.pop_front();
-            } else {
-                break;
-            }
-        }
-    }
-}
-
-/// Runtime metaball render modes supported by the scaffold controls.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MetaballMode {
-    Clustered,
-    NoClustering,
-    Hidden,
-}
-
-impl MetaballMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            MetaballMode::Clustered => "Clustered",
-            MetaballMode::NoClustering => "No Clustering",
-            MetaballMode::Hidden => "Hidden",
-        }
-    }
-
-    pub fn next(self) -> Self {
-        match self {
-            MetaballMode::Clustered => MetaballMode::NoClustering,
-            MetaballMode::NoClustering => MetaballMode::Hidden,
-            MetaballMode::Hidden => MetaballMode::Clustered,
-        }
-    }
-}
-
-/// Tracks the currently selected metaball presentation mode.
-#[derive(Resource, Debug, Clone, Copy)]
-pub struct ScaffoldMetaballMode {
-    pub mode: MetaballMode,
-}
-
-impl Default for ScaffoldMetaballMode {
-    fn default() -> Self {
-        Self {
-            mode: MetaballMode::Clustered,
-        }
     }
 }

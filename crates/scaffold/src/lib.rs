@@ -1,4 +1,3 @@
-use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy_rapier2d::render::RapierDebugRenderPlugin;
 
@@ -14,24 +13,13 @@ use widget_renderer::WidgetRendererPlugin;
 pub mod resources;
 mod systems;
 
-pub use resources::{
-    MetaballMode, ScaffoldConfig, ScaffoldHudState, ScaffoldMetaballMode, ScaffoldMetadata,
-    ScaffoldPerformanceStats,
-};
+pub use resources::{ScaffoldConfig, ScaffoldMetadata};
 pub use systems::{
     arena::spawn_physics_arena,
     camera::align_game_camera,
-    input::{exit_on_escape, handle_universal_inputs},
 };
 
-/// Label sets for systems exposed by the scaffold plugin.
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ScaffoldSystemSet {
-    /// Handles input bindings such as layer toggles and camera controls.
-    Input,
-}
-
-/// High-level plugin wiring physics, rendering, assets, input, and diagnostics for demos.
+/// High-level plugin wiring physics, rendering, and assets for demos.
 #[derive(Debug, Clone)]
 pub struct ScaffoldIntegrationPlugin {
     demo_name: String,
@@ -46,7 +34,7 @@ impl Default for ScaffoldIntegrationPlugin {
 }
 
 impl ScaffoldIntegrationPlugin {
-    /// Assigns a demo name presented in the HUD diagnostics overlay.
+    /// Assigns a demo name for metadata tracking.
     pub fn with_demo_name(name: impl Into<String>) -> Self {
         Self {
             demo_name: name.into(),
@@ -99,9 +87,6 @@ impl Plugin for ScaffoldIntegrationPlugin {
         }
 
         app.insert_resource(ScaffoldMetadata::new(self.demo_name.clone()));
-        app.init_resource::<ScaffoldHudState>();
-        app.init_resource::<ScaffoldPerformanceStats>();
-        app.init_resource::<ScaffoldMetaballMode>();
 
         let metaball_settings = MetaballRenderSettings::default()
             .with_texture_size(config.metaball_texture_size)
@@ -114,7 +99,6 @@ impl Plugin for ScaffoldIntegrationPlugin {
             .with_presentation_layer(RenderLayer::Metaballs.order() as u8);
 
         app.add_plugins((
-            FrameTimeDiagnosticsPlugin::default(),
             EventCorePlugin::default(),
             GameCorePlugin,
             GamePhysicsPlugin,
@@ -127,21 +111,7 @@ impl Plugin for ScaffoldIntegrationPlugin {
         #[cfg(not(target_arch = "wasm32"))]
         app.add_plugins(RapierDebugRenderPlugin::default());
 
-        app.configure_sets(
-            Update,
-            ScaffoldSystemSet::Input,
-        );
-
         app.add_systems(Startup, spawn_physics_arena);
         app.add_systems(PostStartup, align_game_camera);
-        app.add_systems(
-            Update,
-            (
-                handle_universal_inputs.in_set(ScaffoldSystemSet::Input),
-                exit_on_escape
-                    .after(handle_universal_inputs)
-                    .in_set(ScaffoldSystemSet::Input),
-            ),
-        );
     }
 }
