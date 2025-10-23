@@ -5,7 +5,7 @@ use metaball_renderer::{
 };
 use rand::prelude::*;
 
-pub const HALF_EXTENT: f32 = 256.0;
+pub const HALF_EXTENT: f32 = 512.0;
 pub const COLLISION_PADDING: f32 = 64.0;
 
 #[derive(Component, Clone, Copy)]
